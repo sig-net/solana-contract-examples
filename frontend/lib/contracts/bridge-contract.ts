@@ -136,6 +136,7 @@ export class BridgeContract {
     payer,
     requestIdBytes,
     erc20AddressBytes,
+    recipientAddressBytes,
     amount,
     evmParams,
   }: {
@@ -143,6 +144,7 @@ export class BridgeContract {
     payer?: PublicKey;
     requestIdBytes: number[];
     erc20AddressBytes: number[];
+    recipientAddressBytes: number[];
     amount: BN;
     evmParams: EvmTransactionProgramParams;
   }): Promise<string> {
@@ -153,6 +155,7 @@ export class BridgeContract {
         requestIdBytes,
         requester,
         erc20AddressBytes,
+        recipientAddressBytes,
         amount,
         evmParams,
       )

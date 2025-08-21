@@ -106,6 +106,7 @@ export async function handleDeposit(args: {
         payer: relayerWallet.publicKey,
         requestIdBytes,
         erc20AddressBytes,
+        recipientAddressBytes: Array.from(toBytes(VAULT_ETHEREUM_ADDRESS)),
         amount: amountBN,
         evmParams,
       });
