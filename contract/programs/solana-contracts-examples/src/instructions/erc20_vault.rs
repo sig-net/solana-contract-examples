@@ -12,8 +12,6 @@ use omni_transaction::{TransactionBuilder, TxBuilder, EVM};
 use crate::state::vault::{EvmTransactionParams, IERC20};
 use crate::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
 
-const HARDCODED_RECIPIENT: &str = "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f";
-const MPC_ROOT_SIGNER_ADDRESS: &str = "0x00A40C2661293d5134E53Da52951A3F7767836Ef";
 const HARDCODED_ROOT_PATH: &str = "root";
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
@@ -31,15 +29,14 @@ pub fn deposit_erc20(
     request_id: [u8; 32],
     requester: Pubkey,
     erc20_address: [u8; 20],
+    recipient_address: [u8; 20],
     amount: u128,
     tx_params: EvmTransactionParams,
 ) -> Result<()> {
     let path = requester.to_string();
 
     // Create ERC20 transfer call
-    let recipient_bytes = hex::decode(&HARDCODED_RECIPIENT[2..])
-        .map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
-    let recipient = Address::from_slice(&recipient_bytes);
+    let recipient = Address::from_slice(&recipient_address);
     let call = IERC20::transferCall {
         to: recipient,
         amount: U256::from(amount),
@@ -179,7 +176,11 @@ pub fn claim_erc20(
     let message_hash = hash_message(&request_id, &serialized_output);
 
     // Verify the signature
-    verify_signature_from_address(&message_hash, &signature, MPC_ROOT_SIGNER_ADDRESS)?;
+    let expected_address = format!(
+        "0x{}",
+        hex::encode(ctx.accounts.config.mpc_root_signer_address)
+    );
+    verify_signature_from_address(&message_hash, &signature, &expected_address)?;
 
     msg!("Signature verified successfully");
 
@@ -357,7 +358,11 @@ pub fn complete_withdraw_erc20(
 
     // Verify signature
     let message_hash = hash_message(&request_id, &serialized_output);
-    verify_signature_from_address(&message_hash, &signature, MPC_ROOT_SIGNER_ADDRESS)?;
+    let expected_address = format!(
+        "0x{}",
+        hex::encode(ctx.accounts.config.mpc_root_signer_address)
+    );
+    verify_signature_from_address(&message_hash, &signature, &expected_address)?;
 
     msg!("Signature verified successfully");
 

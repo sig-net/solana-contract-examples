@@ -63,7 +63,7 @@ export class BridgeContract {
         commitment: 'confirmed',
         skipPreflight: true, // Skip preflight to avoid duplicate transaction errors
       });
-      this.program = new Program(IDL, provider);
+      this.program = new Program(IDL, provider) as Program<SolanaCoreContracts>;
     }
     return this.program;
   }
@@ -515,7 +515,7 @@ export class BridgeContract {
    */
   private extractProgramInstructionsFromTx(
     tx: VersionedTransactionResponse,
-    coder: Program<SolanaCoreContracts>['coder'],
+    coder: Program['coder'],
   ): Array<{
     name: string;
     data: DecodedIx['data'];
@@ -822,7 +822,7 @@ export class BridgeContract {
   // ================================
 
   private safeDecodeInstruction(
-    coder: Program<SolanaCoreContracts>['coder'],
+    coder: Program['coder'],
     data: unknown,
   ): DecodedIx | null {
     const candidates: Buffer[] = [];

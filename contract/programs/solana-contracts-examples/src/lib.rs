@@ -2,15 +2,13 @@
 use anchor_lang::prelude::*;
 
 pub mod constants;
-pub mod cpi;
 pub mod error;
 pub mod instructions;
 pub mod state;
 
+use ::chain_signatures::Signature;
 pub use constants::*;
 pub use state::*;
-pub mod schema_helper;
-use ::chain_signatures::Signature;
 
 declare_id!("3si68i2yXFAGy5k8BpqGpPJR5wE27id1Jenx3uN8GCws");
 
@@ -18,20 +16,22 @@ declare_id!("3si68i2yXFAGy5k8BpqGpPJR5wE27id1Jenx3uN8GCws");
 pub mod solana_core_contracts {
     use super::*;
 
-    pub fn process_deposit(ctx: Context<ProcessVault>, tx: VaultTransaction) -> Result<[u8; 32]> {
-        instructions::process_vault::process_deposit(ctx, tx)
-    }
-
-    pub fn process_withdraw(ctx: Context<ProcessVault>, tx: VaultTransaction) -> Result<[u8; 32]> {
-        instructions::process_vault::process_withdraw(ctx, tx)
-    }
-
-    pub fn sign_deposit_transaction(
-        ctx: Context<SignVaultTransaction>,
-        tx: VaultTransaction,
-        signing_params: SigningParams,
+    pub fn initialize_config(
+        ctx: Context<InitializeConfig>,
+        mpc_root_signer_address: [u8; 20],
     ) -> Result<()> {
-        instructions::sign_vault::sign_deposit_transaction(ctx, tx, signing_params)
+        let config = &mut ctx.accounts.config;
+        config.mpc_root_signer_address = mpc_root_signer_address;
+        Ok(())
+    }
+
+    pub fn update_config(
+        ctx: Context<UpdateConfig>,
+        mpc_root_signer_address: [u8; 20],
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        config.mpc_root_signer_address = mpc_root_signer_address;
+        Ok(())
     }
 
     pub fn deposit_erc20(
@@ -39,6 +39,7 @@ pub mod solana_core_contracts {
         request_id: [u8; 32],
         requester: Pubkey,
         erc20_address: [u8; 20],
+        recipient_address: [u8; 20],
         amount: u128,
         tx_params: EvmTransactionParams,
     ) -> Result<()> {
@@ -47,6 +48,7 @@ pub mod solana_core_contracts {
             request_id,
             requester,
             erc20_address,
+            recipient_address,
             amount,
             tx_params,
         )
@@ -92,18 +94,35 @@ pub mod solana_core_contracts {
             signature,
         )
     }
-
-    pub fn sign_withdraw_transaction(
-        ctx: Context<SignVaultTransaction>,
-        tx: VaultTransaction,
-        signing_params: SigningParams,
-    ) -> Result<()> {
-        instructions::sign_vault::sign_withdraw_transaction(ctx, tx, signing_params)
-    }
 }
 
 #[derive(Accounts)]
-#[instruction(request_id: [u8; 32], requester: Pubkey, erc20_address: [u8; 20], amount: u128, tx_params: EvmTransactionParams)]
+pub struct InitializeConfig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init,
+        payer = payer,
+        space = VaultConfig::space(),
+        seeds = [b"vault_config"],
+        bump
+    )]
+    pub config: Account<'info, VaultConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    #[account(
+        mut,
+        seeds = [b"vault_config"],
+        bump,
+    )]
+    pub config: Account<'info, VaultConfig>,
+}
+
+#[derive(Accounts)]
+#[instruction(request_id: [u8; 32], requester: Pubkey, erc20_address: [u8; 20], recipient_address: [u8; 20], amount: u128, tx_params: EvmTransactionParams)]
 pub struct DepositErc20<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -151,6 +170,11 @@ pub struct DepositErc20<'info> {
         Program<'info, ::chain_signatures::program::ChainSignaturesProject>,
     pub system_program: Program<'info, System>,
     pub instructions: Option<AccountInfo<'info>>,
+    #[account(
+        seeds = [b"vault_config"],
+        bump
+    )]
+    pub config: Account<'info, VaultConfig>,
 }
 
 #[derive(Accounts)]
@@ -184,6 +208,11 @@ pub struct ClaimErc20<'info> {
     pub user_balance: Account<'info, UserErc20Balance>,
 
     pub system_program: Program<'info, System>,
+    #[account(
+        seeds = [b"vault_config"],
+        bump
+    )]
+    pub config: Account<'info, VaultConfig>,
 }
 
 // Add the contexts:
@@ -249,6 +278,11 @@ pub struct WithdrawErc20<'info> {
         Program<'info, ::chain_signatures::program::ChainSignaturesProject>,
     pub system_program: Program<'info, System>,
     pub instructions: Option<AccountInfo<'info>>,
+    #[account(
+        seeds = [b"vault_config"],
+        bump
+    )]
+    pub config: Account<'info, VaultConfig>,
 }
 
 #[derive(Accounts)]
@@ -280,4 +314,9 @@ pub struct CompleteWithdrawErc20<'info> {
     pub user_balance: Account<'info, UserErc20Balance>,
 
     pub system_program: Program<'info, System>,
+    #[account(
+        seeds = [b"vault_config"],
+        bump
+    )]
+    pub config: Account<'info, VaultConfig>,
 }

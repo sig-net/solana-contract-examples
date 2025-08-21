@@ -20,6 +20,17 @@ export function getSolanaConnection(): Connection {
   return connection;
 }
 
+export function getHeliusConnection(): Connection | undefined {
+  const env = getClientEnv();
+
+  // Only return Helius connection if it's configured
+  if (env.NEXT_PUBLIC_HELIUS_RPC_URL) {
+    return new Connection(env.NEXT_PUBLIC_HELIUS_RPC_URL);
+  }
+
+  return undefined;
+}
+
 export function getAlchemyProvider(): Alchemy {
   const env = getClientEnv();
   const alchemy = new Alchemy({

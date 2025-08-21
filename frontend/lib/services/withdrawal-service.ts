@@ -1,4 +1,9 @@
-import { Connection, PublicKey, Transaction, Commitment } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+  Commitment,
+} from '@solana/web3.js';
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -235,7 +240,7 @@ export class WithdrawalService {
 
       // Use Helius RPC for withdrawErc20 to avoid WebSocket issues
       const heliusBridgeContract = this.getHeliusBridgeContract();
-      
+
       try {
         await heliusBridgeContract.withdrawErc20({
           authority: publicKey,

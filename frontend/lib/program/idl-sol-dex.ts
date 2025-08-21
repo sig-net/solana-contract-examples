@@ -1,7 +1,5 @@
-import { BRIDGE_PROGRAM_ID } from '../constants/addresses';
-
 export type SolanaCoreContracts = {
-  address: string;
+  address: '3si68i2yXFAGy5k8BpqGpPJR5wE27id1Jenx3uN8GCws';
   metadata: {
     name: 'solanaCoreContracts';
     version: '0.1.0';
@@ -63,6 +61,30 @@ export type SolanaCoreContracts = {
         {
           name: 'systemProgram';
           address: '11111111111111111111111111111111';
+        },
+        {
+          name: 'config';
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103,
+                ];
+              },
+            ];
+          };
         },
       ];
       args: [
@@ -143,6 +165,30 @@ export type SolanaCoreContracts = {
         {
           name: 'systemProgram';
           address: '11111111111111111111111111111111';
+        },
+        {
+          name: 'config';
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103,
+                ];
+              },
+            ];
+          };
         },
       ];
       args: [
@@ -326,6 +372,30 @@ export type SolanaCoreContracts = {
           name: 'instructions';
           optional: true;
         },
+        {
+          name: 'config';
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103,
+                ];
+              },
+            ];
+          };
+        },
       ];
       args: [
         {
@@ -345,6 +415,12 @@ export type SolanaCoreContracts = {
           };
         },
         {
+          name: 'recipientAddress';
+          type: {
+            array: ['u8', 20];
+          };
+        },
+        {
           name: 'amount';
           type: 'u128';
         },
@@ -359,55 +435,16 @@ export type SolanaCoreContracts = {
       ];
     },
     {
-      name: 'processDeposit';
-      discriminator: [136, 162, 64, 35, 84, 200, 254, 136];
-      accounts: [];
-      args: [
-        {
-          name: 'tx';
-          type: {
-            defined: {
-              name: 'vaultTransaction';
-            };
-          };
-        },
-      ];
-      returns: {
-        array: ['u8', 32];
-      };
-    },
-    {
-      name: 'processWithdraw';
-      discriminator: [166, 189, 47, 170, 19, 135, 210, 19];
-      accounts: [];
-      args: [
-        {
-          name: 'tx';
-          type: {
-            defined: {
-              name: 'vaultTransaction';
-            };
-          };
-        },
-      ];
-      returns: {
-        array: ['u8', 32];
-      };
-    },
-    {
-      name: 'signDepositTransaction';
-      discriminator: [100, 76, 194, 203, 93, 232, 38, 86];
+      name: 'initializeConfig';
+      discriminator: [208, 127, 21, 1, 194, 190, 196, 70];
       accounts: [
         {
-          name: 'authority';
-          docs: ['The user authority that owns this vault'];
+          name: 'payer';
+          writable: true;
           signer: true;
         },
         {
-          name: 'requester';
-          docs: [
-            'User-specific vault authority PDA that acts as the requester',
-          ];
+          name: 'config';
           writable: true;
           pda: {
             seeds: [
@@ -420,109 +457,37 @@ export type SolanaCoreContracts = {
                   108,
                   116,
                   95,
-                  97,
-                  117,
-                  116,
-                  104,
+                  99,
                   111,
-                  114,
+                  110,
+                  102,
                   105,
-                  116,
-                  121,
-                ];
-              },
-              {
-                kind: 'account';
-                path: 'authority';
-              },
-            ];
-          };
-        },
-        {
-          name: 'feePayer';
-          docs: ['Optional separate account to pay signature fees'];
-          writable: true;
-          signer: true;
-          optional: true;
-        },
-        {
-          name: 'chainSignaturesState';
-          docs: ['Chain signatures program state account'];
-          writable: true;
-          pda: {
-            seeds: [
-              {
-                kind: 'const';
-                value: [
-                  112,
-                  114,
-                  111,
                   103,
-                  114,
-                  97,
-                  109,
-                  45,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101,
                 ];
               },
             ];
-            program: {
-              kind: 'account';
-              path: 'chainSignaturesProgram';
-            };
           };
-        },
-        {
-          name: 'chainSignaturesProgram';
-          docs: ['The chain signatures program'];
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU';
         },
         {
           name: 'systemProgram';
           address: '11111111111111111111111111111111';
         },
-        {
-          name: 'instructions';
-          optional: true;
-        },
       ];
       args: [
         {
-          name: 'tx';
+          name: 'mpcRootSignerAddress';
           type: {
-            defined: {
-              name: 'vaultTransaction';
-            };
-          };
-        },
-        {
-          name: 'signingParams';
-          type: {
-            defined: {
-              name: 'signingParams';
-            };
+            array: ['u8', 20];
           };
         },
       ];
     },
     {
-      name: 'signWithdrawTransaction';
-      discriminator: [166, 131, 86, 20, 105, 71, 176, 253];
+      name: 'updateConfig';
+      discriminator: [29, 158, 252, 191, 10, 83, 219, 99];
       accounts: [
         {
-          name: 'authority';
-          docs: ['The user authority that owns this vault'];
-          signer: true;
-        },
-        {
-          name: 'requester';
-          docs: [
-            'User-specific vault authority PDA that acts as the requester',
-          ];
+          name: 'config';
           writable: true;
           pda: {
             seeds: [
@@ -535,91 +500,23 @@ export type SolanaCoreContracts = {
                   108,
                   116,
                   95,
-                  97,
-                  117,
-                  116,
-                  104,
+                  99,
                   111,
-                  114,
+                  110,
+                  102,
                   105,
-                  116,
-                  121,
-                ];
-              },
-              {
-                kind: 'account';
-                path: 'authority';
-              },
-            ];
-          };
-        },
-        {
-          name: 'feePayer';
-          docs: ['Optional separate account to pay signature fees'];
-          writable: true;
-          signer: true;
-          optional: true;
-        },
-        {
-          name: 'chainSignaturesState';
-          docs: ['Chain signatures program state account'];
-          writable: true;
-          pda: {
-            seeds: [
-              {
-                kind: 'const';
-                value: [
-                  112,
-                  114,
-                  111,
                   103,
-                  114,
-                  97,
-                  109,
-                  45,
-                  115,
-                  116,
-                  97,
-                  116,
-                  101,
                 ];
               },
             ];
-            program: {
-              kind: 'account';
-              path: 'chainSignaturesProgram';
-            };
           };
-        },
-        {
-          name: 'chainSignaturesProgram';
-          docs: ['The chain signatures program'];
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU';
-        },
-        {
-          name: 'systemProgram';
-          address: '11111111111111111111111111111111';
-        },
-        {
-          name: 'instructions';
-          optional: true;
         },
       ];
       args: [
         {
-          name: 'tx';
+          name: 'mpcRootSignerAddress';
           type: {
-            defined: {
-              name: 'vaultTransaction';
-            };
-          };
-        },
-        {
-          name: 'signingParams';
-          type: {
-            defined: {
-              name: 'signingParams';
-            };
+            array: ['u8', 20];
           };
         },
       ];
@@ -829,6 +726,30 @@ export type SolanaCoreContracts = {
           name: 'instructions';
           optional: true;
         },
+        {
+          name: 'config';
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103,
+                ];
+              },
+            ];
+          };
+        },
       ];
       args: [
         {
@@ -876,6 +797,10 @@ export type SolanaCoreContracts = {
     {
       name: 'userErc20Balance';
       discriminator: [29, 16, 203, 40, 208, 43, 221, 11];
+    },
+    {
+      name: 'vaultConfig';
+      discriminator: [99, 86, 43, 216, 184, 102, 119, 77];
     },
   ];
   errors: [
@@ -1090,42 +1015,6 @@ export type SolanaCoreContracts = {
       };
     },
     {
-      name: 'signingParams';
-      docs: [
-        'Parameters for requesting a signature from the chain signatures program',
-      ];
-      type: {
-        kind: 'struct';
-        fields: [
-          {
-            name: 'keyVersion';
-            docs: ['Version of the key to use for signing'];
-            type: 'u32';
-          },
-          {
-            name: 'path';
-            docs: ['Derivation path for the key (e.g., "ethereum,1")'];
-            type: 'string';
-          },
-          {
-            name: 'algo';
-            docs: ['Signing algorithm (e.g., "secp256k1")'];
-            type: 'string';
-          },
-          {
-            name: 'dest';
-            docs: ['Destination identifier'];
-            type: 'string';
-          },
-          {
-            name: 'params';
-            docs: ['Additional parameters as JSON string'];
-            type: 'string';
-          },
-        ];
-      };
-    },
-    {
       name: 'userErc20Balance';
       type: {
         kind: 'struct';
@@ -1138,59 +1027,15 @@ export type SolanaCoreContracts = {
       };
     },
     {
-      name: 'vaultTransaction';
-      docs: ['Represents a vault transaction to be processed'];
+      name: 'vaultConfig';
       type: {
         kind: 'struct';
         fields: [
           {
-            name: 'toAddress';
-            docs: ['EVM contract address to call'];
+            name: 'mpcRootSignerAddress';
             type: {
               array: ['u8', 20];
             };
-          },
-          {
-            name: 'value';
-            docs: ['Amount of ETH to send with the transaction'];
-            type: 'u128';
-          },
-          {
-            name: 'gasLimit';
-            docs: ['Gas limit for the transaction'];
-            type: 'u128';
-          },
-          {
-            name: 'maxFeePerGas';
-            docs: ['Maximum fee per gas unit'];
-            type: 'u128';
-          },
-          {
-            name: 'maxPriorityFeePerGas';
-            docs: ['Maximum priority fee per gas unit'];
-            type: 'u128';
-          },
-          {
-            name: 'nonce';
-            docs: ['Transaction nonce'];
-            type: 'u64';
-          },
-          {
-            name: 'chainId';
-            docs: ['Chain ID for the target EVM network'];
-            type: 'u64';
-          },
-          {
-            name: 'recipientAddress';
-            docs: ['Recipient address for the vault operation'];
-            type: {
-              array: ['u8', 20];
-            };
-          },
-          {
-            name: 'amount';
-            docs: ['Amount to deposit or withdraw'];
-            type: 'u128';
           },
         ];
       };
@@ -1199,7 +1044,7 @@ export type SolanaCoreContracts = {
 };
 
 export const IDL: SolanaCoreContracts = {
-  address: BRIDGE_PROGRAM_ID.toString(),
+  address: '3si68i2yXFAGy5k8BpqGpPJR5wE27id1Jenx3uN8GCws',
   metadata: {
     name: 'solanaCoreContracts',
     version: '0.1.0',
@@ -1242,6 +1087,19 @@ export const IDL: SolanaCoreContracts = {
         {
           name: 'systemProgram',
           address: '11111111111111111111111111111111',
+        },
+        {
+          name: 'config',
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
+                ],
+              },
+            ],
+          },
         },
       ],
       args: [
@@ -1300,6 +1158,19 @@ export const IDL: SolanaCoreContracts = {
         {
           name: 'systemProgram',
           address: '11111111111111111111111111111111',
+        },
+        {
+          name: 'config',
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
+                ],
+              },
+            ],
+          },
         },
       ],
       args: [
@@ -1424,6 +1295,19 @@ export const IDL: SolanaCoreContracts = {
           name: 'instructions',
           optional: true,
         },
+        {
+          name: 'config',
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
+                ],
+              },
+            ],
+          },
+        },
       ],
       args: [
         {
@@ -1443,6 +1327,12 @@ export const IDL: SolanaCoreContracts = {
           },
         },
         {
+          name: 'recipientAddress',
+          type: {
+            array: ['u8', 20],
+          },
+        },
+        {
           name: 'amount',
           type: 'u128',
         },
@@ -1457,217 +1347,66 @@ export const IDL: SolanaCoreContracts = {
       ],
     },
     {
-      name: 'processDeposit',
-      discriminator: [136, 162, 64, 35, 84, 200, 254, 136],
-      accounts: [],
-      args: [
-        {
-          name: 'tx',
-          type: {
-            defined: {
-              name: 'vaultTransaction',
-            },
-          },
-        },
-      ],
-      returns: {
-        array: ['u8', 32],
-      },
-    },
-    {
-      name: 'processWithdraw',
-      discriminator: [166, 189, 47, 170, 19, 135, 210, 19],
-      accounts: [],
-      args: [
-        {
-          name: 'tx',
-          type: {
-            defined: {
-              name: 'vaultTransaction',
-            },
-          },
-        },
-      ],
-      returns: {
-        array: ['u8', 32],
-      },
-    },
-    {
-      name: 'signDepositTransaction',
-      discriminator: [100, 76, 194, 203, 93, 232, 38, 86],
+      name: 'initializeConfig',
+      discriminator: [208, 127, 21, 1, 194, 190, 196, 70],
       accounts: [
         {
-          name: 'authority',
-          docs: ['The user authority that owns this vault'],
+          name: 'payer',
+          writable: true,
           signer: true,
         },
         {
-          name: 'requester',
-          docs: [
-            'User-specific vault authority PDA that acts as the requester',
-          ],
+          name: 'config',
           writable: true,
           pda: {
             seeds: [
               {
                 kind: 'const',
                 value: [
-                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
-                  116, 121,
-                ],
-              },
-              {
-                kind: 'account',
-                path: 'authority',
-              },
-            ],
-          },
-        },
-        {
-          name: 'feePayer',
-          docs: ['Optional separate account to pay signature fees'],
-          writable: true,
-          signer: true,
-          optional: true,
-        },
-        {
-          name: 'chainSignaturesState',
-          docs: ['Chain signatures program state account'],
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: 'const',
-                value: [
-                  112, 114, 111, 103, 114, 97, 109, 45, 115, 116, 97, 116, 101,
+                  118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
                 ],
               },
             ],
-            program: {
-              kind: 'account',
-              path: 'chainSignaturesProgram',
-            },
           },
-        },
-        {
-          name: 'chainSignaturesProgram',
-          docs: ['The chain signatures program'],
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU',
         },
         {
           name: 'systemProgram',
           address: '11111111111111111111111111111111',
         },
-        {
-          name: 'instructions',
-          optional: true,
-        },
       ],
       args: [
         {
-          name: 'tx',
+          name: 'mpcRootSignerAddress',
           type: {
-            defined: {
-              name: 'vaultTransaction',
-            },
-          },
-        },
-        {
-          name: 'signingParams',
-          type: {
-            defined: {
-              name: 'signingParams',
-            },
+            array: ['u8', 20],
           },
         },
       ],
     },
     {
-      name: 'signWithdrawTransaction',
-      discriminator: [166, 131, 86, 20, 105, 71, 176, 253],
+      name: 'updateConfig',
+      discriminator: [29, 158, 252, 191, 10, 83, 219, 99],
       accounts: [
         {
-          name: 'authority',
-          docs: ['The user authority that owns this vault'],
-          signer: true,
-        },
-        {
-          name: 'requester',
-          docs: [
-            'User-specific vault authority PDA that acts as the requester',
-          ],
+          name: 'config',
           writable: true,
           pda: {
             seeds: [
               {
                 kind: 'const',
                 value: [
-                  118, 97, 117, 108, 116, 95, 97, 117, 116, 104, 111, 114, 105,
-                  116, 121,
-                ],
-              },
-              {
-                kind: 'account',
-                path: 'authority',
-              },
-            ],
-          },
-        },
-        {
-          name: 'feePayer',
-          docs: ['Optional separate account to pay signature fees'],
-          writable: true,
-          signer: true,
-          optional: true,
-        },
-        {
-          name: 'chainSignaturesState',
-          docs: ['Chain signatures program state account'],
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: 'const',
-                value: [
-                  112, 114, 111, 103, 114, 97, 109, 45, 115, 116, 97, 116, 101,
+                  118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
                 ],
               },
             ],
-            program: {
-              kind: 'account',
-              path: 'chainSignaturesProgram',
-            },
           },
-        },
-        {
-          name: 'chainSignaturesProgram',
-          docs: ['The chain signatures program'],
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU',
-        },
-        {
-          name: 'systemProgram',
-          address: '11111111111111111111111111111111',
-        },
-        {
-          name: 'instructions',
-          optional: true,
         },
       ],
       args: [
         {
-          name: 'tx',
+          name: 'mpcRootSignerAddress',
           type: {
-            defined: {
-              name: 'vaultTransaction',
-            },
-          },
-        },
-        {
-          name: 'signingParams',
-          type: {
-            defined: {
-              name: 'signingParams',
-            },
+            array: ['u8', 20],
           },
         },
       ],
@@ -1792,6 +1531,19 @@ export const IDL: SolanaCoreContracts = {
           name: 'instructions',
           optional: true,
         },
+        {
+          name: 'config',
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
+                ],
+              },
+            ],
+          },
+        },
       ],
       args: [
         {
@@ -1839,6 +1591,10 @@ export const IDL: SolanaCoreContracts = {
     {
       name: 'userErc20Balance',
       discriminator: [29, 16, 203, 40, 208, 43, 221, 11],
+    },
+    {
+      name: 'vaultConfig',
+      discriminator: [99, 86, 43, 216, 184, 102, 119, 77],
     },
   ],
   errors: [
@@ -2053,42 +1809,6 @@ export const IDL: SolanaCoreContracts = {
       },
     },
     {
-      name: 'signingParams',
-      docs: [
-        'Parameters for requesting a signature from the chain signatures program',
-      ],
-      type: {
-        kind: 'struct',
-        fields: [
-          {
-            name: 'keyVersion',
-            docs: ['Version of the key to use for signing'],
-            type: 'u32',
-          },
-          {
-            name: 'path',
-            docs: ['Derivation path for the key (e.g., "ethereum,1")'],
-            type: 'string',
-          },
-          {
-            name: 'algo',
-            docs: ['Signing algorithm (e.g., "secp256k1")'],
-            type: 'string',
-          },
-          {
-            name: 'dest',
-            docs: ['Destination identifier'],
-            type: 'string',
-          },
-          {
-            name: 'params',
-            docs: ['Additional parameters as JSON string'],
-            type: 'string',
-          },
-        ],
-      },
-    },
-    {
       name: 'userErc20Balance',
       type: {
         kind: 'struct',
@@ -2101,59 +1821,15 @@ export const IDL: SolanaCoreContracts = {
       },
     },
     {
-      name: 'vaultTransaction',
-      docs: ['Represents a vault transaction to be processed'],
+      name: 'vaultConfig',
       type: {
         kind: 'struct',
         fields: [
           {
-            name: 'toAddress',
-            docs: ['EVM contract address to call'],
+            name: 'mpcRootSignerAddress',
             type: {
               array: ['u8', 20],
             },
-          },
-          {
-            name: 'value',
-            docs: ['Amount of ETH to send with the transaction'],
-            type: 'u128',
-          },
-          {
-            name: 'gasLimit',
-            docs: ['Gas limit for the transaction'],
-            type: 'u128',
-          },
-          {
-            name: 'maxFeePerGas',
-            docs: ['Maximum fee per gas unit'],
-            type: 'u128',
-          },
-          {
-            name: 'maxPriorityFeePerGas',
-            docs: ['Maximum priority fee per gas unit'],
-            type: 'u128',
-          },
-          {
-            name: 'nonce',
-            docs: ['Transaction nonce'],
-            type: 'u64',
-          },
-          {
-            name: 'chainId',
-            docs: ['Chain ID for the target EVM network'],
-            type: 'u64',
-          },
-          {
-            name: 'recipientAddress',
-            docs: ['Recipient address for the vault operation'],
-            type: {
-              array: ['u8', 20],
-            },
-          },
-          {
-            name: 'amount',
-            docs: ['Amount to deposit or withdraw'],
-            type: 'u128',
           },
         ],
       },

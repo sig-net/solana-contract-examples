@@ -9,8 +9,8 @@ import {
 } from '@/lib/services/cross-chain-orchestrator';
 import { getFullEnv } from '@/lib/utils/env';
 import {
-  getSolanaConnection,
   getEthereumProvider,
+  getHeliusConnection,
 } from '@/lib/utils/providers';
 
 export interface RelayerSetup {
@@ -25,7 +25,13 @@ export async function initializeRelayerSetup(
 ): Promise<RelayerSetup> {
   const env = getFullEnv();
 
-  const connection = getSolanaConnection();
+  // Use Helius for both command and event streams exclusively in relayers
+  const eventConnection = getHeliusConnection();
+  if (!eventConnection) {
+    throw new Error('NEXT_PUBLIC_HELIUS_RPC_URL must be set for relayers');
+  }
+  const connection = eventConnection;
+
   const provider = getEthereumProvider();
 
   const relayerKeypair = Keypair.fromSecretKey(
@@ -38,6 +44,7 @@ export async function initializeRelayerSetup(
     relayerWallet,
     provider,
     config,
+    eventConnection,
   );
 
   return {

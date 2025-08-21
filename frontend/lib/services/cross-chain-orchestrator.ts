@@ -34,11 +34,13 @@ export class CrossChainOrchestrator {
     wallet: Wallet,
     provider: ethers.JsonRpcProvider,
     config: CrossChainConfig = {},
+    eventConnection?: Connection,
   ) {
     this.bridgeContract = new BridgeContract(connection, wallet);
     this.chainSignaturesContract = new ChainSignaturesContract(
       connection,
       wallet,
+      eventConnection,
     );
     this.provider = provider;
 

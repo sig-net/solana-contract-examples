@@ -14,15 +14,32 @@ import type {
 
 export class ChainSignaturesContract {
   private connection: Connection;
+  private eventConnection: Connection;
   private wallet: Wallet;
 
-  constructor(connection: Connection, wallet: Wallet) {
+  constructor(
+    connection: Connection,
+    wallet: Wallet,
+    eventConnection?: Connection,
+  ) {
     this.connection = connection;
+    this.eventConnection = eventConnection || connection;
     this.wallet = wallet;
   }
 
   getProgram(): ChainSignaturesProgram {
     const provider = new AnchorProvider(this.connection, this.wallet, {
+      commitment: 'confirmed',
+    });
+
+    return new Program(
+      CHAIN_SIGNATURES_PROGRAM_IDl,
+      provider,
+    ) as ChainSignaturesProgram;
+  }
+
+  getEventProgram(): ChainSignaturesProgram {
+    const provider = new AnchorProvider(this.eventConnection, this.wallet, {
       commitment: 'confirmed',
     });
 
@@ -49,7 +66,7 @@ export class ChainSignaturesContract {
       readRespondResolve = resolve;
     });
 
-    const chainSignaturesProgram = this.getProgram();
+    const chainSignaturesProgram = this.getEventProgram();
 
     const signatureListener = chainSignaturesProgram.addEventListener(
       'signatureRespondedEvent',
@@ -167,12 +184,12 @@ export class ChainSignaturesContract {
     requestId: string,
     onSignature: (event: SignatureRespondedEvent) => void,
     onReadRespond: (event: ReadRespondedEvent) => void,
-    maxSignatures = 100,
+    maxSignatures = 5,
   ): Promise<void> {
     try {
-      const program = this.getProgram();
+      const program = this.getEventProgram();
       const programId = program.programId;
-      const signatures = await this.connection.getSignaturesForAddress(
+      const signatures = await this.eventConnection.getSignaturesForAddress(
         programId,
         { limit: maxSignatures },
       );
@@ -187,9 +204,12 @@ export class ChainSignaturesContract {
               if (i >= signatures.length) break;
               const sig = signatures[i];
               try {
-                const tx = await this.connection.getTransaction(sig.signature, {
-                  maxSupportedTransactionVersion: 0,
-                });
+                const tx = await this.eventConnection.getTransaction(
+                  sig.signature,
+                  {
+                    maxSupportedTransactionVersion: 0,
+                  },
+                );
                 const logs = tx?.meta?.logMessages ?? [];
                 for (const log of logs) {
                   try {
