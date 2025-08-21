@@ -11,6 +11,7 @@ import type {
   ReadRespondedEvent,
   EventPromises,
 } from '../types/chain-signatures.types';
+import { RESPONDER_ADDRESS } from '../constants/addresses';
 
 export class ChainSignaturesContract {
   private connection: Connection;
@@ -74,7 +75,10 @@ export class ChainSignaturesContract {
         const eventRequestId =
           '0x' + Buffer.from(event.requestId).toString('hex');
 
-        if (eventRequestId === requestId) {
+        if (
+          eventRequestId === requestId &&
+          event.responder.toBase58() === RESPONDER_ADDRESS
+        ) {
           if (!resolvedSignature) {
             resolvedSignature = true;
             signatureResolve(event);
@@ -101,7 +105,10 @@ export class ChainSignaturesContract {
         const eventRequestId =
           '0x' + Buffer.from(event.requestId).toString('hex');
 
-        if (eventRequestId === requestId) {
+        if (
+          eventRequestId === requestId &&
+          event.responder.toBase58() === RESPONDER_ADDRESS
+        ) {
           if (!resolvedRead) {
             resolvedRead = true;
             readRespondResolve(event);

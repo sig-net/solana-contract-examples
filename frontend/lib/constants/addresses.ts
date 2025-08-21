@@ -25,6 +25,8 @@ export const CHAIN_SIGNATURES_CONFIG = {
   SOLANA_CHAIN_ID: '0x800001f5',
 } as const;
 
+export const RESPONDER_ADDRESS = 'Dewq9xyD1MZi1rE588XZFvK7uUqkcHLgCnDsn9Ns4H9M';
+
 /**
  * MPC Root Signer Address - derived directly from base public key
  * This address stays constant across deployments
