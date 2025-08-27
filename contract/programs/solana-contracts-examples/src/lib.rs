@@ -10,7 +10,7 @@ use ::chain_signatures::Signature;
 pub use constants::*;
 pub use state::*;
 
-declare_id!("3si68i2yXFAGy5k8BpqGpPJR5wE27id1Jenx3uN8GCws");
+declare_id!("3wgi78Dc9kStc1bV4SmrHQXNerE3Z97yd1rQtDoDq5Xo");
 
 #[program]
 pub mod solana_core_contracts {
@@ -179,7 +179,7 @@ pub struct DepositErc20<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = 8 + UserTransactionHistory::INIT_SPACE,
+        space = UserTransactionHistory::space(),
         seeds = [
             b"user_transaction_history",
             requester.as_ref()
@@ -309,7 +309,7 @@ pub struct WithdrawErc20<'info> {
     #[account(
         init_if_needed,
         payer = authority,
-        space = 8 + UserTransactionHistory::INIT_SPACE,
+        space = UserTransactionHistory::space(),
         seeds = [
             b"user_transaction_history",
             authority.key().as_ref()
