@@ -16,8 +16,6 @@ import {
   deriveEthereumAddress,
   CHAIN_SIGNATURES_CONFIG,
   deriveVaultAuthorityPda,
-  derivePendingDepositPda,
-  derivePendingWithdrawalPda,
   deriveUserBalancePda,
 } from '@/lib/constants/addresses';
 import { getAllErc20Tokens } from '@/lib/constants/token-metadata';
@@ -149,9 +147,15 @@ export class BridgeContract {
     evmParams: EvmTransactionProgramParams;
   }): Promise<string> {
     const payerKey = payer || this.wallet.publicKey;
+    const program = this.getBridgeProgram();
 
-    return await this.getBridgeProgram()
-      .methods.depositErc20(
+    const [transactionHistory] = PublicKey.findProgramAddressSync(
+      [Buffer.from('user_transaction_history'), requester.toBuffer()],
+      program.programId,
+    );
+
+    return await program.methods
+      .depositErc20(
         requestIdBytes,
         requester,
         erc20AddressBytes,
@@ -163,7 +167,8 @@ export class BridgeContract {
         payer: payerKey,
         feePayer: payerKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      } as never)
+        transactionHistory,
+      })
       .rpc();
   }
 
@@ -187,16 +192,20 @@ export class BridgeContract {
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
+    const program = this.getBridgeProgram();
 
-    return await this.getBridgeProgram()
-      .methods.claimErc20(
-        Array.from(requestIdBytes),
-        serializedOutput,
-        signature,
-      )
+    // Derive transaction history PDA (from pending_deposit.requester which is the requester param)
+    const [transactionHistory] = PublicKey.findProgramAddressSync(
+      [Buffer.from('user_transaction_history'), requester.toBuffer()],
+      program.programId,
+    );
+
+    return await program.methods
+      .claimErc20(Array.from(requestIdBytes), serializedOutput, signature)
       .accounts({
         userBalance: userBalancePda,
-      } as never)
+        transactionHistory,
+      })
       .rpc();
   }
 
@@ -218,8 +227,16 @@ export class BridgeContract {
     recipientAddressBytes: number[];
     evmParams: EvmTransactionProgramParams;
   }): Promise<string> {
-    return await this.getBridgeProgram()
-      .methods.withdrawErc20(
+    const program = this.getBridgeProgram();
+
+    // Derive transaction history PDA from authority
+    const [transactionHistory] = PublicKey.findProgramAddressSync(
+      [Buffer.from('user_transaction_history'), authority.toBuffer()],
+      program.programId,
+    );
+
+    return await program.methods
+      .withdrawErc20(
         Array.from(requestIdBytes),
         Array.from(erc20AddressBytes),
         amount,
@@ -230,7 +247,8 @@ export class BridgeContract {
         authority,
         feePayer: this.wallet.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      } as never)
+        transactionHistory,
+      })
       .rpc();
   }
 
@@ -254,15 +272,23 @@ export class BridgeContract {
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
+    const program = this.getBridgeProgram();
 
-    return await this.getBridgeProgram()
-      .methods.completeWithdrawErc20(
+    // Derive transaction history PDA
+    const [transactionHistory] = PublicKey.findProgramAddressSync(
+      [Buffer.from('user_transaction_history'), requester.toBuffer()],
+      program.programId,
+    );
+
+    return await program.methods
+      .completeWithdrawErc20(
         Array.from(requestIdBytes),
         serializedOutput,
         signature,
       )
       .accounts({
         userBalance: userBalancePda,
+        transactionHistory,
       } as never)
       .rpc();
   }
@@ -279,7 +305,8 @@ export class BridgeContract {
   }
 
   /**
-   * Fetch comprehensive user withdrawal data by combining multiple sources
+   * Fetch all user withdrawals directly from the UserTransactionHistory PDA.
+   * This is much more efficient than scanning transaction history.
    */
   async fetchAllUserWithdrawals(userPublicKey: PublicKey): Promise<
     {
@@ -294,163 +321,54 @@ export class BridgeContract {
     }[]
   > {
     try {
-      const withdrawals: {
-        requestId: string;
-        amount: string;
-        erc20Address: string;
-        recipient: string;
-        status: 'pending' | 'completed';
-        timestamp: number;
-        signature?: string;
-        ethereumTxHash?: string;
-      }[] = [];
-
-      // Get historical transactions by parsing user's transaction history
       const program = this.getBridgeProgram();
-      const coder = program.coder;
 
-      const { signatures: userSigs, transactions: txs } =
-        await this.fetchTxsForAddress(userPublicKey, this.SIGNATURE_SCAN_LIMIT);
+      // Derive the user transaction history PDA
+      const [userTransactionHistoryPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_transaction_history'), userPublicKey.toBuffer()],
+        program.programId,
+      );
 
-      for (let i = 0; i < txs.length; i++) {
-        const sig = userSigs[i];
-        const tx = txs[i];
-        if (!tx || !tx.meta || tx.meta.err) continue;
-
-        const decodedIxs = this.extractProgramInstructionsFromTx(tx, coder);
-        for (const {
-          name,
-          data,
-          accountKeys,
-          accountKeyIndexes,
-        } of decodedIxs) {
-          if (name === 'withdrawErc20') {
-            const requestId = Buffer.from(data.requestId).toString('hex');
-            const erc20Address = '0x' + this.toHex(data.erc20Address ?? []);
-            const amount = toStringSafe(data.amount);
-            const recipient = '0x' + this.toHex(data.recipientAddress ?? []);
-
-            const userAccountIndex = accountKeys.findIndex(key =>
-              key.equals(userPublicKey),
-            );
-            const ixAccounts = accountKeyIndexes;
-            if (
-              userAccountIndex !== -1 &&
-              ixAccounts.includes(userAccountIndex)
-            ) {
-              if (!withdrawals.some(w => w.requestId === requestId)) {
-                withdrawals.push({
-                  requestId,
-                  amount,
-                  erc20Address,
-                  recipient,
-                  status: 'pending',
-                  timestamp: sig.blockTime || Date.now() / 1000,
-                  signature: sig.signature,
-                  ethereumTxHash: undefined,
-                });
-              }
-            }
-          } else if (name === 'completeWithdrawErc20') {
-            const requestId = Buffer.from(data.requestId).toString('hex');
-            const existingIndex = withdrawals.findIndex(
-              w => w.requestId === requestId,
-            );
-            if (existingIndex !== -1) {
-              withdrawals[existingIndex].status = 'completed';
-            }
-          }
-        }
-      }
-
-      // Additionally, scan the user's userBalance PDAs per token used in withdrawals
-      // to detect completion transactions that are not signed by the user (relayer-signed).
-      const tokensToCheck = new Set<string>();
-      for (const w of withdrawals) {
-        tokensToCheck.add(w.erc20Address.toLowerCase());
-      }
-
-      for (const tokenAddress of tokensToCheck) {
-        try {
-          const erc20Bytes = Buffer.from(tokenAddress.replace('0x', ''), 'hex');
-          const [userBalancePda] = deriveUserBalancePda(
-            userPublicKey,
-            erc20Bytes,
-          );
-
-          const ubSignatures = await cachedGetSignaturesForAddress(
-            this.connection,
-            userBalancePda,
-            { limit: this.SIGNATURE_SCAN_LIMIT },
-          );
-
-          const ubTxs = await this.mapWithConcurrency(
-            ubSignatures,
-            this.TRANSACTION_FETCH_CONCURRENCY,
-            sig =>
-              cachedGetTransaction(this.connection, sig.signature, {
-                maxSupportedTransactionVersion: 0,
-              }),
-          );
-
-          for (let i = 0; i < ubTxs.length; i++) {
-            const tx = ubTxs[i];
-            try {
-              if (!tx || !tx.meta || tx.meta.err) continue;
-              const decodedIxs = this.extractProgramInstructionsFromTx(
-                tx,
-                coder,
-              );
-              for (const di of decodedIxs) {
-                if (di.name === 'completeWithdrawErc20') {
-                  const reqId = Buffer.from(di.data.requestId).toString('hex');
-                  const idx = withdrawals.findIndex(w => w.requestId === reqId);
-                  if (idx !== -1) {
-                    withdrawals[idx].status = 'completed';
-                  }
-                }
-              }
-            } catch {
-              continue;
-            }
-          }
-        } catch {
-          continue;
-        }
-      }
-
-      // Final verification: check pending PDA existence to ensure accurate status
-      try {
-        const program = this.getBridgeProgram();
-        await this.mapWithConcurrency(
-          withdrawals,
-          this.TRANSACTION_FETCH_CONCURRENCY,
-          async (w, _i) => {
-            try {
-              const requestIdBytes = this.hexToBytes(w.requestId);
-              const [pendingWithdrawalPda] =
-                derivePendingWithdrawalPda(requestIdBytes);
-              const account =
-                await program.account.pendingErc20Withdrawal.fetchNullable(
-                  pendingWithdrawalPda,
-                );
-              if (!account) {
-                // If the pending account no longer exists, the withdrawal is completed
-                w.status = 'completed';
-              }
-            } catch {
-              // On any RPC decode error, leave prior inferred status
-            }
-          },
+      // Fetch the transaction history account
+      const transactionHistory =
+        await program.account.userTransactionHistory.fetchNullable(
+          userTransactionHistoryPda,
         );
-      } catch {
-        // If verification fails, fall back to previously inferred statuses
+
+      if (!transactionHistory) {
+        // No transaction history exists for this user yet
+        return [];
       }
+
+      // Map the withdrawals from the transaction history
+      const withdrawals = transactionHistory.withdrawals.map(
+        (withdrawal: any) => ({
+          requestId: Buffer.from(withdrawal.requestId).toString('hex'),
+          amount: withdrawal.amount.toString(),
+          erc20Address:
+            '0x' + Buffer.from(withdrawal.erc20Address).toString('hex'),
+          recipient:
+            '0x' + Buffer.from(withdrawal.recipientAddress).toString('hex'),
+          status: withdrawal.status.pending
+            ? ('pending' as const)
+            : withdrawal.status.failed
+              ? ('pending' as const) // Can retry failed withdrawals
+              : ('completed' as const),
+          timestamp: withdrawal.timestamp.toNumber(),
+          signature: undefined,
+          ethereumTxHash: withdrawal.ethereumTxHash
+            ? '0x' + Buffer.from(withdrawal.ethereumTxHash).toString('hex')
+            : undefined,
+        }),
+      );
 
       // Sort by timestamp (newest first)
-      return withdrawals.sort((a, b) => b.timestamp - a.timestamp);
+      return withdrawals.sort((a: any, b: any) => b.timestamp - a.timestamp);
     } catch (error) {
-      console.error('Error fetching all user withdrawals:', error);
+      console.error(
+        'Error fetching user withdrawals from transaction history:',
+        error,
+      );
       return [];
     }
   }
@@ -656,9 +574,8 @@ export class BridgeContract {
   }
 
   /**
-   * Fetch all user deposits (pending + completed) by scanning Solana transactions.
-   * A deposit becomes "initiated" when depositErc20 is called (pending_erc20_deposit created).
-   * It becomes "completed" when claimErc20 is executed for the same requestId.
+   * Fetch all user deposits directly from the UserTransactionHistory PDA.
+   * This is much more efficient than scanning transaction history.
    */
   async fetchAllUserDeposits(userPublicKey: PublicKey): Promise<
     {
@@ -669,153 +586,46 @@ export class BridgeContract {
       status: 'pending' | 'completed';
     }[]
   > {
-    const deposits: Map<
-      string,
-      {
-        requestId: string;
-        amount: string;
-        erc20Address: string;
-        timestamp: number;
-        status: 'pending' | 'completed';
-      }
-    > = new Map();
-
     try {
       const program = this.getBridgeProgram();
-      const coder = program.coder;
 
-      // 1) Scan requester PDA transactions for depositErc20
-      const [requesterPda] = deriveVaultAuthorityPda(userPublicKey);
-      const fetched = await this.fetchTxsForAddress(
-        requesterPda,
-        this.SIGNATURE_SCAN_LIMIT,
+      // Derive the user transaction history PDA
+      const [userTransactionHistoryPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_transaction_history'), userPublicKey.toBuffer()],
+        program.programId,
       );
-      const requesterSignatures = fetched.signatures;
-      const requesterTxs = fetched.transactions;
 
-      for (let i = 0; i < requesterTxs.length; i++) {
-        const sig = requesterSignatures[i];
-        const tx = requesterTxs[i];
-        try {
-          if (!tx || !tx.meta || tx.meta.err) continue;
-          const decodedIxs = this.extractProgramInstructionsFromTx(tx, coder);
-          for (const di of decodedIxs) {
-            if (di.name !== 'depositErc20') continue;
-            const data = di.data;
-            const requesterHex = toPublicKey(data.requester).toString();
-            if (requesterHex !== userPublicKey.toString()) continue;
-
-            const requestId = Buffer.from(data.requestId).toString('hex');
-            const erc20Address = '0x' + this.toHex(data.erc20Address ?? []);
-            const amount = toStringSafe(data.amount);
-            const timestamp = sig.blockTime || Math.floor(Date.now() / 1000);
-
-            deposits.set(requestId, {
-              requestId,
-              amount,
-              erc20Address,
-              timestamp,
-              status: 'pending',
-            });
-          }
-        } catch {
-          continue;
-        }
-      }
-
-      // 2) Scan user balance PDAs per token for claimErc20 and flip status
-      // Limit scan set to tokens we actually saw in deposits
-      const tokensToCheck = new Set<string>();
-      for (const d of deposits.values())
-        tokensToCheck.add(d.erc20Address.toLowerCase());
-      const erc20ScanList = getAllErc20Tokens().filter(t =>
-        tokensToCheck.has(t.address.toLowerCase()),
-      );
-      for (const token of erc20ScanList) {
-        try {
-          const erc20Bytes = Buffer.from(
-            token.address.replace('0x', ''),
-            'hex',
-          );
-          const [userBalancePda] = deriveUserBalancePda(
-            userPublicKey,
-            erc20Bytes,
-          );
-          const signatures = await cachedGetSignaturesForAddress(
-            this.connection,
-            userBalancePda,
-            { limit: this.SIGNATURE_SCAN_LIMIT },
-          );
-
-          const txs = await this.mapWithConcurrency(
-            signatures,
-            this.TRANSACTION_FETCH_CONCURRENCY,
-            sig =>
-              cachedGetTransaction(this.connection, sig.signature, {
-                maxSupportedTransactionVersion: 0,
-              }),
-          );
-
-          for (let i = 0; i < txs.length; i++) {
-            const tx = txs[i];
-            try {
-              if (!tx || !tx.meta || tx.meta.err) continue;
-              const decodedIxs = this.extractProgramInstructionsFromTx(
-                tx,
-                coder,
-              );
-              for (const di of decodedIxs) {
-                if (di.name !== 'claimErc20') continue;
-                const data = di.data;
-                const requestId = Buffer.from(data.requestId).toString('hex');
-                const existing = deposits.get(requestId);
-                if (existing) {
-                  existing.status = 'completed';
-                  deposits.set(requestId, existing);
-                }
-              }
-            } catch {
-              continue;
-            }
-          }
-        } catch {
-          continue;
-        }
-      }
-
-      const list = Array.from(deposits.values());
-
-      // Final verification: for each request, check if the pending deposit PDA still exists
-      try {
-        const program = this.getBridgeProgram();
-        await this.mapWithConcurrency(
-          list,
-          this.TRANSACTION_FETCH_CONCURRENCY,
-          async (d, _i) => {
-            try {
-              const requestIdBytes = this.hexToBytes(d.requestId);
-              const [pendingDepositPda] =
-                derivePendingDepositPda(requestIdBytes);
-              const account =
-                await program.account.pendingErc20Deposit.fetchNullable(
-                  pendingDepositPda,
-                );
-              if (!account) {
-                // If the pending account no longer exists, the deposit has been claimed
-                d.status = 'completed';
-              }
-            } catch {
-              // Ignore per-item errors; keep inferred status
-            }
-          },
+      // Fetch the transaction history account
+      const transactionHistory =
+        await program.account.userTransactionHistory.fetchNullable(
+          userTransactionHistoryPda,
         );
-      } catch {
-        // If verification fails, continue with inferred statuses
+
+      if (!transactionHistory) {
+        // No transaction history exists for this user yet
+        return [];
       }
 
-      return list.sort((a, b) => b.timestamp - a.timestamp);
+      // Map the deposits from the transaction history
+      const deposits = transactionHistory.deposits.map((deposit: any) => ({
+        requestId: Buffer.from(deposit.requestId).toString('hex'),
+        amount: deposit.amount.toString(),
+        erc20Address: '0x' + Buffer.from(deposit.erc20Address).toString('hex'),
+        timestamp: deposit.timestamp.toNumber(),
+        status: deposit.status.pending
+          ? ('pending' as const)
+          : deposit.status.failed
+            ? ('pending' as const) // Treat failed as pending for deposits
+            : ('completed' as const),
+      }));
+
+      // Sort by timestamp (newest first)
+      return deposits.sort((a: any, b: any) => b.timestamp - a.timestamp);
     } catch (error) {
-      console.error('Error fetching all user deposits:', error);
+      console.error(
+        'Error fetching user deposits from transaction history:',
+        error,
+      );
       return [];
     }
   }

@@ -2,7 +2,6 @@ import { Connection } from '@solana/web3.js';
 import { Wallet } from '@coral-xyz/anchor';
 import { ethers } from 'ethers';
 
-import { BridgeContract } from '@/lib/contracts/bridge-contract';
 import { ChainSignaturesContract } from '@/lib/contracts/chain-signatures-contract';
 import type {
   EventPromises,
@@ -24,7 +23,6 @@ export interface CrossChainResult {
 }
 
 export class CrossChainOrchestrator {
-  private bridgeContract: BridgeContract;
   private chainSignaturesContract: ChainSignaturesContract;
   private provider: ethers.JsonRpcProvider;
   private config: Required<CrossChainConfig>;
@@ -36,7 +34,6 @@ export class CrossChainOrchestrator {
     config: CrossChainConfig = {},
     eventConnection?: Connection,
   ) {
-    this.bridgeContract = new BridgeContract(connection, wallet);
     this.chainSignaturesContract = new ChainSignaturesContract(
       connection,
       wallet,
@@ -200,9 +197,5 @@ export class CrossChainOrchestrator {
     });
 
     return Promise.race([promise, timeoutPromise]);
-  }
-
-  getBridgeContract(): BridgeContract {
-    return this.bridgeContract;
   }
 }

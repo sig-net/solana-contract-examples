@@ -86,6 +86,48 @@ export type SolanaCoreContracts = {
             ];
           };
         },
+        {
+          name: 'transactionHistory';
+          writable: true;
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  116,
+                  114,
+                  97,
+                  110,
+                  115,
+                  97,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  104,
+                  105,
+                  115,
+                  116,
+                  111,
+                  114,
+                  121,
+                ];
+              },
+              {
+                kind: 'account';
+                path: 'pending_deposit.requester';
+                account: 'pendingErc20Deposit';
+              },
+            ];
+          };
+        },
       ];
       args: [
         {
@@ -186,6 +228,48 @@ export type SolanaCoreContracts = {
                   105,
                   103,
                 ];
+              },
+            ];
+          };
+        },
+        {
+          name: 'transactionHistory';
+          writable: true;
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  116,
+                  114,
+                  97,
+                  110,
+                  115,
+                  97,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  104,
+                  105,
+                  115,
+                  116,
+                  111,
+                  114,
+                  121,
+                ];
+              },
+              {
+                kind: 'account';
+                path: 'pending_withdrawal.requester';
+                account: 'pendingErc20Withdrawal';
               },
             ];
           };
@@ -392,6 +476,47 @@ export type SolanaCoreContracts = {
                   105,
                   103,
                 ];
+              },
+            ];
+          };
+        },
+        {
+          name: 'transactionHistory';
+          writable: true;
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  116,
+                  114,
+                  97,
+                  110,
+                  115,
+                  97,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  104,
+                  105,
+                  115,
+                  116,
+                  111,
+                  114,
+                  121,
+                ];
+              },
+              {
+                kind: 'arg';
+                path: 'requester';
               },
             ];
           };
@@ -750,6 +875,47 @@ export type SolanaCoreContracts = {
             ];
           };
         },
+        {
+          name: 'transactionHistory';
+          writable: true;
+          pda: {
+            seeds: [
+              {
+                kind: 'const';
+                value: [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  116,
+                  114,
+                  97,
+                  110,
+                  115,
+                  97,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  104,
+                  105,
+                  115,
+                  116,
+                  111,
+                  114,
+                  121,
+                ];
+              },
+              {
+                kind: 'account';
+                path: 'authority';
+              },
+            ];
+          };
+        },
       ];
       args: [
         {
@@ -797,6 +963,10 @@ export type SolanaCoreContracts = {
     {
       name: 'userErc20Balance';
       discriminator: [29, 16, 203, 40, 208, 43, 221, 11];
+    },
+    {
+      name: 'userTransactionHistory';
+      discriminator: [142, 226, 189, 154, 160, 189, 140, 159];
     },
     {
       name: 'vaultConfig';
@@ -1015,6 +1185,95 @@ export type SolanaCoreContracts = {
       };
     },
     {
+      name: 'transactionRecord';
+      type: {
+        kind: 'struct';
+        fields: [
+          {
+            name: 'requestId';
+            type: {
+              array: ['u8', 32];
+            };
+          },
+          {
+            name: 'transactionType';
+            type: {
+              defined: {
+                name: 'transactionType';
+              };
+            };
+          },
+          {
+            name: 'status';
+            type: {
+              defined: {
+                name: 'transactionStatus';
+              };
+            };
+          },
+          {
+            name: 'amount';
+            type: 'u128';
+          },
+          {
+            name: 'erc20Address';
+            type: {
+              array: ['u8', 20];
+            };
+          },
+          {
+            name: 'recipientAddress';
+            type: {
+              array: ['u8', 20];
+            };
+          },
+          {
+            name: 'timestamp';
+            type: 'i64';
+          },
+          {
+            name: 'ethereumTxHash';
+            type: {
+              option: {
+                array: ['u8', 32];
+              };
+            };
+          },
+        ];
+      };
+    },
+    {
+      name: 'transactionStatus';
+      type: {
+        kind: 'enum';
+        variants: [
+          {
+            name: 'pending';
+          },
+          {
+            name: 'completed';
+          },
+          {
+            name: 'failed';
+          },
+        ];
+      };
+    },
+    {
+      name: 'transactionType';
+      type: {
+        kind: 'enum';
+        variants: [
+          {
+            name: 'deposit';
+          },
+          {
+            name: 'withdrawal';
+          },
+        ];
+      };
+    },
+    {
       name: 'userErc20Balance';
       type: {
         kind: 'struct';
@@ -1022,6 +1281,46 @@ export type SolanaCoreContracts = {
           {
             name: 'amount';
             type: 'u128';
+          },
+        ];
+      };
+    },
+    {
+      name: 'userTransactionHistory';
+      type: {
+        kind: 'struct';
+        fields: [
+          {
+            name: 'owner';
+            type: 'pubkey';
+          },
+          {
+            name: 'depositCount';
+            type: 'u32';
+          },
+          {
+            name: 'withdrawalCount';
+            type: 'u32';
+          },
+          {
+            name: 'deposits';
+            type: {
+              vec: {
+                defined: {
+                  name: 'transactionRecord';
+                };
+              };
+            };
+          },
+          {
+            name: 'withdrawals';
+            type: {
+              vec: {
+                defined: {
+                  name: 'transactionRecord';
+                };
+              };
+            };
           },
         ];
       };
@@ -1101,6 +1400,26 @@ export const IDL: SolanaCoreContracts = {
             ],
           },
         },
+        {
+          name: 'transactionHistory',
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  117, 115, 101, 114, 95, 116, 114, 97, 110, 115, 97, 99, 116,
+                  105, 111, 110, 95, 104, 105, 115, 116, 111, 114, 121,
+                ],
+              },
+              {
+                kind: 'account',
+                path: 'pending_deposit.requester',
+                account: 'pendingErc20Deposit',
+              },
+            ],
+          },
+        },
       ],
       args: [
         {
@@ -1168,6 +1487,26 @@ export const IDL: SolanaCoreContracts = {
                 value: [
                   118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
                 ],
+              },
+            ],
+          },
+        },
+        {
+          name: 'transactionHistory',
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  117, 115, 101, 114, 95, 116, 114, 97, 110, 115, 97, 99, 116,
+                  105, 111, 110, 95, 104, 105, 115, 116, 111, 114, 121,
+                ],
+              },
+              {
+                kind: 'account',
+                path: 'pending_withdrawal.requester',
+                account: 'pendingErc20Withdrawal',
               },
             ],
           },
@@ -1304,6 +1643,25 @@ export const IDL: SolanaCoreContracts = {
                 value: [
                   118, 97, 117, 108, 116, 95, 99, 111, 110, 102, 105, 103,
                 ],
+              },
+            ],
+          },
+        },
+        {
+          name: 'transactionHistory',
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  117, 115, 101, 114, 95, 116, 114, 97, 110, 115, 97, 99, 116,
+                  105, 111, 110, 95, 104, 105, 115, 116, 111, 114, 121,
+                ],
+              },
+              {
+                kind: 'arg',
+                path: 'requester',
               },
             ],
           },
@@ -1544,6 +1902,25 @@ export const IDL: SolanaCoreContracts = {
             ],
           },
         },
+        {
+          name: 'transactionHistory',
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  117, 115, 101, 114, 95, 116, 114, 97, 110, 115, 97, 99, 116,
+                  105, 111, 110, 95, 104, 105, 115, 116, 111, 114, 121,
+                ],
+              },
+              {
+                kind: 'account',
+                path: 'authority',
+              },
+            ],
+          },
+        },
       ],
       args: [
         {
@@ -1591,6 +1968,10 @@ export const IDL: SolanaCoreContracts = {
     {
       name: 'userErc20Balance',
       discriminator: [29, 16, 203, 40, 208, 43, 221, 11],
+    },
+    {
+      name: 'userTransactionHistory',
+      discriminator: [142, 226, 189, 154, 160, 189, 140, 159],
     },
     {
       name: 'vaultConfig',
@@ -1809,6 +2190,95 @@ export const IDL: SolanaCoreContracts = {
       },
     },
     {
+      name: 'transactionRecord',
+      type: {
+        kind: 'struct',
+        fields: [
+          {
+            name: 'requestId',
+            type: {
+              array: ['u8', 32],
+            },
+          },
+          {
+            name: 'transactionType',
+            type: {
+              defined: {
+                name: 'transactionType',
+              },
+            },
+          },
+          {
+            name: 'status',
+            type: {
+              defined: {
+                name: 'transactionStatus',
+              },
+            },
+          },
+          {
+            name: 'amount',
+            type: 'u128',
+          },
+          {
+            name: 'erc20Address',
+            type: {
+              array: ['u8', 20],
+            },
+          },
+          {
+            name: 'recipientAddress',
+            type: {
+              array: ['u8', 20],
+            },
+          },
+          {
+            name: 'timestamp',
+            type: 'i64',
+          },
+          {
+            name: 'ethereumTxHash',
+            type: {
+              option: {
+                array: ['u8', 32],
+              },
+            },
+          },
+        ],
+      },
+    },
+    {
+      name: 'transactionStatus',
+      type: {
+        kind: 'enum',
+        variants: [
+          {
+            name: 'pending',
+          },
+          {
+            name: 'completed',
+          },
+          {
+            name: 'failed',
+          },
+        ],
+      },
+    },
+    {
+      name: 'transactionType',
+      type: {
+        kind: 'enum',
+        variants: [
+          {
+            name: 'deposit',
+          },
+          {
+            name: 'withdrawal',
+          },
+        ],
+      },
+    },
+    {
       name: 'userErc20Balance',
       type: {
         kind: 'struct',
@@ -1816,6 +2286,46 @@ export const IDL: SolanaCoreContracts = {
           {
             name: 'amount',
             type: 'u128',
+          },
+        ],
+      },
+    },
+    {
+      name: 'userTransactionHistory',
+      type: {
+        kind: 'struct',
+        fields: [
+          {
+            name: 'owner',
+            type: 'pubkey',
+          },
+          {
+            name: 'depositCount',
+            type: 'u32',
+          },
+          {
+            name: 'withdrawalCount',
+            type: 'u32',
+          },
+          {
+            name: 'deposits',
+            type: {
+              vec: {
+                defined: {
+                  name: 'transactionRecord',
+                },
+              },
+            },
+          },
+          {
+            name: 'withdrawals',
+            type: {
+              vec: {
+                defined: {
+                  name: 'transactionRecord',
+                },
+              },
+            },
           },
         ],
       },

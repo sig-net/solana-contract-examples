@@ -175,6 +175,18 @@ pub struct DepositErc20<'info> {
         bump
     )]
     pub config: Account<'info, VaultConfig>,
+
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = 8 + UserTransactionHistory::INIT_SPACE,
+        seeds = [
+            b"user_transaction_history",
+            requester.as_ref()
+        ],
+        bump
+    )]
+    pub transaction_history: Account<'info, UserTransactionHistory>,
 }
 
 #[derive(Accounts)]
@@ -213,6 +225,16 @@ pub struct ClaimErc20<'info> {
         bump
     )]
     pub config: Account<'info, VaultConfig>,
+
+    #[account(
+        mut,
+        seeds = [
+            b"user_transaction_history",
+            pending_deposit.requester.as_ref()
+        ],
+        bump
+    )]
+    pub transaction_history: Account<'info, UserTransactionHistory>,
 }
 
 // Add the contexts:
@@ -283,6 +305,18 @@ pub struct WithdrawErc20<'info> {
         bump
     )]
     pub config: Account<'info, VaultConfig>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = 8 + UserTransactionHistory::INIT_SPACE,
+        seeds = [
+            b"user_transaction_history",
+            authority.key().as_ref()
+        ],
+        bump
+    )]
+    pub transaction_history: Account<'info, UserTransactionHistory>,
 }
 
 #[derive(Accounts)]
@@ -319,4 +353,14 @@ pub struct CompleteWithdrawErc20<'info> {
         bump
     )]
     pub config: Account<'info, VaultConfig>,
+
+    #[account(
+        mut,
+        seeds = [
+            b"user_transaction_history",
+            pending_withdrawal.requester.as_ref()
+        ],
+        bump
+    )]
+    pub transaction_history: Account<'info, UserTransactionHistory>,
 }
