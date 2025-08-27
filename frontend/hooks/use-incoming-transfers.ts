@@ -2,10 +2,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import type { Wallet } from '@coral-xyz/anchor';
 
 import { queryKeys } from '@/lib/query-client';
 import { BridgeContract } from '@/lib/contracts/bridge-contract';
+
+import { useAnchorWallet } from './use-anchor-wallet';
 
 export interface TransferEvent {
   requestId: string;
@@ -18,22 +19,16 @@ export interface TransferEvent {
 
 export function useIncomingTransfers() {
   const { connection } = useConnection();
-  const wallet = useWallet();
-  const { publicKey } = wallet;
+  const { publicKey } = useWallet();
+  const anchorWallet = useAnchorWallet();
 
   const query = useQuery({
     queryKey: publicKey
       ? queryKeys.solana.incomingDeposits(publicKey.toString())
       : [],
     queryFn: async (): Promise<TransferEvent[]> => {
-      if (!publicKey) throw new Error('No public key available');
-
-      const anchorWallet: Wallet = {
-        publicKey,
-        signTransaction: wallet.signTransaction,
-        signAllTransactions: wallet.signAllTransactions,
-        payer: publicKey ? { publicKey } : undefined,
-      } as unknown as Wallet;
+      if (!publicKey || !anchorWallet)
+        throw new Error('No public key or anchor wallet available');
 
       const bridgeContract = new BridgeContract(connection, anchorWallet);
 
@@ -47,7 +42,7 @@ export function useIncomingTransfers() {
         transactionHash: d.ethereumTxHash,
       }));
     },
-    enabled: !!publicKey,
+    enabled: !!publicKey && !!anchorWallet,
     staleTime: 3 * 1000, // 3 seconds
     refetchInterval: 5 * 1000, // Refetch every 5 seconds
     refetchIntervalInBackground: true,

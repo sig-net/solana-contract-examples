@@ -17,9 +17,11 @@ export function useUserBalances() {
       : [],
     queryFn: () => {
       if (!publicKey) throw new Error('No public key available');
+      if (!tokenBalanceService)
+        throw new Error('Token balance service not available');
       return tokenBalanceService.fetchUserBalances(publicKey);
     },
-    enabled: !!publicKey,
+    enabled: !!publicKey && !!tokenBalanceService,
     staleTime: 3 * 1000, // 3 seconds
     refetchInterval: 5 * 1000, // Refetch every 5 seconds
     refetchIntervalInBackground: true,

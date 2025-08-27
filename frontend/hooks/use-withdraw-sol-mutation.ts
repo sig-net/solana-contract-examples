@@ -32,6 +32,8 @@ export function useWithdrawSolMutation() {
       }) => void;
     }) => {
       if (!publicKey) throw new Error('No public key available');
+      if (!withdrawalService)
+        throw new Error('Withdrawal service not available');
       return withdrawalService.withdrawSol(
         publicKey,
         mintAddress,

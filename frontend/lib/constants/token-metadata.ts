@@ -79,10 +79,6 @@ export function getAllErc20Tokens(): Erc20TokenMetadata[] {
   );
 }
 
-export function getAllErc20Addresses(): string[] {
-  return getAllErc20Tokens().map(t => t.address);
-}
-
 export const TOKEN_METADATA_MAP = new Map<string, Erc20TokenMetadata>(
   getAllErc20Tokens().map(token => [token.address.toLowerCase(), token]),
 );

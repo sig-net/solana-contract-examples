@@ -67,6 +67,8 @@ export function useOutgoingTransfers() {
       : [],
     queryFn: async (): Promise<OutgoingTransfer[]> => {
       if (!publicKey) throw new Error('No public key available');
+      if (!withdrawalService)
+        throw new Error('Withdrawal service not available');
 
       const withdrawalRequests = await fetchUserWithdrawals(
         publicKey,
@@ -89,7 +91,7 @@ export function useOutgoingTransfers() {
         }),
       );
     },
-    enabled: !!publicKey,
+    enabled: !!publicKey && !!withdrawalService,
 
     staleTime: 3 * 1000, // 3 seconds
     gcTime: 15 * 60 * 1000,
