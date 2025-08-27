@@ -151,12 +151,14 @@ export class BridgeContract {
     signature,
     erc20AddressBytes,
     requester,
+    ethereumTxHashBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: number[];
     signature: ChainSignaturesSignature;
     erc20AddressBytes: number[];
     requester: PublicKey;
+    ethereumTxHashBytes?: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
@@ -164,7 +166,12 @@ export class BridgeContract {
     const program = this.getBridgeProgram();
 
     return await program.methods
-      .claimErc20(Array.from(requestIdBytes), serializedOutput, signature)
+      .claimErc20(
+        Array.from(requestIdBytes),
+        serializedOutput,
+        signature,
+        ethereumTxHashBytes ? Array.from(ethereumTxHashBytes) : null,
+      )
       .accounts({
         userBalance: userBalancePda,
         transactionHistory,
@@ -211,12 +218,14 @@ export class BridgeContract {
     signature,
     erc20AddressBytes,
     requester,
+    ethereumTxHashBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: number[];
     signature: ChainSignaturesSignature;
     erc20AddressBytes: number[];
     requester: PublicKey;
+    ethereumTxHashBytes?: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
@@ -228,6 +237,7 @@ export class BridgeContract {
         Array.from(requestIdBytes),
         serializedOutput,
         signature,
+        ethereumTxHashBytes ? Array.from(ethereumTxHashBytes) : null,
       )
       .accounts({
         userBalance: userBalancePda,
@@ -317,6 +327,7 @@ export class BridgeContract {
       erc20Address: string;
       timestamp: number;
       status: 'pending' | 'completed';
+      ethereumTxHash?: string;
     }[]
   > {
     try {
@@ -345,6 +356,9 @@ export class BridgeContract {
               : 'failed' in deposit.status
                 ? ('pending' as const)
                 : ('completed' as const),
+          ethereumTxHash: deposit.ethereumTxHash
+            ? toHex(Buffer.from(deposit.ethereumTxHash))
+            : undefined,
         }),
       );
 

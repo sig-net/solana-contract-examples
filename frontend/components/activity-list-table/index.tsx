@@ -157,8 +157,10 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
             : 'Unknown',
           timestampRaw: transfer.timestamp,
           status: transfer.status,
-          transactionHash: undefined,
-          explorerUrl: undefined,
+          transactionHash: transfer.transactionHash,
+          explorerUrl: transfer.transactionHash
+            ? getTransactionExplorerUrl(transfer.transactionHash, 'sepolia')
+            : undefined,
         };
       });
       allTransactions.push(...incomingTxs);

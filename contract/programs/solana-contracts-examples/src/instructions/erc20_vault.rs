@@ -186,6 +186,7 @@ pub fn claim_erc20(
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
+    ethereum_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
 
@@ -221,7 +222,7 @@ pub fn claim_erc20(
 
     // Update transaction history to mark deposit as completed
     let history = &mut ctx.accounts.transaction_history;
-    history.update_deposit_status(&request_id, TransactionStatus::Completed, None)?;
+    history.update_deposit_status(&request_id, TransactionStatus::Completed, ethereum_tx_hash)?;
     msg!("Updated deposit status to completed in transaction history");
 
     Ok(())
@@ -391,6 +392,7 @@ pub fn complete_withdraw_erc20(
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
+    ethereum_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
 
@@ -436,12 +438,12 @@ pub fn complete_withdraw_erc20(
 
         // Update transaction history to mark withdrawal as failed
         let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(&request_id, TransactionStatus::Failed, None)?;
+        history.update_withdrawal_status(&request_id, TransactionStatus::Failed, ethereum_tx_hash)?;
         msg!("Updated withdrawal status to failed in transaction history");
     } else {
         // Update transaction history to mark withdrawal as completed
         let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(&request_id, TransactionStatus::Completed, None)?;
+        history.update_withdrawal_status(&request_id, TransactionStatus::Completed, ethereum_tx_hash)?;
         msg!("Updated withdrawal status to completed in transaction history");
     }
 

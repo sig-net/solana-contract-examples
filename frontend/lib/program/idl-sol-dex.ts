@@ -148,6 +148,14 @@ export type SolanaCoreContracts = {
             };
           };
         },
+        {
+          name: 'ethereumTxHash';
+          type: {
+            option: {
+              array: ['u8', 32];
+            };
+          };
+        },
       ];
     },
     {
@@ -291,6 +299,14 @@ export type SolanaCoreContracts = {
           type: {
             defined: {
               name: 'signature';
+            };
+          };
+        },
+        {
+          name: 'ethereumTxHash';
+          type: {
+            option: {
+              array: ['u8', 32];
             };
           };
         },
@@ -1433,6 +1449,14 @@ export const IDL: SolanaCoreContracts = {
             },
           },
         },
+        {
+          name: 'ethereumTxHash',
+          type: {
+            option: {
+              array: ['u8', 32],
+            },
+          },
+        },
       ],
     },
     {
@@ -1521,6 +1545,14 @@ export const IDL: SolanaCoreContracts = {
           type: {
             defined: {
               name: 'signature',
+            },
+          },
+        },
+        {
+          name: 'ethereumTxHash',
+          type: {
+            option: {
+              array: ['u8', 32],
             },
           },
         },

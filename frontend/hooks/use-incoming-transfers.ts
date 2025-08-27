@@ -13,6 +13,7 @@ export interface TransferEvent {
   value: bigint;
   timestamp?: number;
   status: 'pending' | 'completed';
+  transactionHash?: string;
 }
 
 export function useIncomingTransfers() {
@@ -43,6 +44,7 @@ export function useIncomingTransfers() {
         value: BigInt(d.amount),
         timestamp: d.timestamp,
         status: d.status,
+        transactionHash: d.ethereumTxHash,
       }));
     },
     enabled: !!publicKey,
