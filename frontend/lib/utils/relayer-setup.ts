@@ -8,10 +8,7 @@ import {
   type CrossChainConfig,
 } from '@/lib/services/cross-chain-orchestrator';
 import { getFullEnv } from '@/lib/utils/env';
-import {
-  getEthereumProvider,
-  getHeliusConnection,
-} from '@/lib/utils/providers';
+import { getEthereumProvider, getHeliusConnection } from '@/lib/rpc';
 
 export interface RelayerSetup {
   connection: Connection;

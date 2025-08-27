@@ -11,8 +11,7 @@ import {
 import type { BridgeContract } from '@/lib/contracts/bridge-contract';
 import { getTokenInfo } from '@/lib/utils/token-formatting';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
-
-import { getAlchemyProvider } from '../utils/providers';
+import { getAlchemyProvider } from '@/lib/rpc';
 
 /**
  * TokenBalanceService handles all token balance operations including

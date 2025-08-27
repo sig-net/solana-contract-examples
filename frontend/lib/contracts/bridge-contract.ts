@@ -5,14 +5,7 @@ import {
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from '@solana/web3.js';
-import {
-  Program,
-  AnchorProvider,
-  BN,
-  Wallet,
-  IdlAccounts,
-  IdlTypes,
-} from '@coral-xyz/anchor';
+import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 import { toHex, toBytes } from 'viem';
 
 import { IDL, type SolanaCoreContracts } from '@/lib/program/idl-sol-dex';
@@ -27,15 +20,29 @@ import {
 
 import { ChainSignaturesSignature } from '../types/chain-signatures.types';
 
-// Extract types from IDL using Anchor's type helpers
-type UserTransactionHistory =
-  IdlAccounts<SolanaCoreContracts>['userTransactionHistory'];
-type TransactionRecord = IdlTypes<SolanaCoreContracts>['transactionRecord'];
+type TransactionStatus =
+  | { pending: Record<string, never> }
+  | { completed: Record<string, never> }
+  | { failed: Record<string, never> };
 
-/**
- * BridgeContract class handles all low-level contract interactions,
- * PDA derivations, and account management for the cross-chain wallet program.
- */
+type TransactionRecord = {
+  requestId: number[];
+  transactionType:
+    | { deposit: Record<string, never> }
+    | { withdrawal: Record<string, never> };
+  status: TransactionStatus;
+  amount: BN;
+  erc20Address: number[];
+  recipientAddress: number[];
+  timestamp: BN;
+  ethereumTxHash: number[] | null;
+};
+
+type UserTransactionHistory = {
+  deposits: TransactionRecord[];
+  withdrawals: TransactionRecord[];
+};
+
 export class BridgeContract {
   private program: Program<SolanaCoreContracts> | null = null;
 
@@ -44,56 +51,31 @@ export class BridgeContract {
     private wallet: Wallet,
   ) {}
 
-  /**
-   * Expose the underlying Solana connection for consumers that need direct RPC access
-   */
   getConnection(): Connection {
     return this.connection;
   }
 
-  /**
-   * Expose the wallet used by the BridgeContract for signing transactions
-   */
   getWallet(): Wallet {
     return this.wallet;
   }
 
-  /**
-   * Get the core contracts program instance
-   */
   private getBridgeProgram(): Program<SolanaCoreContracts> {
     if (!this.program) {
       const provider = new AnchorProvider(this.connection, this.wallet, {
         commitment: 'confirmed',
-        skipPreflight: true, // Skip preflight to avoid duplicate transaction errors
+        skipPreflight: true,
       });
       this.program = new Program(IDL, provider) as Program<SolanaCoreContracts>;
     }
     return this.program;
   }
 
-  // ================================
-  // PDA Derivation Methods
-  // ================================
-
-  // Removed one-line PDA wrappers; call centralized helpers directly where needed
-
-  // ================================
-  // Account Fetching Methods
-  // ================================
-
-  /**
-   * Fetch pending deposit account data
-   */
   async fetchPendingDeposit(pendingDepositPda: PublicKey) {
     return await this.getBridgeProgram().account.pendingErc20Deposit.fetch(
       pendingDepositPda,
     );
   }
 
-  /**
-   * Fetch user balance for a specific ERC20 token using Anchor deserialization
-   */
   async fetchUserBalance(
     userPublicKey: PublicKey,
     erc20Address: string,
@@ -102,7 +84,6 @@ export class BridgeContract {
       const erc20Bytes = Buffer.from(toBytes(erc20Address as `0x${string}`));
       const [userBalancePda] = deriveUserBalancePda(userPublicKey, erc20Bytes);
 
-      // Use Anchor's account fetching mechanism instead of manual parsing
       const userBalanceAccount =
         await this.getBridgeProgram().account.userErc20Balance.fetchNullable(
           userBalancePda,
@@ -112,7 +93,6 @@ export class BridgeContract {
         return '0';
       }
 
-      // Access the amount field directly from the deserialized account
       return userBalanceAccount.amount.toString();
     } catch (error) {
       if (
@@ -128,13 +108,6 @@ export class BridgeContract {
     }
   }
 
-  // ================================
-  // Contract Method Calls
-  // ================================
-
-  /**
-   * Call depositErc20 method with all accounts prepared
-   */
   async depositErc20({
     requester,
     payer,
@@ -172,18 +145,13 @@ export class BridgeContract {
       .rpc();
   }
 
-  /**
-   * Call claimErc20 method with all accounts prepared
-   */
   async claimErc20({
-    payer: _payer,
     requestIdBytes,
     serializedOutput,
     signature,
     erc20AddressBytes,
     requester,
   }: {
-    payer?: PublicKey;
     requestIdBytes: number[];
     serializedOutput: number[];
     signature: ChainSignaturesSignature;
@@ -204,9 +172,6 @@ export class BridgeContract {
       .rpc();
   }
 
-  /**
-   * Initiate ERC20 withdrawal
-   */
   async withdrawErc20({
     authority,
     requestIdBytes,
@@ -240,18 +205,13 @@ export class BridgeContract {
       .rpc();
   }
 
-  /**
-   * Complete ERC20 withdrawal
-   */
   async completeWithdrawErc20({
-    payer: _payer,
     requestIdBytes,
     serializedOutput,
     signature,
     erc20AddressBytes,
     requester,
   }: {
-    payer?: PublicKey;
     requestIdBytes: number[];
     serializedOutput: number[];
     signature: ChainSignaturesSignature;
@@ -276,9 +236,6 @@ export class BridgeContract {
       .rpc();
   }
 
-  /**
-   * Fetch pending withdrawal details
-   */
   async fetchPendingWithdrawal(
     pendingWithdrawalPda: PublicKey,
   ): Promise<unknown> {
@@ -287,10 +244,6 @@ export class BridgeContract {
     );
   }
 
-  /**
-   * Fetch all user withdrawals directly from the UserTransactionHistory PDA.
-   * This is much more efficient than scanning transaction history.
-   */
   async fetchAllUserWithdrawals(userPublicKey: PublicKey): Promise<
     {
       requestId: string;
@@ -308,18 +261,15 @@ export class BridgeContract {
       const [userTransactionHistoryPda] =
         deriveUserTransactionHistoryPda(userPublicKey);
 
-      // Fetch the transaction history account
       const transactionHistory =
         (await program.account.userTransactionHistory.fetchNullable(
           userTransactionHistoryPda,
         )) as UserTransactionHistory | null;
 
       if (!transactionHistory) {
-        // No transaction history exists for this user yet
         return [];
       }
 
-      // Map the withdrawals from the transaction history
       const withdrawals = transactionHistory.withdrawals.map(
         (withdrawal: TransactionRecord) => ({
           requestId: toHex(Buffer.from(withdrawal.requestId)),
@@ -330,7 +280,7 @@ export class BridgeContract {
             'pending' in withdrawal.status
               ? ('pending' as const)
               : 'failed' in withdrawal.status
-                ? ('pending' as const) // Can retry failed withdrawals
+                ? ('pending' as const)
                 : ('completed' as const),
           timestamp: withdrawal.timestamp.toNumber(),
           signature: undefined,
@@ -340,7 +290,6 @@ export class BridgeContract {
         }),
       );
 
-      // Sort by timestamp (newest first)
       return withdrawals.sort((a, b) => b.timestamp - a.timestamp);
     } catch (error) {
       console.error(
@@ -351,12 +300,6 @@ export class BridgeContract {
     }
   }
 
-  // Removed trivial wrappers like erc20AddressToBytes and hexToBytes; prefer viem's toBytes at call sites
-
-  /**
-   * Derive deposit address for a given user public key
-   * This replaces the SolanaService.deriveDepositAddress method
-   */
   deriveDepositAddress(publicKey: PublicKey): string {
     const [vaultAuthority] = deriveVaultAuthorityPda(publicKey);
     const path = publicKey.toString();
@@ -367,10 +310,6 @@ export class BridgeContract {
     );
   }
 
-  /**
-   * Fetch all user deposits directly from the UserTransactionHistory PDA.
-   * This is much more efficient than scanning transaction history.
-   */
   async fetchAllUserDeposits(userPublicKey: PublicKey): Promise<
     {
       requestId: string;
@@ -385,18 +324,15 @@ export class BridgeContract {
       const [userTransactionHistoryPda] =
         deriveUserTransactionHistoryPda(userPublicKey);
 
-      // Fetch the transaction history account
       const transactionHistory =
         (await program.account.userTransactionHistory.fetchNullable(
           userTransactionHistoryPda,
         )) as UserTransactionHistory | null;
 
       if (!transactionHistory) {
-        // No transaction history exists for this user yet
         return [];
       }
 
-      // Map the deposits from the transaction history
       const deposits = transactionHistory.deposits.map(
         (deposit: TransactionRecord) => ({
           requestId: toHex(Buffer.from(deposit.requestId)),
@@ -407,12 +343,11 @@ export class BridgeContract {
             'pending' in deposit.status
               ? ('pending' as const)
               : 'failed' in deposit.status
-                ? ('pending' as const) // Treat failed as pending for deposits
+                ? ('pending' as const)
                 : ('completed' as const),
         }),
       );
 
-      // Sort by timestamp (newest first)
       return deposits.sort((a, b) => b.timestamp - a.timestamp);
     } catch (error) {
       console.error(

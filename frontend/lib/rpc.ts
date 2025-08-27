@@ -2,15 +2,13 @@ import { ethers } from 'ethers';
 import { Connection } from '@solana/web3.js';
 import { Alchemy, Network } from 'alchemy-sdk';
 
-import { getClientEnv, getSepoliaRpcUrl } from './env';
+import { getClientEnv } from './utils/env';
 
 export type SupportedChain = 'ethereum-sepolia' | 'solana';
 
 export function getEthereumProvider(): ethers.JsonRpcProvider {
-  const rpcUrl = getSepoliaRpcUrl();
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
-
-  return provider;
+  const rpcUrl = getAlchemyEthSepoliaRpcUrl();
+  return new ethers.JsonRpcProvider(rpcUrl);
 }
 
 export function getHeliusConnection(): Connection | undefined {
@@ -31,4 +29,14 @@ export function getAlchemyProvider(): Alchemy {
   });
 
   return alchemy;
+}
+
+export function getAlchemyEthSepoliaRpcUrl(): string {
+  const env = getClientEnv();
+  return `https://eth-sepolia.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`;
+}
+
+export function getAlchemySolanaDevnetRpcUrl(): string {
+  const env = getClientEnv();
+  return `https://solana-devnet.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`;
 }
