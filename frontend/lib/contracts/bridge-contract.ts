@@ -5,7 +5,15 @@ import {
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from '@solana/web3.js';
-import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
+import {
+  Program,
+  AnchorProvider,
+  BN,
+  Wallet,
+  IdlAccounts,
+  IdlTypes,
+} from '@coral-xyz/anchor';
+import { toHex, toBytes } from 'viem';
 
 import { IDL, type SolanaCoreContracts } from '@/lib/program/idl-sol-dex';
 import type { EvmTransactionProgramParams } from '@/lib/types/shared.types';
@@ -14,9 +22,15 @@ import {
   CHAIN_SIGNATURES_CONFIG,
   deriveVaultAuthorityPda,
   deriveUserBalancePda,
+  deriveUserTransactionHistoryPda,
 } from '@/lib/constants/addresses';
 
 import { ChainSignaturesSignature } from '../types/chain-signatures.types';
+
+// Extract types from IDL using Anchor's type helpers
+type UserTransactionHistory =
+  IdlAccounts<SolanaCoreContracts>['userTransactionHistory'];
+type TransactionRecord = IdlTypes<SolanaCoreContracts>['transactionRecord'];
 
 /**
  * BridgeContract class handles all low-level contract interactions,
@@ -85,7 +99,7 @@ export class BridgeContract {
     erc20Address: string,
   ): Promise<string> {
     try {
-      const erc20Bytes = Buffer.from(erc20Address.replace('0x', ''), 'hex');
+      const erc20Bytes = Buffer.from(toBytes(erc20Address as `0x${string}`));
       const [userBalancePda] = deriveUserBalancePda(userPublicKey, erc20Bytes);
 
       // Use Anchor's account fetching mechanism instead of manual parsing
@@ -178,13 +192,15 @@ export class BridgeContract {
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
+    const [transactionHistory] = deriveUserTransactionHistoryPda(requester);
     const program = this.getBridgeProgram();
 
     return await program.methods
       .claimErc20(Array.from(requestIdBytes), serializedOutput, signature)
       .accounts({
         userBalance: userBalancePda,
-      })
+        transactionHistory,
+      } as never)
       .rpc();
   }
 
@@ -244,13 +260,8 @@ export class BridgeContract {
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
+    const [transactionHistory] = deriveUserTransactionHistoryPda(requester);
     const program = this.getBridgeProgram();
-
-    // Derive transaction history PDA
-    const [transactionHistory] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_transaction_history'), requester.toBuffer()],
-      program.programId,
-    );
 
     return await program.methods
       .completeWithdrawErc20(
@@ -294,18 +305,14 @@ export class BridgeContract {
   > {
     try {
       const program = this.getBridgeProgram();
-
-      // Derive the user transaction history PDA
-      const [userTransactionHistoryPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_transaction_history'), userPublicKey.toBuffer()],
-        program.programId,
-      );
+      const [userTransactionHistoryPda] =
+        deriveUserTransactionHistoryPda(userPublicKey);
 
       // Fetch the transaction history account
       const transactionHistory =
-        await program.account.userTransactionHistory.fetchNullable(
+        (await program.account.userTransactionHistory.fetchNullable(
           userTransactionHistoryPda,
-        );
+        )) as UserTransactionHistory | null;
 
       if (!transactionHistory) {
         // No transaction history exists for this user yet
@@ -314,28 +321,27 @@ export class BridgeContract {
 
       // Map the withdrawals from the transaction history
       const withdrawals = transactionHistory.withdrawals.map(
-        (withdrawal: any) => ({
-          requestId: Buffer.from(withdrawal.requestId).toString('hex'),
+        (withdrawal: TransactionRecord) => ({
+          requestId: toHex(Buffer.from(withdrawal.requestId)),
           amount: withdrawal.amount.toString(),
-          erc20Address:
-            '0x' + Buffer.from(withdrawal.erc20Address).toString('hex'),
-          recipient:
-            '0x' + Buffer.from(withdrawal.recipientAddress).toString('hex'),
-          status: withdrawal.status.pending
-            ? ('pending' as const)
-            : withdrawal.status.failed
-              ? ('pending' as const) // Can retry failed withdrawals
-              : ('completed' as const),
+          erc20Address: toHex(Buffer.from(withdrawal.erc20Address)),
+          recipient: toHex(Buffer.from(withdrawal.recipientAddress)),
+          status:
+            'pending' in withdrawal.status
+              ? ('pending' as const)
+              : 'failed' in withdrawal.status
+                ? ('pending' as const) // Can retry failed withdrawals
+                : ('completed' as const),
           timestamp: withdrawal.timestamp.toNumber(),
           signature: undefined,
           ethereumTxHash: withdrawal.ethereumTxHash
-            ? '0x' + Buffer.from(withdrawal.ethereumTxHash).toString('hex')
+            ? toHex(Buffer.from(withdrawal.ethereumTxHash))
             : undefined,
         }),
       );
 
       // Sort by timestamp (newest first)
-      return withdrawals.sort((a: any, b: any) => b.timestamp - a.timestamp);
+      return withdrawals.sort((a, b) => b.timestamp - a.timestamp);
     } catch (error) {
       console.error(
         'Error fetching user withdrawals from transaction history:',
@@ -345,16 +351,7 @@ export class BridgeContract {
     }
   }
 
-  /**
-   * Convert hex string to bytes array
-   */
-  hexToBytes(hex: string): number[] {
-    // Prefer viem's toBytes in call sites; keep minimal fallback here
-    const cleanHex = hex.replace(/^0x/, '');
-    return Array.from(Buffer.from(cleanHex, 'hex'));
-  }
-
-  // Removed trivial wrappers like erc20AddressToBytes; prefer viem's toBytes at call sites
+  // Removed trivial wrappers like erc20AddressToBytes and hexToBytes; prefer viem's toBytes at call sites
 
   /**
    * Derive deposit address for a given user public key
@@ -385,18 +382,14 @@ export class BridgeContract {
   > {
     try {
       const program = this.getBridgeProgram();
-
-      // Derive the user transaction history PDA
-      const [userTransactionHistoryPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_transaction_history'), userPublicKey.toBuffer()],
-        program.programId,
-      );
+      const [userTransactionHistoryPda] =
+        deriveUserTransactionHistoryPda(userPublicKey);
 
       // Fetch the transaction history account
       const transactionHistory =
-        await program.account.userTransactionHistory.fetchNullable(
+        (await program.account.userTransactionHistory.fetchNullable(
           userTransactionHistoryPda,
-        );
+        )) as UserTransactionHistory | null;
 
       if (!transactionHistory) {
         // No transaction history exists for this user yet
@@ -404,20 +397,23 @@ export class BridgeContract {
       }
 
       // Map the deposits from the transaction history
-      const deposits = transactionHistory.deposits.map((deposit: any) => ({
-        requestId: Buffer.from(deposit.requestId).toString('hex'),
-        amount: deposit.amount.toString(),
-        erc20Address: '0x' + Buffer.from(deposit.erc20Address).toString('hex'),
-        timestamp: deposit.timestamp.toNumber(),
-        status: deposit.status.pending
-          ? ('pending' as const)
-          : deposit.status.failed
-            ? ('pending' as const) // Treat failed as pending for deposits
-            : ('completed' as const),
-      }));
+      const deposits = transactionHistory.deposits.map(
+        (deposit: TransactionRecord) => ({
+          requestId: toHex(Buffer.from(deposit.requestId)),
+          amount: deposit.amount.toString(),
+          erc20Address: toHex(Buffer.from(deposit.erc20Address)),
+          timestamp: deposit.timestamp.toNumber(),
+          status:
+            'pending' in deposit.status
+              ? ('pending' as const)
+              : 'failed' in deposit.status
+                ? ('pending' as const) // Treat failed as pending for deposits
+                : ('completed' as const),
+        }),
+      );
 
       // Sort by timestamp (newest first)
-      return deposits.sort((a: any, b: any) => b.timestamp - a.timestamp);
+      return deposits.sort((a, b) => b.timestamp - a.timestamp);
     } catch (error) {
       console.error(
         'Error fetching user deposits from transaction history:',

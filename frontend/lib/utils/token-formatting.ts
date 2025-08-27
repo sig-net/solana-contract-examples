@@ -1,71 +1,48 @@
-// Simplified token metadata utilities: fetch minimal info via Alchemy
-
-// This file handles token metadata fetching and caching
-// For balance formatting, use @/lib/utils/balance-formatter instead
-
 import type { TokenFormatInfo } from '@/lib/types/token.types';
 
 import { getAlchemyProvider } from './providers';
 
-// Symbol normalization mapping for icon display
-// Maps contract symbols to standardized symbols that @web3icons/react recognizes
 const SYMBOL_NORMALIZATION_MAP: Record<string, string> = {
-  // USDC variants
   USDC: 'USDC',
   'USDC.e': 'USDC',
   'USD Coin': 'USDC',
   USDCoin: 'USDC',
 
-  // ETH variants
   ETH: 'ETH',
   WETH: 'ETH',
   'Wrapped Ether': 'ETH',
 
-  // SOL variants
   SOL: 'SOL',
   WSOL: 'SOL',
   'Wrapped SOL': 'SOL',
 
-  // BTC variants
   BTC: 'BTC',
   WBTC: 'BTC',
   'Wrapped Bitcoin': 'BTC',
-
-  // Add more mappings as needed
 };
 
-/**
- * Normalize token symbol for icon display
- */
 function normalizeSymbolForDisplay(symbol: string, name: string): string {
-  // Try exact symbol match first
   if (SYMBOL_NORMALIZATION_MAP[symbol]) {
     return SYMBOL_NORMALIZATION_MAP[symbol];
   }
 
-  // Try name match
   if (SYMBOL_NORMALIZATION_MAP[name]) {
     return SYMBOL_NORMALIZATION_MAP[name];
   }
 
-  // Try partial matches for common patterns
   const symbolUpper = symbol.toUpperCase();
   if (symbolUpper.includes('USDC')) return 'USDC';
   if (symbolUpper.includes('ETH')) return 'ETH';
   if (symbolUpper.includes('SOL')) return 'SOL';
   if (symbolUpper.includes('BTC')) return 'BTC';
 
-  // Fallback to original symbol
   return symbol;
 }
 
-// Memory cache for token metadata
 const tokenInfoCache = new Map<string, { data: TokenFormatInfo; at: number }>();
 
-// 24h TTL for relatively stable metadata
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
 
-// Default fallback token info
 const DEFAULT_TOKEN_INFO: TokenFormatInfo = {
   symbol: 'ERC20',
   decimals: 18,
@@ -92,9 +69,6 @@ async function fetchTokenInfo(tokenAddress: string): Promise<TokenFormatInfo> {
   }
 }
 
-/**
- * Get token information with caching
- */
 export async function getTokenInfo(
   tokenAddress: string,
 ): Promise<TokenFormatInfo> {
@@ -107,10 +81,6 @@ export async function getTokenInfo(
   return info;
 }
 
-/**
- * Get token information synchronously (returns cached data or default)
- * Use this when you need immediate results and can handle defaults
- */
 export function getTokenInfoSync(tokenAddress: string): TokenFormatInfo {
   const normalizedAddress = tokenAddress.toLowerCase();
   const cached = tokenInfoCache.get(normalizedAddress);
@@ -119,9 +89,6 @@ export function getTokenInfoSync(tokenAddress: string): TokenFormatInfo {
     : DEFAULT_TOKEN_INFO;
 }
 
-/**
- * Preload token information for multiple addresses
- */
 export async function preloadTokenInfo(
   tokenAddresses: string[],
 ): Promise<void> {
