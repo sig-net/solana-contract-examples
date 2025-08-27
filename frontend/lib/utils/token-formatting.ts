@@ -1,6 +1,5 @@
 import type { TokenFormatInfo } from '@/lib/types/token.types';
-
-import { getAlchemyProvider } from './providers';
+import { getAlchemyProvider } from '@/lib/rpc';
 
 const SYMBOL_NORMALIZATION_MAP: Record<string, string> = {
   USDC: 'USDC',

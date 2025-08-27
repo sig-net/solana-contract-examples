@@ -15,21 +15,22 @@ import { BN } from '@coral-xyz/anchor';
 import { ethers } from 'ethers';
 import { toBytes } from 'viem';
 
+import type {
+  EvmTransactionRequest,
+  StatusCallback,
+} from '@/lib/types/shared.types';
 import { getTokenInfo } from '@/lib/utils/token-formatting';
 import { buildErc20TransferTx } from '@/lib/evm/tx-builder';
 import { generateRequestId, evmParamsToProgram } from '@/lib/program/utils';
-import type { EvmTransactionRequest } from '@/lib/types/shared.types';
 import { BridgeContract } from '@/lib/contracts/bridge-contract';
 import { TokenBalanceService } from '@/lib/services/token-balance-service';
 import { RelayerService } from '@/lib/services/relayer-service';
-import type { StatusCallback } from '@/lib/types/shared.types';
 import {
   VAULT_ETHEREUM_ADDRESS,
   GLOBAL_VAULT_AUTHORITY_PDA,
 } from '@/lib/constants/addresses';
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
-
-import { getAlchemyProvider, getEthereumProvider } from '../utils/providers';
+import { getAlchemyProvider, getEthereumProvider } from '@/lib/rpc';
 
 /**
  * WithdrawalService handles ERC20 withdrawal initiation.

@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage:
 #   RELAYER_PRIVATE_KEY='[...]' \
 #   NEXT_PUBLIC_ALCHEMY_API_KEY=... \
-#   NEXT_PUBLIC_SOLANA_RPC_URL=... \
+#   NEXT_PUBLIC_HELIUS_RPC_URL=... \
 #   AWS_REGION=us-east-1 \
 #   SST_STAGE=prod \
 #   bash scripts/deploy.sh
@@ -46,7 +46,7 @@ aws sts get-caller-identity >/dev/null
 echo "Validating environment variables..."
 : "${RELAYER_PRIVATE_KEY:?RELAYER_PRIVATE_KEY is required (JSON array for keypair)}"
 : "${NEXT_PUBLIC_ALCHEMY_API_KEY:?NEXT_PUBLIC_ALCHEMY_API_KEY is required}"
-: "${NEXT_PUBLIC_SOLANA_RPC_URL:?NEXT_PUBLIC_SOLANA_RPC_URL is required}"
+: "${NEXT_PUBLIC_HELIUS_RPC_URL:?NEXT_PUBLIC_HELIUS_RPC_URL is required}"
 
 # Ensure default CDK bootstrap exists (SST v2 expects the default qualifier hnb659fds)
 if ! aws ssm get-parameter --name /cdk-bootstrap/hnb659fds/version --region "$AWS_REGION" >/dev/null 2>&1; then
