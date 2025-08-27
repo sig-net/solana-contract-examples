@@ -1034,6 +1034,11 @@ export type SolanaCoreContracts = {
       name: 'underflow';
       msg: 'Underflow error';
     },
+    {
+      code: 6012;
+      name: 'transactionNotFound';
+      msg: 'Transaction not found in history';
+    },
   ];
   types: [
     {
@@ -1290,18 +1295,6 @@ export type SolanaCoreContracts = {
       type: {
         kind: 'struct';
         fields: [
-          {
-            name: 'owner';
-            type: 'pubkey';
-          },
-          {
-            name: 'depositCount';
-            type: 'u32';
-          },
-          {
-            name: 'withdrawalCount';
-            type: 'u32';
-          },
           {
             name: 'deposits';
             type: {
@@ -2039,6 +2032,11 @@ export const IDL: SolanaCoreContracts = {
       name: 'underflow',
       msg: 'Underflow error',
     },
+    {
+      code: 6012,
+      name: 'transactionNotFound',
+      msg: 'Transaction not found in history',
+    },
   ],
   types: [
     {
@@ -2295,18 +2293,6 @@ export const IDL: SolanaCoreContracts = {
       type: {
         kind: 'struct',
         fields: [
-          {
-            name: 'owner',
-            type: 'pubkey',
-          },
-          {
-            name: 'depositCount',
-            type: 'u32',
-          },
-          {
-            name: 'withdrawalCount',
-            type: 'u32',
-          },
           {
             name: 'deposits',
             type: {
