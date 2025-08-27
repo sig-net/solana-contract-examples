@@ -26,4 +26,6 @@ pub enum ErrorCode {
     InsufficientBalance,
     #[msg("Underflow error")]
     Underflow,
+    #[msg("Transaction not found in history")]
+    TransactionNotFound,
 }

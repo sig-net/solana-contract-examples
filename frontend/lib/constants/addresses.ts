@@ -7,7 +7,7 @@ import { secp256k1 } from '@noble/curves/secp256k1';
  * Update this when deploying a new contract
  */
 export const BRIDGE_PROGRAM_ID = new PublicKey(
-  '3si68i2yXFAGy5k8BpqGpPJR5wE27id1Jenx3uN8GCws',
+  '3wgi78Dc9kStc1bV4SmrHQXNerE3Z97yd1rQtDoDq5Xo',
 );
 
 export const CHAIN_SIGNATURES_PROGRAM_ID = new PublicKey(

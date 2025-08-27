@@ -9,8 +9,8 @@ use chain_signatures::cpi::sign_respond;
 use chain_signatures::SerializationFormat;
 use omni_transaction::{TransactionBuilder, TxBuilder, EVM};
 
+use crate::state::transaction_status::{TransactionRecord, TransactionStatus, TransactionType};
 use crate::state::vault::{EvmTransactionParams, IERC20};
-use crate::state::transaction_status::{TransactionRecord, TransactionStatus, TransactionType, UserTransactionHistory};
 use crate::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
 
 const HARDCODED_ROOT_PATH: &str = "root";
@@ -164,13 +164,8 @@ pub fn deposit_erc20(
 
     // Initialize transaction history if needed
     let history = &mut ctx.accounts.transaction_history;
-    if history.owner == Pubkey::default() {
-        history.owner = requester;
-        history.deposit_count = 0;
-        history.withdrawal_count = 0;
-        history.deposits = Vec::new();
-        history.withdrawals = Vec::new();
-    }
+    history.deposits = Vec::new();
+    history.withdrawals = Vec::new();
 
     // Add deposit transaction record
     let deposit_record = TransactionRecord {
@@ -183,8 +178,12 @@ pub fn deposit_erc20(
         timestamp: Clock::get()?.unix_timestamp,
         ethereum_tx_hash: None,
     };
-    
-    history.add_deposit(deposit_record);
+
+    // Direct field mutation instead of using impl method
+    history.deposits.insert(0, deposit_record);
+    if history.deposits.len() > 5 {
+        history.deposits.truncate(5);
+    }
     msg!("Added deposit to transaction history");
 
     Ok(())
@@ -230,7 +229,18 @@ pub fn claim_erc20(
 
     // Update transaction history to mark deposit as completed
     let history = &mut ctx.accounts.transaction_history;
-    history.update_deposit_status(&request_id, TransactionStatus::Completed, None)?;
+    // Direct field mutation instead of using impl method
+    let mut found = false;
+    for deposit in &mut history.deposits {
+        if deposit.request_id == request_id {
+            deposit.status = TransactionStatus::Completed;
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        return err!(crate::error::ErrorCode::TransactionNotFound);
+    }
     msg!("Updated deposit status to completed in transaction history");
 
     Ok(())
@@ -378,13 +388,8 @@ pub fn withdraw_erc20(
 
     // Initialize transaction history if needed
     let history = &mut ctx.accounts.transaction_history;
-    if history.owner == Pubkey::default() {
-        history.owner = authority;
-        history.deposit_count = 0;
-        history.withdrawal_count = 0;
-        history.deposits = Vec::new();
-        history.withdrawals = Vec::new();
-    }
+    history.deposits = Vec::new();
+    history.withdrawals = Vec::new();
 
     // Add withdrawal transaction record
     let withdrawal_record = TransactionRecord {
@@ -397,8 +402,12 @@ pub fn withdraw_erc20(
         timestamp: Clock::get()?.unix_timestamp,
         ethereum_tx_hash: None,
     };
-    
-    history.add_withdrawal(withdrawal_record);
+
+    // Direct field mutation instead of using impl method
+    history.withdrawals.insert(0, withdrawal_record);
+    if history.withdrawals.len() > 5 {
+        history.withdrawals.truncate(5);
+    }
     msg!("Added withdrawal to transaction history");
 
     Ok(())
@@ -451,15 +460,37 @@ pub fn complete_withdraw_erc20(
             .ok_or(crate::error::ErrorCode::Overflow)?;
 
         msg!("Balance refunded: {}", pending.amount);
-        
+
         // Update transaction history to mark withdrawal as failed
         let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(&request_id, TransactionStatus::Failed, None)?;
+        // Direct field mutation instead of using impl method
+        let mut found = false;
+        for withdrawal in &mut history.withdrawals {
+            if withdrawal.request_id == request_id {
+                withdrawal.status = TransactionStatus::Failed;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return err!(crate::error::ErrorCode::TransactionNotFound);
+        }
         msg!("Updated withdrawal status to failed in transaction history");
     } else {
         // Update transaction history to mark withdrawal as completed
         let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(&request_id, TransactionStatus::Completed, None)?;
+        // Direct field mutation instead of using impl method
+        let mut found = false;
+        for withdrawal in &mut history.withdrawals {
+            if withdrawal.request_id == request_id {
+                withdrawal.status = TransactionStatus::Completed;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return err!(crate::error::ErrorCode::TransactionNotFound);
+        }
         msg!("Updated withdrawal status to completed in transaction history");
     }
 
