@@ -4,25 +4,17 @@ import {
   Connection,
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
-  type ConfirmedSignatureInfo,
-  type VersionedTransactionResponse,
 } from '@solana/web3.js';
 import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 
 import { IDL, type SolanaCoreContracts } from '@/lib/program/idl-sol-dex';
 import type { EvmTransactionProgramParams } from '@/lib/types/shared.types';
 import {
-  BRIDGE_PROGRAM_ID,
   deriveEthereumAddress,
   CHAIN_SIGNATURES_CONFIG,
   deriveVaultAuthorityPda,
   deriveUserBalancePda,
 } from '@/lib/constants/addresses';
-import { getAllErc20Tokens } from '@/lib/constants/token-metadata';
-import {
-  cachedGetSignaturesForAddress,
-  cachedGetTransaction,
-} from '@/lib/utils/rpc-cache';
 
 import { ChainSignaturesSignature } from '../types/chain-signatures.types';
 
@@ -149,11 +141,6 @@ export class BridgeContract {
     const payerKey = payer || this.wallet.publicKey;
     const program = this.getBridgeProgram();
 
-    const [transactionHistory] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_transaction_history'), requester.toBuffer()],
-      program.programId,
-    );
-
     return await program.methods
       .depositErc20(
         requestIdBytes,
@@ -167,7 +154,6 @@ export class BridgeContract {
         payer: payerKey,
         feePayer: payerKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        transactionHistory,
       })
       .rpc();
   }
@@ -194,17 +180,10 @@ export class BridgeContract {
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
     const program = this.getBridgeProgram();
 
-    // Derive transaction history PDA (from pending_deposit.requester which is the requester param)
-    const [transactionHistory] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_transaction_history'), requester.toBuffer()],
-      program.programId,
-    );
-
     return await program.methods
       .claimErc20(Array.from(requestIdBytes), serializedOutput, signature)
       .accounts({
         userBalance: userBalancePda,
-        transactionHistory,
       })
       .rpc();
   }
@@ -229,12 +208,6 @@ export class BridgeContract {
   }): Promise<string> {
     const program = this.getBridgeProgram();
 
-    // Derive transaction history PDA from authority
-    const [transactionHistory] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_transaction_history'), authority.toBuffer()],
-      program.programId,
-    );
-
     return await program.methods
       .withdrawErc20(
         Array.from(requestIdBytes),
@@ -247,7 +220,6 @@ export class BridgeContract {
         authority,
         feePayer: this.wallet.publicKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-        transactionHistory,
       })
       .rpc();
   }
@@ -373,109 +345,6 @@ export class BridgeContract {
     }
   }
 
-  // ================================
-  // Helper Methods
-  // ================================
-
-  /**
-   * Internal utility to run async map operations with a concurrency cap.
-   */
-  private async mapWithConcurrency<T, R>(
-    items: T[],
-    concurrency: number,
-    mapper: (item: T, index: number) => Promise<R>,
-  ): Promise<R[]> {
-    const results: R[] = new Array(items.length) as R[];
-    let nextIndex = 0;
-
-    const workers = Array.from(
-      { length: Math.max(1, concurrency) },
-      async () => {
-        while (true) {
-          const current = nextIndex++;
-          if (current >= items.length) break;
-          results[current] = await mapper(items[current], current);
-        }
-      },
-    );
-
-    await Promise.all(workers);
-    return results;
-  }
-
-  /**
-   * Fetch recent signatures and their corresponding transactions for an address
-   */
-  private async fetchTxsForAddress(
-    address: PublicKey,
-    limit: number,
-  ): Promise<{
-    signatures: ConfirmedSignatureInfo[];
-    transactions: (VersionedTransactionResponse | null)[];
-  }> {
-    const signatures = await cachedGetSignaturesForAddress(
-      this.connection,
-      address,
-      {
-        limit,
-      },
-    );
-    const transactions = await this.mapWithConcurrency(
-      signatures,
-      this.TRANSACTION_FETCH_CONCURRENCY,
-      sig =>
-        cachedGetTransaction(this.connection, sig.signature, {
-          maxSupportedTransactionVersion: 0,
-        }),
-    );
-    return { signatures, transactions };
-  }
-
-  /**
-   * Extract and decode this program's instructions from a transaction
-   */
-  private extractProgramInstructionsFromTx(
-    tx: VersionedTransactionResponse,
-    coder: Program['coder'],
-  ): Array<{
-    name: string;
-    data: DecodedIx['data'];
-    accountKeys: PublicKey[];
-    accountKeyIndexes: number[];
-  }> {
-    const accountKeys = tx.transaction.message.staticAccountKeys;
-    const instructions = tx.transaction.message.compiledInstructions;
-    const decodedEvents: Array<{
-      name: string;
-      data: DecodedIx['data'];
-      accountKeys: PublicKey[];
-      accountKeyIndexes: number[];
-    }> = [];
-
-    for (const ix of instructions) {
-      const programId = accountKeys[ix.programIdIndex];
-      if (!programId.equals(BRIDGE_PROGRAM_ID)) continue;
-      const decoded = this.safeDecodeInstruction(
-        coder,
-        ix.data,
-      ) as DecodedIx | null;
-      if (!decoded) continue;
-      decodedEvents.push({
-        name: decoded.name,
-        data: decoded.data,
-        accountKeys,
-        accountKeyIndexes: ix.accountKeyIndexes as number[],
-      });
-    }
-    return decodedEvents;
-  }
-
-  /**
-   * Reasonable defaults to avoid RPC saturation while keeping UI responsive.
-   */
-  private readonly TRANSACTION_FETCH_CONCURRENCY = 4; // tighter to avoid RPC bursts
-  private readonly SIGNATURE_SCAN_LIMIT = 10; // scan fewer per address
-
   /**
    * Convert hex string to bytes array
    */
@@ -499,78 +368,6 @@ export class BridgeContract {
       vaultAuthority.toString(),
       CHAIN_SIGNATURES_CONFIG.BASE_PUBLIC_KEY,
     );
-  }
-
-  /**
-   * Fetch recent claimErc20 events for a user and map them to ERC20 token addresses with timestamps
-   */
-  async fetchRecentUserClaims(
-    userPublicKey: PublicKey,
-    maxTransactions = 50,
-  ): Promise<Record<string, number>> {
-    try {
-      const claimsByToken: Record<string, number> = {};
-
-      const signatures = await cachedGetSignaturesForAddress(
-        this.connection,
-        userPublicKey,
-        { limit: maxTransactions },
-      );
-
-      // Precompute mapping from userBalance PDA -> token address
-      const pdaToTokenAddress = new Map<string, string>();
-      for (const token of getAllErc20Tokens()) {
-        const erc20Bytes = Buffer.from(token.address.replace('0x', ''), 'hex');
-        const [pda] = deriveUserBalancePda(userPublicKey, erc20Bytes);
-        pdaToTokenAddress.set(pda.toBase58(), token.address);
-      }
-
-      const program = this.getBridgeProgram();
-      const coder = program.coder;
-
-      const txs = await this.mapWithConcurrency(
-        signatures,
-        this.TRANSACTION_FETCH_CONCURRENCY,
-        sig =>
-          cachedGetTransaction(this.connection, sig.signature, {
-            maxSupportedTransactionVersion: 0,
-          }),
-      );
-
-      for (let i = 0; i < txs.length; i++) {
-        const tx = txs[i];
-        const sig = signatures[i];
-        if (!tx || !tx.meta || tx.meta.err) continue;
-
-        const accountKeys = tx.transaction.message.staticAccountKeys;
-        const instructions = tx.transaction.message.compiledInstructions;
-
-        for (const ix of instructions) {
-          const programId = accountKeys[ix.programIdIndex];
-          if (!programId.equals(BRIDGE_PROGRAM_ID)) continue;
-
-          const decoded = this.safeDecodeInstruction(coder, ix.data);
-          if (!decoded) continue;
-          if (decoded.name !== 'claimErc20') continue;
-
-          const userBalanceAccountIndex = ix.accountKeyIndexes[2];
-          const userBalanceAccount = accountKeys[userBalanceAccountIndex];
-          const tokenAddress = pdaToTokenAddress.get(
-            userBalanceAccount.toBase58(),
-          );
-          if (tokenAddress) {
-            const ts = sig.blockTime || Math.floor(Date.now() / 1000);
-            const existing = claimsByToken[tokenAddress];
-            if (!existing || ts > existing) claimsByToken[tokenAddress] = ts;
-          }
-        }
-      }
-
-      return claimsByToken;
-    } catch (error) {
-      console.error('Error fetching recent user claims:', error);
-      return {};
-    }
   }
 
   /**
@@ -629,91 +426,4 @@ export class BridgeContract {
       return [];
     }
   }
-
-  // ================================
-  // Internal decode and formatting helpers
-  // ================================
-
-  private safeDecodeInstruction(
-    coder: Program['coder'],
-    data: unknown,
-  ): DecodedIx | null {
-    const candidates: Buffer[] = [];
-    if (typeof data === 'string') {
-      if (/^[0-9a-fA-F]+$/.test(data) && data.length % 2 === 0) {
-        try {
-          candidates.push(Buffer.from(data, 'hex'));
-        } catch {}
-      }
-      try {
-        candidates.push(Buffer.from(data, 'base64'));
-      } catch {}
-      try {
-        candidates.push(Buffer.from(data));
-      } catch {}
-    } else {
-      try {
-        candidates.push(Buffer.from(data as Uint8Array));
-      } catch {}
-    }
-
-    const decoder = coder.instruction as unknown as {
-      decode: (b: Buffer) => DecodedIx | null;
-    };
-    for (const buf of candidates) {
-      try {
-        const decoded = decoder.decode(buf);
-        if (decoded) return decoded;
-      } catch {}
-    }
-    return null;
-  }
-
-  private toHex(bytes: Uint8Array | number[]): string {
-    return Buffer.from(bytes as Uint8Array).toString('hex');
-  }
-}
-
-type DecodedIx = {
-  name: string;
-  data: {
-    requestId: Uint8Array | number[];
-    erc20Address?: Uint8Array | number[];
-    amount?: { toString(): string } | number | string | bigint;
-    requester?: string | Uint8Array | number[] | PublicKey;
-    recipientAddress?: Uint8Array | number[];
-  };
-};
-
-function hasToStringMethod(v: unknown): v is { toString(): string } {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    'toString' in v &&
-    typeof (v as { toString: unknown }).toString === 'function'
-  );
-}
-
-function toStringSafe(value: unknown): string {
-  if (value == null) return '0';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number') return String(value);
-  if (typeof value === 'bigint') return value.toString();
-  if (hasToStringMethod(value)) {
-    try {
-      return value.toString();
-    } catch {
-      return '0';
-    }
-  }
-  return '0';
-}
-
-function toPublicKey(
-  v: string | Uint8Array | number[] | PublicKey | undefined,
-): PublicKey {
-  if (!v) throw new Error('Missing public key');
-  if (v instanceof PublicKey) return v;
-  if (typeof v === 'string') return new PublicKey(v);
-  return new PublicKey(Buffer.from(v));
 }
