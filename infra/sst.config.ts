@@ -27,8 +27,6 @@ export default {
         RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY ?? "",
         NEXT_PUBLIC_ALCHEMY_API_KEY:
           process.env.NEXT_PUBLIC_ALCHEMY_API_KEY ?? "",
-        NEXT_PUBLIC_SEPOLIA_RPC_URL:
-          process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL ?? "",
         NEXT_PUBLIC_SOLANA_RPC_URL:
           process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "",
       } as const;

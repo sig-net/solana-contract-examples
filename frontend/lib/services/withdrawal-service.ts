@@ -251,6 +251,7 @@ export class WithdrawalService {
           evmParams,
         });
       } catch (txError) {
+        console.log('txError', txError);
         const errorMessage =
           txError instanceof Error ? txError.message : String(txError);
         if (

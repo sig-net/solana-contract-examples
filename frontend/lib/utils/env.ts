@@ -3,7 +3,6 @@ import { z } from 'zod';
 const clientEnvSchema = z.object({
   NEXT_PUBLIC_ALCHEMY_API_KEY: z.string().min(1, 'Alchemy API key is required'),
   NEXT_PUBLIC_HELIUS_RPC_URL: z.string().optional(),
-  NEXT_PUBLIC_SEPOLIA_RPC_URL: z.string().optional(),
 
   NEXT_PUBLIC_NOTIFY_DEPOSIT_URL: z.string().optional(),
   NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL: z.string().optional(),
@@ -35,7 +34,6 @@ export function getClientEnv(): ClientEnv {
   const rawEnv = {
     NEXT_PUBLIC_ALCHEMY_API_KEY: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
     NEXT_PUBLIC_HELIUS_RPC_URL: process.env.NEXT_PUBLIC_HELIUS_RPC_URL,
-    NEXT_PUBLIC_SEPOLIA_RPC_URL: process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL,
     NEXT_PUBLIC_NOTIFY_DEPOSIT_URL: process.env.NEXT_PUBLIC_NOTIFY_DEPOSIT_URL,
     NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL:
       process.env.NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL,
@@ -102,7 +100,6 @@ export function getFullEnv(): FullEnv {
   const rawEnv = {
     NEXT_PUBLIC_ALCHEMY_API_KEY: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
     NEXT_PUBLIC_HELIUS_RPC_URL: process.env.NEXT_PUBLIC_HELIUS_RPC_URL,
-    NEXT_PUBLIC_SEPOLIA_RPC_URL: process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL,
     NEXT_PUBLIC_NOTIFY_DEPOSIT_URL: process.env.NEXT_PUBLIC_NOTIFY_DEPOSIT_URL,
     NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL:
       process.env.NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL,
@@ -124,15 +121,10 @@ export function getFullEnv(): FullEnv {
 }
 
 /**
- * Get RPC URL for Sepolia with fallback logic
+ * Get RPC URL for Sepolia - always uses Alchemy
  */
 export function getSepoliaRpcUrl(): string {
   const env = getClientEnv();
-
-  if (env.NEXT_PUBLIC_SEPOLIA_RPC_URL) {
-    return env.NEXT_PUBLIC_SEPOLIA_RPC_URL;
-  }
-
   return `https://eth-sepolia.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`;
 }
 
