@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { Connection } from '@solana/web3.js';
 import { Alchemy, Network } from 'alchemy-sdk';
 
-import { getClientEnv, getSepoliaRpcUrl, getSolanaRpcUrl } from './env';
+import { getClientEnv, getSepoliaRpcUrl } from './env';
 
 export type SupportedChain = 'ethereum-sepolia' | 'solana';
 
@@ -13,17 +13,9 @@ export function getEthereumProvider(): ethers.JsonRpcProvider {
   return provider;
 }
 
-export function getSolanaConnection(): Connection {
-  const rpcUrl = getSolanaRpcUrl();
-  const connection = new Connection(rpcUrl);
-
-  return connection;
-}
-
 export function getHeliusConnection(): Connection | undefined {
   const env = getClientEnv();
 
-  // Only return Helius connection if it's configured
   if (env.NEXT_PUBLIC_HELIUS_RPC_URL) {
     return new Connection(env.NEXT_PUBLIC_HELIUS_RPC_URL);
   }
