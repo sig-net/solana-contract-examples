@@ -179,7 +179,7 @@ pub struct DepositErc20<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = UserTransactionHistory::space(),
+        space = 8 + UserTransactionHistory::INIT_SPACE,
         seeds = [
             b"user_transaction_history",
             requester.as_ref()
@@ -309,7 +309,7 @@ pub struct WithdrawErc20<'info> {
     #[account(
         init_if_needed,
         payer = authority,
-        space = UserTransactionHistory::space(),
+        space = 8 + UserTransactionHistory::INIT_SPACE,
         seeds = [
             b"user_transaction_history",
             authority.key().as_ref()
