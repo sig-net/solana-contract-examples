@@ -77,17 +77,21 @@ export async function handleDeposit(args: {
   const result = await orchestrator.executeSignatureFlow(
     requestId,
     txRequest,
-    async readEvent => {
+    async (readEvent, ethereumTxHash) => {
       const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
       try {
         const pendingDeposit =
           await bridgeContract.fetchPendingDeposit(pendingDepositPda);
+        const ethereumTxHashBytes = ethereumTxHash
+          ? Array.from(toBytes(ethereumTxHash))
+          : undefined;
         return await bridgeContract.claimErc20({
           requester: pendingDeposit.requester,
           requestIdBytes,
           serializedOutput: readEvent.serializedOutput,
           signature: readEvent.signature,
           erc20AddressBytes: pendingDeposit.erc20Address,
+          ethereumTxHashBytes,
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -138,7 +142,7 @@ export async function handleWithdrawal(args: {
   const result = await orchestrator.executeSignatureFlow(
     requestId,
     transactionParams,
-    async readEvent => {
+    async (readEvent, ethereumTxHash) => {
       const bridgeContract = orchestrator.getBridgeContract();
       const requestIdBytes = Array.from(toBytes(requestId));
       const [pendingWithdrawalPda] = derivePendingWithdrawalPda(requestIdBytes);
@@ -146,6 +150,9 @@ export async function handleWithdrawal(args: {
         pendingWithdrawalPda,
       )) as unknown as { requester: string };
       const erc20AddressBytes = Array.from(toBytes(erc20Address));
+      const ethereumTxHashBytes = ethereumTxHash
+        ? Array.from(toBytes(ethereumTxHash))
+        : undefined;
 
       return await bridgeContract.completeWithdrawErc20({
         requester: new PublicKey(pendingWithdrawal.requester),
@@ -153,6 +160,7 @@ export async function handleWithdrawal(args: {
         serializedOutput: readEvent.serializedOutput,
         signature: readEvent.signature,
         erc20AddressBytes,
+        ethereumTxHashBytes,
       });
     },
   );

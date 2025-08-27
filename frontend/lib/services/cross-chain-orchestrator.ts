@@ -55,7 +55,10 @@ export class CrossChainOrchestrator {
   async executeSignatureFlow<T>(
     requestId: string,
     ethereumTxParams: EvmTransactionRequest,
-    solanaCompletionFn: (readEvent: ReadRespondedEvent) => Promise<T>,
+    solanaCompletionFn: (
+      readEvent: ReadRespondedEvent,
+      ethereumTxHash?: string,
+    ) => Promise<T>,
     initialSolanaFn?: () => Promise<string>,
   ): Promise<
     CrossChainResult & { initialSolanaTxHash?: string; solanaResult?: T }
@@ -90,7 +93,7 @@ export class CrossChainOrchestrator {
       const readEvent = await this.waitForReadResponse(eventPromises);
 
       console.log(`[${op}] Completing on Solana...`);
-      const solanaResult = await solanaCompletionFn(readEvent);
+      const solanaResult = await solanaCompletionFn(readEvent, ethereumTxHash);
 
       console.log(`[${op}] Flow completed successfully`);
 
