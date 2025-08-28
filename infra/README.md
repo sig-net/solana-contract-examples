@@ -12,11 +12,13 @@ AWS Lambda infrastructure for the Solana Bridge using SST (Serverless Stack).
 ## Installation
 
 1. Install dependencies:
+
 ```bash
 pnpm install
 ```
 
 2. Configure environment variables:
+
 ```bash
 cp .env.example .env
 # Edit .env with your configuration
@@ -54,96 +56,15 @@ AWS_REGION=us-east-1
 SST_STAGE=prod
 ```
 
-### Switching Between Fakenet and Local Signer
-
-The infrastructure supports two MPC signer configurations:
-
-#### 1. Fakenet Signer (Default)
-Used for testing on devnet/testnet. This is the default configuration in the `.env` file.
-
-#### 2. Local Signer
-Used for local development with a local MPC node. To switch:
-1. Comment out the FAKENET configuration lines
-2. Uncomment the LOCAL configuration lines
-3. Redeploy the infrastructure
-
-**Note**: As mentioned in the `.env` comments, these configurations should eventually be moved into the code rather than environment variables.
-
-## Architecture
-
-### Lambda Functions
-
-The infrastructure deploys four Lambda functions:
-
-1. **DepositWorker** (`functions/depositWorker.ts`)
-   - Processes deposit transactions
-   - Timeout: 180 seconds
-   - Memory: 1024 MB
-
-2. **WithdrawWorker** (`functions/withdrawWorker.ts`)
-   - Processes withdrawal transactions
-   - Timeout: 180 seconds
-   - Memory: 1024 MB
-
-3. **NotifyDeposit** (`functions/notifyDeposit.ts`)
-   - API endpoint for deposit notifications
-   - Invokes DepositWorker asynchronously
-   - Timeout: 10 seconds
-   - Public URL with CORS enabled
-
-4. **NotifyWithdrawal** (`functions/notifyWithdrawal.ts`)
-   - API endpoint for withdrawal notifications
-   - Invokes WithdrawWorker asynchronously
-   - Timeout: 10 seconds
-   - Public URL with CORS enabled
-
-### SST Configuration
-
-The infrastructure is managed by SST v2, configured in `sst.config.ts`:
-
-- **Stack Name**: relayer-infra
-- **Runtime**: Node.js 20.x
-- **Build Format**: CommonJS
-- **Log Retention**: 1 week
-
 ## Deployment
-
-### Development Environment
-
-Deploy to development:
-```bash
-pnpm dev
-```
-
-This starts the SST development environment with live reloading.
 
 ### Production Deployment
 
 Deploy to production:
-```bash
-pnpm deploy
-# or
-SST_STAGE=prod pnpm deploy
-```
 
-### Using the Deploy Script
-
-For convenience, use the provided deploy script:
 ```bash
-cd infra
 ./scripts/deploy.sh
 ```
-
-The script will:
-1. Load environment variables from `.env`
-2. Deploy the SST stack
-3. Output the Lambda function URLs
-
-## Scripts
-
-- `pnpm dev` - Start SST development environment
-- `pnpm deploy` - Deploy to AWS
-- `pnpm remove` - Remove the stack from AWS
 
 ## Stack Outputs
 
@@ -160,97 +81,3 @@ These URLs should be configured in the frontend `.env` file:
 NEXT_PUBLIC_NOTIFY_DEPOSIT_URL="https://xxx.lambda-url.us-east-1.on.aws/"
 NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL="https://yyy.lambda-url.us-east-1.on.aws/"
 ```
-
-## AWS Permissions
-
-The Lambda functions require the following permissions:
-- `lambda:InvokeFunction` - To invoke worker functions
-- CloudWatch Logs permissions (automatically configured)
-
-## Monitoring and Debugging
-
-### CloudWatch Logs
-
-All Lambda functions log to CloudWatch with 1-week retention. Access logs via:
-- AWS Console → CloudWatch → Log Groups
-- Filter by stack name: `/aws/lambda/prod-relayer-infra-*`
-
-### SST Console
-
-During development, use the SST console for real-time debugging:
-```bash
-pnpm dev
-```
-
-Then open the SST console URL displayed in the terminal.
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Deployment Fails**: 
-   - Ensure AWS credentials are configured
-   - Check AWS permissions for Lambda, CloudWatch, and IAM
-   - Verify the AWS region matches your configuration
-
-2. **Lambda Timeout**:
-   - Worker functions have 180-second timeout
-   - API functions have 10-second timeout
-   - Adjust in `sst.config.ts` if needed
-
-3. **Environment Variables Not Loading**:
-   - Ensure `.env` file exists in the `infra` directory
-   - Check variable names match exactly
-   - Restart SST dev environment after changes
-
-4. **CORS Errors**:
-   - API lambdas are configured with `allowedOrigins: ["*"]`
-   - For production, restrict to specific domains
-
-### Debug Commands
-
-Check stack status:
-```bash
-sst diff
-```
-
-View stack outputs:
-```bash
-aws cloudformation describe-stacks --stack-name prod-relayer-infra
-```
-
-Test Lambda function:
-```bash
-aws lambda invoke --function-name prod-relayer-infra-NotifyDeposit response.json
-```
-
-## Security Considerations
-
-- Store sensitive keys in AWS Secrets Manager (not implemented yet)
-- Restrict CORS origins in production
-- Use IAM roles with minimum required permissions
-- Regularly rotate private keys
-- Monitor CloudWatch logs for suspicious activity
-
-## Cleanup
-
-To remove all resources:
-```bash
-pnpm remove
-# or
-SST_STAGE=prod pnpm remove
-```
-
-This will delete:
-- All Lambda functions
-- CloudWatch log groups
-- IAM roles and policies
-- API Gateway endpoints
-
-## Support
-
-For infrastructure issues:
-- Check CloudWatch logs for error details
-- Review SST documentation at https://docs.sst.dev/
-- Ensure AWS service limits are not exceeded
-- Verify network connectivity to RPC endpoints
