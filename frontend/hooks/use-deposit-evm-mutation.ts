@@ -1,26 +1,23 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { useMemo } from 'react';
 
 import { queryKeys } from '@/lib/query-client';
-import { BridgeContract } from '@/lib/contracts/bridge-contract';
 import { DepositService } from '@/lib/services/deposit-service';
 
-import { useAnchorWallet } from './use-anchor-wallet';
+import { useBridgeContract } from './use-bridge-contract';
 
 export function useDepositEvmMutation() {
   const { publicKey } = useWallet();
-  const { connection } = useConnection();
-  const anchorWallet = useAnchorWallet();
+  const bridgeContract = useBridgeContract();
   const queryClient = useQueryClient();
 
   const depositService = useMemo(() => {
-    if (!anchorWallet) return null;
-    const bridgeContract = new BridgeContract(connection, anchorWallet);
+    if (!bridgeContract) return null;
     return new DepositService(bridgeContract);
-  }, [connection, anchorWallet]);
+  }, [bridgeContract]);
 
   return useMutation({
     mutationFn: async ({
