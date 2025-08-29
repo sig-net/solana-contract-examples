@@ -8,8 +8,8 @@ import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { toast } from 'sonner';
 
-import { IDL, type SolanaCoreContracts } from '@/lib/program/idl-sol-dex';
 import { BRIDGE_PROGRAM_ID } from '@/lib/constants/addresses';
+import { IDL, type SolDexIDL } from '@/lib/program/idl-sol-dex';
 
 const CONFIG_SEED = 'vault_config';
 
@@ -36,7 +36,7 @@ export default function AdminPage() {
 
   const program = useMemo(() => {
     if (!provider) return null;
-    return new Program(IDL as unknown as SolanaCoreContracts, provider);
+    return new Program(IDL as unknown as SolDexIDL, provider);
   }, [provider]);
 
   const onInitialize = useCallback(async () => {

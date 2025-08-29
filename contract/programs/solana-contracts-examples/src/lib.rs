@@ -106,7 +106,7 @@ pub struct InitializeConfig<'info> {
     #[account(
         init,
         payer = payer,
-        space = VaultConfig::space(),
+        space = 8 + VaultConfig::INIT_SPACE,
         seeds = [b"vault_config"],
         bump
     )]
@@ -140,7 +140,7 @@ pub struct DepositErc20<'info> {
     #[account(
         init,
         payer = payer,
-        space = PendingErc20Deposit::space(),
+        space = 8 + PendingErc20Deposit::INIT_SPACE,
         seeds = [
             b"pending_erc20_deposit",
             request_id.as_ref()
@@ -212,7 +212,7 @@ pub struct ClaimErc20<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = UserErc20Balance::space(),
+        space = 8 + UserErc20Balance::INIT_SPACE,
         seeds = [
             b"user_erc20_balance",
             pending_deposit.requester.as_ref(),
@@ -258,7 +258,7 @@ pub struct WithdrawErc20<'info> {
     #[account(
         init,
         payer = authority,
-        space = PendingErc20Withdrawal::space(),
+        space = 8 + PendingErc20Withdrawal::INIT_SPACE,
         seeds = [
             b"pending_erc20_withdrawal",
             request_id.as_ref()

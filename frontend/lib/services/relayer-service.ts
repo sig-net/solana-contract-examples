@@ -1,5 +1,5 @@
 import type { EvmTransactionRequestNotifyWithdrawal } from '@/lib/types/shared.types';
-import { getClientEnv } from '@/lib/utils/env';
+import { getClientEnv } from '@/lib/config/env.config';
 
 export class RelayerService {
   async notifyDeposit({

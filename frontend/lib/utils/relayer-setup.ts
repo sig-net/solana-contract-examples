@@ -7,7 +7,7 @@ import {
   CrossChainOrchestrator,
   type CrossChainConfig,
 } from '@/lib/services/cross-chain-orchestrator';
-import { getFullEnv } from '@/lib/utils/env';
+import { getFullEnv } from '@/lib/config/env.config';
 import { getEthereumProvider, getHeliusConnection } from '@/lib/rpc';
 
 export interface RelayerSetup {

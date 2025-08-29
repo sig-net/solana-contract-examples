@@ -8,7 +8,7 @@ import {
 import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 import { toHex, toBytes } from 'viem';
 
-import { IDL, type SolanaCoreContracts } from '@/lib/program/idl-sol-dex';
+import { IDL, type SolDexIDL } from '@/lib/program/idl-sol-dex';
 import type { EvmTransactionProgramParams } from '@/lib/types/shared.types';
 import {
   deriveEthereumAddress,
@@ -44,7 +44,7 @@ type UserTransactionHistory = {
 };
 
 export class BridgeContract {
-  private program: Program<SolanaCoreContracts> | null = null;
+  private program: Program<SolDexIDL> | null = null;
 
   constructor(
     private connection: Connection,
@@ -59,13 +59,13 @@ export class BridgeContract {
     return this.wallet;
   }
 
-  private getBridgeProgram(): Program<SolanaCoreContracts> {
+  private getBridgeProgram(): Program<SolDexIDL> {
     if (!this.program) {
       const provider = new AnchorProvider(this.connection, this.wallet, {
         commitment: 'confirmed',
         skipPreflight: true,
       });
-      this.program = new Program(IDL, provider) as Program<SolanaCoreContracts>;
+      this.program = new Program(IDL as any, provider) as Program<SolDexIDL>;
     }
     return this.program;
   }
