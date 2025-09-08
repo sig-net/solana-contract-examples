@@ -1473,22 +1473,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "omni-transaction"
-version = "0.2.1"
-source = "git+https://github.com/Pessina/omni-transaction-rs#922f7883563a466fe6e4b54fd2cc47ec2c20450c"
-dependencies = [
- "borsh 1.5.7",
- "bs58",
- "hex",
- "rlp 0.6.1",
- "schemars",
- "serde",
- "serde-big-array",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1814,26 +1798,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ref-cast"
-version = "1.0.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0ae411dbe946a674d89546582cea4ba2bb8defac896622d6496f14c23ba5cf"
-dependencies = [
- "ref-cast-impl",
-]
-
-[[package]]
-name = "ref-cast-impl"
-version = "1.0.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1165225c21bff1f3bbce98f5a1f889949bc902d3575308cc7b0de30b4f6d27c7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.104",
-]
-
-[[package]]
 name = "regex"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1994,12 +1958,11 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "schemars"
-version = "0.9.0"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd191f9397d57d581cddd31014772520aa448f65ef991055d7f61582c65165f"
+checksum = "3fbf2ae1b8bc8e02df939598064d22402220cd5bbcca1c76f7d6a310974d5615"
 dependencies = [
  "dyn-clone",
- "ref-cast",
  "schemars_derive",
  "serde",
  "serde_json",
@@ -2007,9 +1970,9 @@ dependencies = [
 
 [[package]]
 name = "schemars_derive"
-version = "0.9.0"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5016d94c77c6d32f0b8e08b781f7dc8a90c2007d4e77472cc2807bc10a8438fe"
+checksum = "32e265784ad618884abaea0600a9adf15393368d840e0222d101a072f3f7534d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2192,6 +2155,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "signet-rs"
+version = "0.2.4"
+source = "git+https://github.com/sig-net/signet.rs?branch=pre-compiled#4fa2eecaf127d9e36eea7dadef9e010b94b44112"
+dependencies = [
+ "borsh 1.5.7",
+ "bs58",
+ "hex",
+ "rlp 0.6.1",
+ "schemars",
+ "serde",
+ "serde-big-array",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2316,9 +2295,9 @@ dependencies = [
  "anchor-lang",
  "chain-signatures",
  "hex",
- "omni-transaction",
  "serde_json",
  "sha3",
+ "signet-rs",
 ]
 
 [[package]]

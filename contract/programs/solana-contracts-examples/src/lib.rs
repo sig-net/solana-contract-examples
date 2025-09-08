@@ -10,7 +10,7 @@ use ::chain_signatures::Signature;
 pub use constants::*;
 pub use state::*;
 
-declare_id!("3wgi78Dc9kStc1bV4SmrHQXNerE3Z97yd1rQtDoDq5Xo");
+declare_id!("AD14xJzkNHHFxMRitSe7ZuZvG9BeBPd9sqeVnWSxri9V");
 
 #[program]
 pub mod solana_core_contracts {
@@ -61,7 +61,13 @@ pub mod solana_core_contracts {
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
     ) -> Result<()> {
-        instructions::erc20_vault::claim_erc20(ctx, request_id, serialized_output, signature, ethereum_tx_hash)
+        instructions::erc20_vault::claim_erc20(
+            ctx,
+            request_id,
+            serialized_output,
+            signature,
+            ethereum_tx_hash,
+        )
     }
 
     pub fn withdraw_erc20(

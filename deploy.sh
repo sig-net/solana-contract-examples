@@ -43,38 +43,86 @@ if [ "$ENV" = "prod" ]; then
     [ "$confirm" != "yes" ] && exit 0
 fi
 
-# === SOLANA DEPLOYMENT ===
-echo "[ Deploying Solana ]"
+# Contract deployment menu
+show_contract_menu() {
+    echo "==================================="
+    echo "  Contract Deployment Options"
+    echo "==================================="
+    echo ""
+    echo "Select contract action:"
+    echo "  1) Build and Deploy Contract"
+    echo "  2) Build Only (no deployment)"
+    echo "  3) Skip Contract (SST only)"
+    echo "  4) Cancel"
+    echo ""
+}
 
-# Set paths
-PROGRAM_KEYPAIR="contract/deploy/keypairs/${ENV}-program.json"
-if [ ! -f "$PROGRAM_KEYPAIR" ]; then
-    echo "Error: Keypairs not found"
-    echo "Run: cd contract/deploy/scripts && ./setup-keys.sh"
-    exit 1
+# Get contract deployment choice
+if [ -n "$2" ]; then
+    CONTRACT_ACTION=$2
+else
+    show_contract_menu
+    read -p "Enter choice [1-4]: " choice
+    case $choice in
+        1) CONTRACT_ACTION="deploy" ;;
+        2) CONTRACT_ACTION="build" ;;
+        3) CONTRACT_ACTION="skip" ;;
+        *) echo "Cancelled"; exit 0 ;;
+    esac
 fi
 
-PROGRAM_ID=$(solana-keygen pubkey "$PROGRAM_KEYPAIR")
-
-# Check balance
-BALANCE=$(solana balance | awk '{print $1}')
-if (( $(echo "$BALANCE < 0.5" | bc -l) )); then
-    echo "Error: Low balance ($BALANCE SOL)"
-    echo "Run: solana airdrop 2"
-    exit 1
+# === SOLANA CONTRACT HANDLING ===
+if [ "$CONTRACT_ACTION" != "skip" ]; then
+    echo "[ Solana Contract ]"
+    
+    # Set paths
+    PROGRAM_KEYPAIR="contract/deploy/keypairs/${ENV}-program.json"
+    if [ ! -f "$PROGRAM_KEYPAIR" ]; then
+        echo "Error: Keypairs not found"
+        echo "Run: cd contract/deploy/scripts && ./setup-keys.sh"
+        exit 1
+    fi
+    
+    PROGRAM_ID=$(solana-keygen pubkey "$PROGRAM_KEYPAIR")
+    
+    # Check balance only if deploying
+    if [ "$CONTRACT_ACTION" = "deploy" ]; then
+        BALANCE=$(solana balance | awk '{print $1}')
+        if (( $(echo "$BALANCE < 0.5" | bc -l) )); then
+            echo "Error: Low balance ($BALANCE SOL)"
+            echo "Run: solana airdrop 2"
+            exit 1
+        fi
+    fi
+    
+    # Build
+    cd contract
+    echo "Building contract..."
+    anchor build
+    
+    # Deploy if requested
+    if [ "$CONTRACT_ACTION" = "deploy" ]; then
+        echo "Deploying contract..."
+        solana program deploy \
+            --program-id "../$PROGRAM_KEYPAIR" \
+            target/deploy/solana_core_contracts.so
+        echo "✅ Contract deployed: $PROGRAM_ID"
+    else
+        echo "✅ Contract built (not deployed)"
+    fi
+    
+    cd ..
+else
+    echo "[ Skipping Solana Contract ]"
+    
+    # Still get program ID if keypair exists for display
+    PROGRAM_KEYPAIR="contract/deploy/keypairs/${ENV}-program.json"
+    if [ -f "$PROGRAM_KEYPAIR" ]; then
+        PROGRAM_ID=$(solana-keygen pubkey "$PROGRAM_KEYPAIR")
+    else
+        PROGRAM_ID="Not available"
+    fi
 fi
-
-# Build and deploy
-cd contract
-echo "Building..."
-anchor build
-
-echo "Deploying..."
-solana program deploy \
-    --program-id "../$PROGRAM_KEYPAIR" \
-    target/deploy/solana_core_contracts.so
-
-cd ..
 
 # === SST DEPLOYMENT ===
 if aws sts get-caller-identity &>/dev/null; then

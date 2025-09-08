@@ -7,7 +7,8 @@ use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use chain_signatures::cpi::accounts::SignRespond;
 use chain_signatures::cpi::sign_respond;
 use chain_signatures::SerializationFormat;
-use omni_transaction::{TransactionBuilder, TxBuilder, EVM};
+
+use signet_rs::evm::EVMTransactionBuilder;
 
 use crate::state::transaction_status::{TransactionRecord, TransactionStatus, TransactionType};
 use crate::state::vault::{EvmTransactionParams, IERC20};
@@ -44,18 +45,31 @@ pub fn deposit_erc20(
     };
 
     // Build EVM transaction
-    let evm_tx = TransactionBuilder::new::<EVM>()
-        .nonce(tx_params.nonce)
-        .to(erc20_address)
-        .value(tx_params.value)
-        .input(call.abi_encode())
-        .max_priority_fee_per_gas(tx_params.max_priority_fee_per_gas)
-        .max_fee_per_gas(tx_params.max_fee_per_gas)
-        .gas_limit(tx_params.gas_limit)
-        .chain_id(tx_params.chain_id)
-        .build();
 
-    let rlp_encoded_tx = evm_tx.build_for_signing();
+    msg!("Deposit: EVMTransactionBuilder::build_and_encode");
+    msg!("Chain ID: {}", tx_params.chain_id);
+    msg!("Nonce: {}", tx_params.nonce);
+    msg!("ERC20 address: {:?}", erc20_address);
+    msg!("Value: {}", tx_params.value);
+    msg!("Gas limit: {}", tx_params.gas_limit);
+    msg!("Max fee per gas: {}", tx_params.max_fee_per_gas);
+    msg!(
+        "Max priority fee per gas: {}",
+        tx_params.max_priority_fee_per_gas
+    );
+    msg!("Call data: {:?}", call.abi_encode());
+
+    let rlp_encoded_tx = EVMTransactionBuilder::build_and_encode(
+        tx_params.chain_id,
+        tx_params.nonce,
+        Some(erc20_address),
+        tx_params.value,
+        call.abi_encode(),
+        tx_params.gas_limit,
+        tx_params.max_fee_per_gas,
+        tx_params.max_priority_fee_per_gas,
+        None,
+    );
 
     // Add detailed logging
     msg!("=== REQUEST ID CALCULATION DEBUG ===");
@@ -263,19 +277,31 @@ pub fn withdraw_erc20(
         amount: U256::from(amount),
     };
 
-    // Build EVM transaction - note: this is FROM the hardcoded recipient address
-    let evm_tx = TransactionBuilder::new::<EVM>()
-        .nonce(tx_params.nonce)
-        .to(erc20_address)
-        .value(tx_params.value)
-        .input(call.abi_encode())
-        .max_priority_fee_per_gas(tx_params.max_priority_fee_per_gas)
-        .max_fee_per_gas(tx_params.max_fee_per_gas)
-        .gas_limit(tx_params.gas_limit)
-        .chain_id(tx_params.chain_id)
-        .build();
+    msg!("Withdraw: EVMTransactionBuilder::build_and_encode");
+    msg!("Chain ID: {}", tx_params.chain_id);
+    msg!("Nonce: {}", tx_params.nonce);
+    msg!("ERC20 address: {:?}", erc20_address);
+    msg!("Value: {}", tx_params.value);
+    msg!("Gas limit: {}", tx_params.gas_limit);
+    msg!("Max fee per gas: {}", tx_params.max_fee_per_gas);
+    msg!(
+        "Max priority fee per gas: {}",
+        tx_params.max_priority_fee_per_gas
+    );
+    msg!("Call data: {:?}", call.abi_encode());
 
-    let rlp_encoded_tx = evm_tx.build_for_signing();
+    // Build EVM transaction - note: this is FROM the hardcoded recipient address
+    let rlp_encoded_tx = EVMTransactionBuilder::build_and_encode(
+        tx_params.chain_id,
+        tx_params.nonce,
+        Some(erc20_address),
+        tx_params.value,
+        call.abi_encode(),
+        tx_params.gas_limit,
+        tx_params.max_fee_per_gas,
+        tx_params.max_priority_fee_per_gas,
+        None,
+    );
 
     // Generate request ID
     let computed_request_id = generate_sign_respond_request_id(
@@ -438,12 +464,20 @@ pub fn complete_withdraw_erc20(
 
         // Update transaction history to mark withdrawal as failed
         let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(&request_id, TransactionStatus::Failed, ethereum_tx_hash)?;
+        history.update_withdrawal_status(
+            &request_id,
+            TransactionStatus::Failed,
+            ethereum_tx_hash,
+        )?;
         msg!("Updated withdrawal status to failed in transaction history");
     } else {
         // Update transaction history to mark withdrawal as completed
         let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(&request_id, TransactionStatus::Completed, ethereum_tx_hash)?;
+        history.update_withdrawal_status(
+            &request_id,
+            TransactionStatus::Completed,
+            ethereum_tx_hash,
+        )?;
         msg!("Updated withdrawal status to completed in transaction history");
     }
 

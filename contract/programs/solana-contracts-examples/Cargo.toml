@@ -19,7 +19,7 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang          = { version = "0.31.1", features = ["init-if-needed"] }
-omni-transaction     = { git = "https://github.com/Pessina/omni-transaction-rs", features = ["evm"] }
+signet-rs            = { git = "https://github.com/sig-net/signet.rs", features = ["evm"], branch = "pre-compiled" }
 sha3                 = "0.10.8"
 alloy-sol-types      = { version = "0.8.25", default-features = false, features = ["json"] }
 alloy-json-abi       = "0.8"
