@@ -1,11 +1,13 @@
 // @ts-nocheck
 import { StackContext, Function } from "sst/constructs";
+import { getEnvForSST } from "@/lib/config/env.config";
 
 export default {
   config(_input: unknown) {
     return {
       name: "relayer-infra",
       region: process.env.AWS_REGION || "us-east-1",
+      stage: process.env.SST_STAGE || "dev",
       // Use default CDK bootstrap qualifier (hnb659fds)
     };
   },
@@ -21,18 +23,14 @@ export default {
       },
     });
 
-    app.stack(function RelayerStack({ stack }: StackContext) {
-      // Simple env injection (works with infra/.env and deploy script)
-      const commonEnv = {
-        RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY ?? "",
-        NEXT_PUBLIC_ALCHEMY_API_KEY:
-          process.env.NEXT_PUBLIC_ALCHEMY_API_KEY ?? "",
-        NEXT_PUBLIC_HELIUS_RPC_URL:
-          process.env.NEXT_PUBLIC_HELIUS_RPC_URL ?? "",
-      } as const;
+    app.stack(function RelayerStack({ stack, app }: StackContext) {
+      // Add stage to stack name for separation
+      const stage = app.stage;
+      // Get all environment variables from centralized config
+      const commonEnv = getEnvForSST();
 
       // Background worker Lambdas
-      const depositWorker = new Function(stack, "DepositWorker", {
+      const depositWorker = new Function(stack, `DepositWorker-${stage}`, {
         handler: "functions/depositWorker.handler",
         timeout: 180,
         memorySize: 1024,
@@ -40,7 +38,7 @@ export default {
         environment: commonEnv,
       });
 
-      const withdrawWorker = new Function(stack, "WithdrawWorker", {
+      const withdrawWorker = new Function(stack, `WithdrawWorker-${stage}`, {
         handler: "functions/withdrawWorker.handler",
         timeout: 180,
         memorySize: 1024,
@@ -48,7 +46,7 @@ export default {
         environment: commonEnv,
       });
 
-      const notifyDeposit = new Function(stack, "NotifyDeposit", {
+      const notifyDeposit = new Function(stack, `NotifyDeposit-${stage}`, {
         handler: "functions/notifyDeposit.handler",
         timeout: 10,
         memorySize: 1024,
@@ -65,22 +63,26 @@ export default {
         },
       });
 
-      const notifyWithdrawal = new Function(stack, "NotifyWithdrawal", {
-        handler: "functions/notifyWithdrawal.handler",
-        timeout: 10,
-        memorySize: 1024,
-        logRetention: "one_week",
-        url: {
-          cors: {
-            allowedOrigins: ["*"],
-            allowedMethods: ["POST"],
+      const notifyWithdrawal = new Function(
+        stack,
+        `NotifyWithdrawal-${stage}`,
+        {
+          handler: "functions/notifyWithdrawal.handler",
+          timeout: 10,
+          memorySize: 1024,
+          logRetention: "one_week",
+          url: {
+            cors: {
+              allowedOrigins: ["*"],
+              allowedMethods: ["POST"],
+            },
           },
-        },
-        environment: {
-          ...commonEnv,
-          WITHDRAW_WORKER_NAME: withdrawWorker.functionName,
-        },
-      });
+          environment: {
+            ...commonEnv,
+            WITHDRAW_WORKER_NAME: withdrawWorker.functionName,
+          },
+        }
+      );
 
       // Allow API lambdas to invoke workers
       // Note: using broad action for simplicity; can be narrowed with a custom policy if needed.

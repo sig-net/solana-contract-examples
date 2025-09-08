@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "sst dev",
+    "dev:local": "sst dev --stage local",
     "deploy": "sst deploy",
     "remove": "sst remove"
   },

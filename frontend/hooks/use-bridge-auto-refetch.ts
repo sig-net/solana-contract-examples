@@ -2,9 +2,7 @@
 
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useEffect, useMemo } from 'react';
-import { PublicKey } from '@solana/web3.js';
 import { useQueryClient } from '@tanstack/react-query';
-import type { Wallet } from '@coral-xyz/anchor';
 
 import {
   BRIDGE_PROGRAM_ID,
@@ -13,7 +11,6 @@ import {
 } from '@/lib/constants/addresses';
 import { getAllErc20Tokens } from '@/lib/constants/token-metadata';
 import { queryKeys } from '@/lib/query-client';
-import { BridgeContract } from '@/lib/contracts/bridge-contract';
 
 /**
  * OPTIMIZED: useBridgeAutoRefetch subscribes to on-chain logs for our program
@@ -25,7 +22,7 @@ import { BridgeContract } from '@/lib/contracts/bridge-contract';
  */
 export function useBridgeAutoRefetch() {
   const { connection } = useConnection();
-  const { publicKey, signTransaction, signAllTransactions } = useWallet();
+  const { publicKey } = useWallet();
   const queryClient = useQueryClient();
 
   const userBalancePdaSet = useMemo(() => {
@@ -50,19 +47,6 @@ export function useBridgeAutoRefetch() {
       return null;
     }
   }, [publicKey]);
-
-  const bridgeContract = useMemo(() => {
-    if (!publicKey) return null;
-    const anchorWallet: Wallet = {
-      publicKey,
-      signTransaction,
-      signAllTransactions,
-      payer: publicKey
-        ? ({ publicKey } as unknown as { publicKey: PublicKey })
-        : undefined,
-    } as unknown as Wallet;
-    return new BridgeContract(connection, anchorWallet);
-  }, [connection, publicKey, signTransaction, signAllTransactions]);
 
   useEffect(() => {
     if (!publicKey || userBalancePdaSet.size === 0) return;
@@ -161,6 +145,5 @@ export function useBridgeAutoRefetch() {
     userBalancePdaSet,
     requesterPdaBase58,
     queryClient,
-    bridgeContract,
   ]);
 }

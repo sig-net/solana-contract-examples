@@ -2,30 +2,32 @@ import { PublicKey } from '@solana/web3.js';
 import { ethers } from 'ethers';
 import { secp256k1 } from '@noble/curves/secp256k1';
 
+import { getClientEnv } from '@/lib/config/env.config';
+import { IDL } from '@/lib/program/idl-sol-dex';
+
+// Get environment variables
+const env = getClientEnv();
+
 /**
  * The deployed Solana program ID
- * Update this when deploying a new contract
+ * Reads directly from the IDL to ensure it's always in sync
  */
-export const BRIDGE_PROGRAM_ID = new PublicKey(
-  '3wgi78Dc9kStc1bV4SmrHQXNerE3Z97yd1rQtDoDq5Xo',
-);
+export const BRIDGE_PROGRAM_ID = new PublicKey(IDL.address);
 
 export const CHAIN_SIGNATURES_PROGRAM_ID = new PublicKey(
-  '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU',
+  env.NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID,
 );
 
 /**
  * Chain Signatures MPC configuration
  */
 export const CHAIN_SIGNATURES_CONFIG = {
-  BASE_PUBLIC_KEY:
-    // '0x04bb50e2d89a4ed70663d080659fe0ad4b9bc3e06c17a227433966cb59ceee020decddbf6e00192011648d13b1c00af770c0c1bb609d4d3a5c98a43772e0e18ef4',
-    '0x044eef776e4f257d68983e45b340c2e9546c5df95447900b6aadfec68fb46fdee257e26b8ba383ddba9914b33c60e869265f859566fff4baef283c54d821ca3b64',
+  BASE_PUBLIC_KEY: env.NEXT_PUBLIC_BASE_PUBLIC_KEY,
   EPSILON_DERIVATION_PREFIX: 'sig.network v1.0.0 epsilon derivation',
   SOLANA_CHAIN_ID: '0x800001f5',
 } as const;
 
-export const RESPONDER_ADDRESS = '8oYvqBeCAhQYhA7Fw2fxG2ZvYgmhUtEdtXhteT7xdbti';
+export const RESPONDER_ADDRESS = env.NEXT_PUBLIC_RESPONDER_ADDRESS;
 
 /**
  * MPC Root Signer Address - derived directly from base public key

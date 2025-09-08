@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import { Connection } from '@solana/web3.js';
 import { Alchemy, Network } from 'alchemy-sdk';
 
-import { getClientEnv } from './utils/env';
+import { getClientEnv } from '@/lib/config/env.config';
 
 export type SupportedChain = 'ethereum-sepolia' | 'solana';
 

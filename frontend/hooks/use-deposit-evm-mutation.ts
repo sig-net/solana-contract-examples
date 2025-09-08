@@ -2,15 +2,22 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useMemo } from 'react';
 
 import { queryKeys } from '@/lib/query-client';
+import { DepositService } from '@/lib/services/deposit-service';
 
-import { useDepositService } from './use-deposit-service';
+import { useBridgeContract } from './use-bridge-contract';
 
 export function useDepositEvmMutation() {
   const { publicKey } = useWallet();
-  const depositService = useDepositService();
+  const bridgeContract = useBridgeContract();
   const queryClient = useQueryClient();
+
+  const depositService = useMemo(() => {
+    if (!bridgeContract) return null;
+    return new DepositService(bridgeContract);
+  }, [bridgeContract]);
 
   return useMutation({
     mutationFn: async ({
@@ -30,6 +37,7 @@ export function useDepositEvmMutation() {
       }) => void;
     }) => {
       if (!publicKey) throw new Error('No public key available');
+      if (!depositService) throw new Error('Deposit service not available');
       return depositService.depositErc20(
         publicKey,
         erc20Address,
