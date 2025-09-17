@@ -1,4 +1,4 @@
-import { Connection } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js';
 import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import type { Hex } from 'viem';
 
@@ -195,9 +195,10 @@ export class ChainSignaturesContract {
   ): Promise<void> {
     try {
       const program = this.getEventProgram();
-      const programId = program.programId;
+
+      const responderPubkey = new PublicKey(RESPONDER_ADDRESS);
       const signatures = await this.eventConnection.getSignaturesForAddress(
-        programId,
+        responderPubkey,
         { limit: maxSignatures },
       );
 

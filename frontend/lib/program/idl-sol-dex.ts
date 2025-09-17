@@ -1,5 +1,5 @@
 export const IDL = {
-  address: 'AD14xJzkNHHFxMRitSe7ZuZvG9BeBPd9sqeVnWSxri9V',
+  address: '3wgi78Dc9kStc1bV4SmrHQXNerE3Z97yd1rQtDoDq5Xo',
   metadata: {
     name: 'solanaCoreContracts',
     version: '0.1.0',
@@ -1013,7 +1013,7 @@ export const IDL = {
 };
 
 export type SolDexIDL = {
-  address: 'AD14xJzkNHHFxMRitSe7ZuZvG9BeBPd9sqeVnWSxri9V';
+  address: '3wgi78Dc9kStc1bV4SmrHQXNerE3Z97yd1rQtDoDq5Xo';
   metadata: {
     name: 'solanaCoreContracts';
     version: '0.1.0';
