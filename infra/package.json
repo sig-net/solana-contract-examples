@@ -3,9 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "sst dev",
-    "deploy": "sst deploy",
-    "remove": "sst remove"
+    "local:dev": "sst dev --stage local",
+    "local:deploy": "sst deploy --stage local",
+    "local:deploy-all": "cd .. && ./deploy.sh local deploy",
+    "local:remove": "sst remove --stage local",
+    "dev:dev": "sst dev --stage dev",
+    "dev:deploy": "sst deploy --stage dev",
+    "dev:deploy-all": "cd .. && ./deploy.sh dev deploy",
+    "dev:remove": "sst remove --stage dev",
+    "prod:dev": "sst dev --stage prod",
+    "prod:deploy": "sst deploy --stage prod",
+    "prod:deploy-all": "cd .. && ./deploy.sh prod deploy",
+    "prod:remove": "sst remove --stage prod"
   },
   "dependencies": {
     "@aws-sdk/client-lambda": "^3.864.0",

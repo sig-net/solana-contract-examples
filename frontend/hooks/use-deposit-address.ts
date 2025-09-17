@@ -1,35 +1,15 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { useMemo } from 'react';
-import { Wallet } from '@coral-xyz/anchor';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 import { queryKeys } from '@/lib/query-client';
-import { BridgeContract } from '@/lib/contracts/bridge-contract';
+
+import { useBridgeContract } from './use-bridge-contract';
 
 export function useDepositAddress() {
-  const { connection } = useConnection();
-  const wallet = useWallet();
-  const { publicKey } = wallet;
-
-  const bridgeContract = useMemo(() => {
-    if (!publicKey) return null;
-
-    const anchorWallet: Wallet = {
-      publicKey,
-      signTransaction: wallet.signTransaction,
-      signAllTransactions: wallet.signAllTransactions,
-      payer: { publicKey },
-    } as Wallet;
-
-    return new BridgeContract(connection, anchorWallet);
-  }, [
-    connection,
-    publicKey,
-    wallet.signTransaction,
-    wallet.signAllTransactions,
-  ]);
+  const { publicKey } = useWallet();
+  const bridgeContract = useBridgeContract();
 
   return useQuery({
     queryKey: publicKey

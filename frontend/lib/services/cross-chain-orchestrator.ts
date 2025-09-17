@@ -104,6 +104,7 @@ export class CrossChainOrchestrator {
         solanaResult,
       };
     } catch (error) {
+      console.error(error);
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       console.error(`[${op}] Flow failed:`, errorMessage);

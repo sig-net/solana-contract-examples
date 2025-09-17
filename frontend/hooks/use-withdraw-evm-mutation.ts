@@ -30,6 +30,8 @@ export function useWithdrawEvmMutation() {
       }) => void;
     }) => {
       if (!publicKey) throw new Error('No public key available');
+      if (!withdrawalService)
+        throw new Error('Withdrawal service not available');
       return withdrawalService.withdrawEvm(
         publicKey,
         erc20Address,
