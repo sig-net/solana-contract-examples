@@ -296,7 +296,7 @@ export const IDL = {
         },
         {
           name: 'chainSignaturesProgram',
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU',
+          address: '85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV',
         },
         {
           name: 'systemProgram',
@@ -551,7 +551,7 @@ export const IDL = {
         },
         {
           name: 'chainSignaturesProgram',
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU',
+          address: '85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV',
         },
         {
           name: 'systemProgram',
@@ -1476,7 +1476,7 @@ export type SolDexIDL = {
         },
         {
           name: 'chainSignaturesProgram';
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU';
+          address: '85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV';
         },
         {
           name: 'systemProgram';
@@ -1871,7 +1871,7 @@ export type SolDexIDL = {
         },
         {
           name: 'chainSignaturesProgram';
-          address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU';
+          address: '85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV';
         },
         {
           name: 'systemProgram';

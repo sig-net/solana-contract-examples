@@ -4,9 +4,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::keccak;
 use anchor_lang::solana_program::secp256k1_recover::secp256k1_recover;
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
-use chain_signatures::cpi::accounts::SignRespond;
-use chain_signatures::cpi::sign_respond;
-use chain_signatures::SerializationFormat;
+use chain_signatures::cpi::accounts::SignBidirectional;
+use chain_signatures::cpi::sign_bidirectional;
 
 use signet_rs::evm::EVMTransactionBuilder;
 
@@ -71,6 +70,9 @@ pub fn deposit_erc20(
         None,
     );
 
+    // Generate CAIP-2 ID from chain ID
+    let caip2_id = format!("eip155:{}", tx_params.chain_id);
+
     // Add detailed logging
     msg!("=== REQUEST ID CALCULATION DEBUG ===");
     msg!("Sender (requester): {}", ctx.accounts.requester_pda.key());
@@ -79,7 +81,7 @@ pub fn deposit_erc20(
         "Transaction data (first 32 bytes): {:?}",
         &rlp_encoded_tx[..32.min(rlp_encoded_tx.len())]
     );
-    msg!("SLIP44 chain ID: {}", 60);
+    msg!("CAIP-2 ID: {}", caip2_id);
     msg!("Key version: {}", 0);
     msg!("Path: {}", path);
     msg!("Algo: {}", "ECDSA");
@@ -87,11 +89,11 @@ pub fn deposit_erc20(
     msg!("Params: {}", "");
 
     // Generate request ID and verify it matches the one passed in
-    let computed_request_id = generate_sign_respond_request_id(
+    let computed_request_id = generate_sign_bidirectional_request_id(
         &ctx.accounts.requester_pda.key(),
         &rlp_encoded_tx,
-        60, // Ethereum SLIP-44
-        0,  // key_version
+        &caip2_id,
+        0, // key_version
         &path,
         "ECDSA",
         "ethereum",
@@ -139,7 +141,7 @@ pub fn deposit_erc20(
 
     let cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.chain_signatures_program.to_account_info(),
-        SignRespond {
+        SignBidirectional {
             program_state: ctx.accounts.chain_signatures_state.to_account_info(),
             requester: ctx.accounts.requester_pda.to_account_info(),
             fee_payer: ctx
@@ -159,18 +161,16 @@ pub fn deposit_erc20(
         signer_seeds,
     );
 
-    sign_respond(
+    sign_bidirectional(
         cpi_ctx,
         rlp_encoded_tx,
-        60, // Ethereum SLIP-44
-        0,  // key_version
+        caip2_id,
+        0, // key_version
         path,
         "ECDSA".to_string(),
         "ethereum".to_string(),
         "".to_string(),
-        SerializationFormat::AbiJson,
         explorer_schema,
-        SerializationFormat::Borsh,
         callback_schema,
     )?;
 
@@ -303,12 +303,15 @@ pub fn withdraw_erc20(
         None,
     );
 
+    // Generate CAIP-2 ID from chain ID
+    let caip2_id = format!("eip155:{}", tx_params.chain_id);
+
     // Generate request ID
-    let computed_request_id = generate_sign_respond_request_id(
+    let computed_request_id = generate_sign_bidirectional_request_id(
         &ctx.accounts.requester.key(),
         &rlp_encoded_tx,
-        60, // Ethereum SLIP-44
-        0,  // key_version
+        &caip2_id,
+        0, // key_version
         &path,
         "ECDSA",
         "ethereum",
@@ -354,7 +357,7 @@ pub fn withdraw_erc20(
 
     let cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.chain_signatures_program.to_account_info(),
-        SignRespond {
+        SignBidirectional {
             program_state: ctx.accounts.chain_signatures_state.to_account_info(),
             requester: ctx.accounts.requester.to_account_info(),
             fee_payer: ctx
@@ -374,18 +377,16 @@ pub fn withdraw_erc20(
         signer_seeds,
     );
 
-    sign_respond(
+    sign_bidirectional(
         cpi_ctx,
         rlp_encoded_tx,
-        60, // Ethereum SLIP-44
-        0,  // key_version
+        caip2_id,
+        0, // key_version
         path,
         "ECDSA".to_string(),
         "ethereum".to_string(),
         "".to_string(),
-        SerializationFormat::AbiJson,
         explorer_schema,
-        SerializationFormat::Borsh,
         callback_schema,
     )?;
 
@@ -435,7 +436,7 @@ pub fn complete_withdraw_erc20(
     // Check for error magic prefix
     const ERROR_PREFIX: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
 
-    let should_refund = if serialized_output.len() >= 4 && &serialized_output[..4] == ERROR_PREFIX {
+    let should_refund = if serialized_output.len() >= 4 && serialized_output[..4] == ERROR_PREFIX {
         msg!("Detected error response (magic prefix)");
         true // Always refund on error
     } else {
@@ -529,10 +530,11 @@ fn verify_signature_from_address(
 
 // Helper functions
 
-fn generate_sign_respond_request_id(
+#[allow(clippy::too_many_arguments)]
+fn generate_sign_bidirectional_request_id(
     sender: &Pubkey,
     transaction_data: &[u8],
-    slip44_chain_id: u32,
+    caip2_id: &str,
     key_version: u32,
     path: &str,
     algo: &str,
@@ -541,14 +543,15 @@ fn generate_sign_respond_request_id(
 ) -> [u8; 32] {
     use alloy_sol_types::SolValue;
 
-    msg!("=== generate_sign_respond_request_id ===");
+    msg!("=== generate_sign_bidirectional_request_id ===");
     msg!("Encoding with abi_encode_packed");
 
-    // Match TypeScript implementation using ABI encoding
+    // Match TypeScript implementation using packed ABI encoding
+    // This matches: ethers.solidityPacked()
     let encoded = (
         sender.to_string(),
         transaction_data,
-        slip44_chain_id,
+        caip2_id,
         key_version,
         path,
         algo,

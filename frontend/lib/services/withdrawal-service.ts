@@ -212,7 +212,7 @@ export class WithdrawalService {
       const requestId = generateRequestId(
         globalVaultAuthority,
         ethers.getBytes(rlpEncodedTx),
-        SERVICE_CONFIG.ETHEREUM.SLIP44_COIN_TYPE,
+        SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
         SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
         SERVICE_CONFIG.CRYPTOGRAPHY.WITHDRAWAL_ROOT_PATH,
         SERVICE_CONFIG.CRYPTOGRAPHY.SIGNATURE_ALGORITHM,

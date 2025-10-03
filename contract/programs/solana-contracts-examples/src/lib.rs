@@ -175,8 +175,7 @@ pub struct DepositErc20<'info> {
     )]
     pub event_authority: AccountInfo<'info>,
 
-    pub chain_signatures_program:
-        Program<'info, ::chain_signatures::program::ChainSignaturesProject>,
+    pub chain_signatures_program: Program<'info, ::chain_signatures::program::ChainSignatures>,
     pub system_program: Program<'info, System>,
     pub instructions: Option<AccountInfo<'info>>,
     #[account(
@@ -305,8 +304,7 @@ pub struct WithdrawErc20<'info> {
     )]
     pub event_authority: AccountInfo<'info>,
 
-    pub chain_signatures_program:
-        Program<'info, ::chain_signatures::program::ChainSignaturesProject>,
+    pub chain_signatures_program: Program<'info, ::chain_signatures::program::ChainSignatures>,
     pub system_program: Program<'info, System>,
     pub instructions: Option<AccountInfo<'info>>,
     #[account(
