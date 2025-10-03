@@ -9,12 +9,12 @@ import type {
 
 /**
  * Generate a request ID matching the Rust implementation
- * This must match exactly with the contract's generate_sign_respond_request_id function
+ * This must match exactly with the contract's generate_sign_bidirectional_request_id function
  */
 export function generateRequestId(
   sender: PublicKey,
   transactionData: Uint8Array,
-  slip44ChainId: number,
+  caip2Id: string,
   keyVersion: number,
   path: string,
   algo: string,
@@ -28,7 +28,7 @@ export function generateRequestId(
     [
       'string',
       'bytes',
-      'uint32',
+      'string',
       'uint32',
       'string',
       'string',
@@ -38,7 +38,7 @@ export function generateRequestId(
     [
       sender.toString(),
       txDataHex,
-      slip44ChainId,
+      caip2Id,
       keyVersion,
       path,
       algo,

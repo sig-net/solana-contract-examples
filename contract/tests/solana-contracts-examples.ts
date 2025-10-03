@@ -506,7 +506,7 @@
 
 //     const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
 //       [Buffer.from("program-state")],
-//       new anchor.web3.PublicKey("4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU")
+//       new anchor.web3.PublicKey("85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV")
 //     );
 
 //     try {
@@ -518,7 +518,7 @@
 //           feePayer: provider.wallet.publicKey,
 //           // chainSignaturesState: chainSignaturesState,
 //           // chainSignaturesProgram: new anchor.web3.PublicKey(
-//           // "4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU"
+//           // "85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV"
 //           // ),
 //           // systemProgram: anchor.web3.SystemProgram.programId,
 //           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,

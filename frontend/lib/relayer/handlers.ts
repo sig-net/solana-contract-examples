@@ -62,7 +62,7 @@ export async function handleDeposit(args: {
   const requestId = generateRequestId(
     vaultAuthority,
     ethers.getBytes(rlpEncodedTx),
-    SERVICE_CONFIG.ETHEREUM.SLIP44_COIN_TYPE,
+    SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
     SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
     path,
     SERVICE_CONFIG.CRYPTOGRAPHY.SIGNATURE_ALGORITHM,

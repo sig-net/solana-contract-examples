@@ -1,19 +1,46 @@
-export const CHAIN_SIGNATURES_PROGRAM_IDl = {
-  address: '4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU',
+export const CHAIN_SIGNATURES_PROGRAM_IDL = {
+  address: '85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV',
   metadata: {
-    name: 'chainSignaturesProject',
-    version: '0.1.2',
+    name: 'chain_signatures',
+    version: '0.1.3',
     spec: '0.1.0',
     description: 'Chain signatures program for cross-chain signing on Solana',
     repository: 'https://github.com/esaminu/chain-signatures-solana',
   },
   instructions: [
     {
+      name: 'get_signature_deposit',
+      docs: [
+        '* @dev Function to get the current signature deposit amount.\n     * @return The current signature deposit amount.',
+      ],
+      discriminator: [45, 243, 86, 86, 58, 57, 172, 253],
+      accounts: [
+        {
+          name: 'program_state',
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  112, 114, 111, 103, 114, 97, 109, 45, 115, 116, 97, 116, 101,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      args: [],
+      returns: 'u64',
+    },
+    {
       name: 'initialize',
+      docs: [
+        '* @dev Function to initialize the program state.\n     * @param signature_deposit The deposit required for signature requests.\n     * @param chain_id The CAIP-2 chain identifier.',
+      ],
       discriminator: [175, 175, 109, 31, 13, 152, 155, 237],
       accounts: [
         {
-          name: 'programState',
+          name: 'program_state',
           writable: true,
           pda: {
             seeds: [
@@ -32,59 +59,53 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           signer: true,
         },
         {
-          name: 'systemProgram',
+          name: 'system_program',
           address: '11111111111111111111111111111111',
         },
       ],
       args: [
         {
-          name: 'signatureDeposit',
+          name: 'signature_deposit',
           type: 'u64',
         },
-      ],
-    },
-    {
-      name: 'readRespond',
-      discriminator: [250, 9, 163, 167, 41, 67, 181, 182],
-      accounts: [
         {
-          name: 'responder',
-          signer: true,
-        },
-      ],
-      args: [
-        {
-          name: 'requestId',
-          type: {
-            array: ['u8', 32],
-          },
-        },
-        {
-          name: 'serializedOutput',
-          type: 'bytes',
-        },
-        {
-          name: 'signature',
-          type: {
-            defined: {
-              name: 'signature',
-            },
-          },
+          name: 'chain_id',
+          type: 'string',
         },
       ],
     },
     {
       name: 'respond',
+      docs: [
+        '* @dev Function to respond to signature requests.\n     * @param request_ids The array of request IDs.\n     * @param signatures The array of signature responses.',
+      ],
       discriminator: [72, 65, 227, 97, 42, 255, 147, 12],
       accounts: [
         {
           name: 'responder',
           signer: true,
         },
+        {
+          name: 'event_authority',
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  95, 95, 101, 118, 101, 110, 116, 95, 97, 117, 116, 104, 111,
+                  114, 105, 116, 121,
+                ],
+              },
+            ],
+          },
+        },
+        {
+          name: 'program',
+        },
       ],
       args: [
         {
-          name: 'requestIds',
+          name: 'request_ids',
           type: {
             vec: {
               array: ['u8', 32],
@@ -96,7 +117,65 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           type: {
             vec: {
               defined: {
-                name: 'signature',
+                name: 'Signature',
+              },
+            },
+          },
+        },
+      ],
+    },
+    {
+      name: 'respond_bidirectional',
+      docs: [
+        '* @dev Function to finalize bidirectional flow\n     * @param request_id The ID of the signature request to respond to\n     * @param serialized_output output of the previously executed transaction\n     * @param signature ECDSA signature of the serialized output and request_id (keccak256(request_id.concat(serialized_output)))',
+      ],
+      discriminator: [138, 0, 45, 246, 236, 211, 109, 81],
+      accounts: [
+        {
+          name: 'responder',
+          signer: true,
+        },
+      ],
+      args: [
+        {
+          name: 'request_id',
+          type: {
+            array: ['u8', 32],
+          },
+        },
+        {
+          name: 'serialized_output',
+          type: 'bytes',
+        },
+        {
+          name: 'signature',
+          type: {
+            defined: {
+              name: 'Signature',
+            },
+          },
+        },
+      ],
+    },
+    {
+      name: 'respond_error',
+      docs: [
+        '* @dev Function to emit signature generation errors.\n     * @param errors The array of signature generation errors.',
+      ],
+      discriminator: [3, 170, 41, 132, 72, 184, 252, 69],
+      accounts: [
+        {
+          name: 'responder',
+          signer: true,
+        },
+      ],
+      args: [
+        {
+          name: 'errors',
+          type: {
+            vec: {
+              defined: {
+                name: 'ErrorResponse',
               },
             },
           },
@@ -105,10 +184,13 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
     },
     {
       name: 'sign',
+      docs: [
+        '* @dev Function to request a signature.\n     * @param payload The payload to be signed.\n     * @param key_version The version of the key used for signing.\n     * @param path The derivation path for the user account.\n     * @param algo The algorithm used for signing.\n     * @param dest The response destination.\n     * @param params Additional parameters.',
+      ],
       discriminator: [5, 221, 155, 46, 237, 91, 28, 236],
       accounts: [
         {
-          name: 'programState',
+          name: 'program_state',
           writable: true,
           pda: {
             seeds: [
@@ -127,17 +209,17 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           signer: true,
         },
         {
-          name: 'feePayer',
+          name: 'fee_payer',
           writable: true,
           signer: true,
           optional: true,
         },
         {
-          name: 'systemProgram',
+          name: 'system_program',
           address: '11111111111111111111111111111111',
         },
         {
-          name: 'eventAuthority',
+          name: 'event_authority',
           pda: {
             seeds: [
               {
@@ -162,7 +244,7 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           },
         },
         {
-          name: 'keyVersion',
+          name: 'key_version',
           type: 'u32',
         },
         {
@@ -184,11 +266,14 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
       ],
     },
     {
-      name: 'signRespond',
-      discriminator: [67, 108, 87, 191, 44, 180, 46, 45],
+      name: 'sign_bidirectional',
+      docs: [
+        '* @dev Function to initiate bidirectional flow\n     * @param serialized_transaction transaction to be signed\n     * @param caip2_id chain identifier\n     * @param key_version The version of the key used for signing.\n     * @param path The derivation path for the user account.\n     * @param algo The algorithm used for signing.\n     * @param dest The response destination.\n     * @param params Additional parameters.\n     * @param output_deserialization_schema schema for transaction output deserialization\n     * @param respond_serialization_schema serialization schema for read_respond payload',
+      ],
+      discriminator: [21, 104, 182, 213, 189, 143, 219, 48],
       accounts: [
         {
-          name: 'programState',
+          name: 'program_state',
           writable: true,
           pda: {
             seeds: [
@@ -207,31 +292,48 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           signer: true,
         },
         {
-          name: 'feePayer',
+          name: 'fee_payer',
           writable: true,
           signer: true,
           optional: true,
         },
         {
-          name: 'systemProgram',
+          name: 'system_program',
           address: '11111111111111111111111111111111',
         },
         {
           name: 'instructions',
           optional: true,
         },
+        {
+          name: 'event_authority',
+          pda: {
+            seeds: [
+              {
+                kind: 'const',
+                value: [
+                  95, 95, 101, 118, 101, 110, 116, 95, 97, 117, 116, 104, 111,
+                  114, 105, 116, 121,
+                ],
+              },
+            ],
+          },
+        },
+        {
+          name: 'program',
+        },
       ],
       args: [
         {
-          name: 'serializedTransaction',
+          name: 'serialized_transaction',
           type: 'bytes',
         },
         {
-          name: 'slip44ChainId',
-          type: 'u32',
+          name: 'caip2_id',
+          type: 'string',
         },
         {
-          name: 'keyVersion',
+          name: 'key_version',
           type: 'u32',
         },
         {
@@ -251,37 +353,24 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           type: 'string',
         },
         {
-          name: 'explorerDeserializationFormat',
-          type: {
-            defined: {
-              name: 'serializationFormat',
-            },
-          },
-        },
-        {
-          name: 'explorerDeserializationSchema',
+          name: 'output_deserialization_schema',
           type: 'bytes',
         },
         {
-          name: 'callbackSerializationFormat',
-          type: {
-            defined: {
-              name: 'serializationFormat',
-            },
-          },
-        },
-        {
-          name: 'callbackSerializationSchema',
+          name: 'respond_serialization_schema',
           type: 'bytes',
         },
       ],
     },
     {
-      name: 'updateDeposit',
+      name: 'update_deposit',
+      docs: [
+        '* @dev Function to set the signature deposit amount.\n     * @param new_deposit The new deposit amount.',
+      ],
       discriminator: [126, 116, 15, 164, 238, 179, 155, 59],
       accounts: [
         {
-          name: 'programState',
+          name: 'program_state',
           writable: true,
           pda: {
             seeds: [
@@ -298,26 +387,29 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           name: 'admin',
           writable: true,
           signer: true,
-          relations: ['programState'],
+          relations: ['program_state'],
         },
         {
-          name: 'systemProgram',
+          name: 'system_program',
           address: '11111111111111111111111111111111',
         },
       ],
       args: [
         {
-          name: 'newDeposit',
+          name: 'new_deposit',
           type: 'u64',
         },
       ],
     },
     {
-      name: 'withdrawFunds',
+      name: 'withdraw_funds',
+      docs: [
+        '* @dev Function to withdraw funds from the program.\n     * @param amount The amount to withdraw.',
+      ],
       discriminator: [241, 36, 29, 111, 208, 31, 104, 217],
       accounts: [
         {
-          name: 'programState',
+          name: 'program_state',
           writable: true,
           pda: {
             seeds: [
@@ -334,7 +426,7 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           name: 'admin',
           writable: true,
           signer: true,
-          relations: ['programState'],
+          relations: ['program_state'],
         },
         {
           name: 'recipient',
@@ -342,7 +434,7 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
           writable: true,
         },
         {
-          name: 'systemProgram',
+          name: 'system_program',
           address: '11111111111111111111111111111111',
         },
       ],
@@ -356,80 +448,80 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
   ],
   accounts: [
     {
-      name: 'programState',
+      name: 'ProgramState',
       discriminator: [77, 209, 137, 229, 149, 67, 167, 230],
     },
   ],
   events: [
     {
-      name: 'depositUpdatedEvent',
+      name: 'DepositUpdatedEvent',
       discriminator: [215, 193, 53, 27, 221, 101, 249, 108],
     },
     {
-      name: 'fundsWithdrawnEvent',
+      name: 'FundsWithdrawnEvent',
       discriminator: [86, 232, 194, 4, 211, 69, 172, 202],
     },
     {
-      name: 'readRespondedEvent',
-      discriminator: [38, 24, 41, 249, 9, 133, 164, 204],
+      name: 'RespondBidirectionalEvent',
+      discriminator: [195, 195, 28, 1, 102, 100, 189, 234],
     },
     {
-      name: 'signRespondRequestedEvent',
-      discriminator: [30, 12, 56, 70, 97, 168, 45, 32],
+      name: 'SignBidirectionalEvent',
+      discriminator: [135, 205, 217, 152, 96, 187, 11, 124],
     },
     {
-      name: 'signatureErrorEvent',
+      name: 'SignatureErrorEvent',
       discriminator: [42, 28, 210, 105, 9, 196, 189, 51],
     },
     {
-      name: 'signatureRequestedEvent',
+      name: 'SignatureRequestedEvent',
       discriminator: [171, 129, 105, 91, 154, 49, 160, 34],
     },
     {
-      name: 'signatureRespondedEvent',
+      name: 'SignatureRespondedEvent',
       discriminator: [118, 146, 248, 151, 194, 93, 18, 86],
     },
   ],
   errors: [
     {
       code: 6000,
-      name: 'insufficientDeposit',
+      name: 'InsufficientDeposit',
       msg: 'Insufficient deposit amount',
     },
     {
       code: 6001,
-      name: 'invalidInputLength',
+      name: 'InvalidInputLength',
       msg: 'Arrays must have the same length',
     },
     {
       code: 6002,
-      name: 'unauthorized',
+      name: 'Unauthorized',
       msg: 'Unauthorized access',
     },
     {
       code: 6003,
-      name: 'insufficientFunds',
+      name: 'InsufficientFunds',
       msg: 'Insufficient funds for withdrawal',
     },
     {
       code: 6004,
-      name: 'invalidRecipient',
+      name: 'InvalidRecipient',
       msg: 'Invalid recipient address',
     },
     {
       code: 6005,
-      name: 'invalidTransaction',
+      name: 'InvalidTransaction',
       msg: 'Invalid transaction data',
     },
     {
       code: 6006,
-      name: 'missingInstructionSysvar',
+      name: 'MissingInstructionSysvar',
       msg: 'Missing instruction sysvar',
     },
   ],
   types: [
     {
-      name: 'affinePoint',
+      name: 'AffinePoint',
       type: {
         kind: 'struct',
         fields: [
@@ -449,23 +541,47 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
       },
     },
     {
-      name: 'depositUpdatedEvent',
+      name: 'DepositUpdatedEvent',
+      docs: [
+        '* @dev Emitted when the deposit amount is updated.\n * @param old_deposit The previous deposit amount.\n * @param new_deposit The new deposit amount.',
+      ],
       type: {
         kind: 'struct',
         fields: [
           {
-            name: 'oldDeposit',
+            name: 'old_deposit',
             type: 'u64',
           },
           {
-            name: 'newDeposit',
+            name: 'new_deposit',
             type: 'u64',
           },
         ],
       },
     },
     {
-      name: 'fundsWithdrawnEvent',
+      name: 'ErrorResponse',
+      type: {
+        kind: 'struct',
+        fields: [
+          {
+            name: 'request_id',
+            type: {
+              array: ['u8', 32],
+            },
+          },
+          {
+            name: 'error_message',
+            type: 'string',
+          },
+        ],
+      },
+    },
+    {
+      name: 'FundsWithdrawnEvent',
+      docs: [
+        '* @dev Emitted when a withdrawal is made.\n * @param amount The amount withdrawn.\n * @param recipient The address of the recipient.',
+      ],
       type: {
         kind: 'struct',
         fields: [
@@ -481,7 +597,7 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
       },
     },
     {
-      name: 'programState',
+      name: 'ProgramState',
       type: {
         kind: 'struct',
         fields: [
@@ -490,19 +606,26 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             type: 'pubkey',
           },
           {
-            name: 'signatureDeposit',
+            name: 'signature_deposit',
             type: 'u64',
+          },
+          {
+            name: 'chain_id',
+            type: 'string',
           },
         ],
       },
     },
     {
-      name: 'readRespondedEvent',
+      name: 'RespondBidirectionalEvent',
+      docs: [
+        '* @dev Emitted when a read response is received.\n * @param request_id The ID of the request. Must be calculated off-chain.\n * @param responder The address of the responder.\n * @param serialized_output The serialized output.\n * @param signature The signature.',
+      ],
       type: {
         kind: 'struct',
         fields: [
           {
-            name: 'requestId',
+            name: 'request_id',
             type: {
               array: ['u8', 32],
             },
@@ -512,14 +635,14 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             type: 'pubkey',
           },
           {
-            name: 'serializedOutput',
+            name: 'serialized_output',
             type: 'bytes',
           },
           {
             name: 'signature',
             type: {
               defined: {
-                name: 'signature',
+                name: 'Signature',
               },
             },
           },
@@ -527,24 +650,10 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
       },
     },
     {
-      name: 'serializationFormat',
-      repr: {
-        kind: 'rust',
-      },
-      type: {
-        kind: 'enum',
-        variants: [
-          {
-            name: 'borsh',
-          },
-          {
-            name: 'abiJson',
-          },
-        ],
-      },
-    },
-    {
-      name: 'signRespondRequestedEvent',
+      name: 'SignBidirectionalEvent',
+      docs: [
+        '* @dev Emitted when a sign_bidirectional request is made.\n * @param sender The address of the sender.\n * @param serialized_transaction The serialized transaction to be signed.\n * @param caip2_id The SLIP-44 chain ID.\n * @param key_version The version of the key used for signing.\n * @param deposit The deposit amount.\n * @param path The derivation path for the user account.\n * @param algo The algorithm used for signing.\n * @param dest The response destination.\n * @param params Additional parameters.\n * @param output_deserialization_schema Schema for transaction output deserialization.\n * @param respond_serialization_schema Serialization schema for read_respond payload.',
+      ],
       type: {
         kind: 'struct',
         fields: [
@@ -553,15 +662,15 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             type: 'pubkey',
           },
           {
-            name: 'transactionData',
+            name: 'serialized_transaction',
             type: 'bytes',
           },
           {
-            name: 'slip44ChainId',
-            type: 'u32',
+            name: 'caip2_id',
+            type: 'string',
           },
           {
-            name: 'keyVersion',
+            name: 'key_version',
             type: 'u32',
           },
           {
@@ -585,34 +694,26 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             type: 'string',
           },
           {
-            name: 'explorerDeserializationFormat',
-            type: 'u8',
-          },
-          {
-            name: 'explorerDeserializationSchema',
+            name: 'output_deserialization_schema',
             type: 'bytes',
           },
           {
-            name: 'callbackSerializationFormat',
-            type: 'u8',
-          },
-          {
-            name: 'callbackSerializationSchema',
+            name: 'respond_serialization_schema',
             type: 'bytes',
           },
         ],
       },
     },
     {
-      name: 'signature',
+      name: 'Signature',
       type: {
         kind: 'struct',
         fields: [
           {
-            name: 'bigR',
+            name: 'big_r',
             type: {
               defined: {
-                name: 'affinePoint',
+                name: 'AffinePoint',
               },
             },
           },
@@ -623,19 +724,22 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             },
           },
           {
-            name: 'recoveryId',
+            name: 'recovery_id',
             type: 'u8',
           },
         ],
       },
     },
     {
-      name: 'signatureErrorEvent',
+      name: 'SignatureErrorEvent',
+      docs: [
+        '* @dev Emitted when a signature error is received.\n * @notice Any address can emit this event. Do not rely on it for business logic.\n * @param request_id The ID of the request. Must be calculated off-chain.\n * @param responder The address of the responder.\n * @param error The error message.',
+      ],
       type: {
         kind: 'struct',
         fields: [
           {
-            name: 'requestId',
+            name: 'request_id',
             type: {
               array: ['u8', 32],
             },
@@ -652,7 +756,10 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
       },
     },
     {
-      name: 'signatureRequestedEvent',
+      name: 'SignatureRequestedEvent',
+      docs: [
+        '* @dev Emitted when a signature is requested.\n * @param sender The address of the sender.\n * @param payload The payload to be signed.\n * @param key_version The version of the key used for signing.\n * @param deposit The deposit amount.\n * @param chain_id The CAIP-2 ID of the blockchain.\n * @param path The derivation path for the user account.\n * @param algo The algorithm used for signing.\n * @param dest The response destination.\n * @param params Additional parameters.\n * @param fee_payer Optional fee payer account.',
+      ],
       type: {
         kind: 'struct',
         fields: [
@@ -667,7 +774,7 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             },
           },
           {
-            name: 'keyVersion',
+            name: 'key_version',
             type: 'u32',
           },
           {
@@ -675,8 +782,8 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             type: 'u64',
           },
           {
-            name: 'chainId',
-            type: 'u64',
+            name: 'chain_id',
+            type: 'string',
           },
           {
             name: 'path',
@@ -695,7 +802,7 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             type: 'string',
           },
           {
-            name: 'feePayer',
+            name: 'fee_payer',
             type: {
               option: 'pubkey',
             },
@@ -704,12 +811,15 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
       },
     },
     {
-      name: 'signatureRespondedEvent',
+      name: 'SignatureRespondedEvent',
+      docs: [
+        '* @dev Emitted when a signature response is received.\n * @notice Any address can emit this event. Clients should always verify the validity of the signature.\n * @param request_id The ID of the request. Must be calculated off-chain.\n * @param responder The address of the responder.\n * @param signature The signature response.',
+      ],
       type: {
         kind: 'struct',
         fields: [
           {
-            name: 'requestId',
+            name: 'request_id',
             type: {
               array: ['u8', 32],
             },
@@ -722,7 +832,7 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
             name: 'signature',
             type: {
               defined: {
-                name: 'signature',
+                name: 'Signature',
               },
             },
           },
@@ -730,4 +840,4 @@ export const CHAIN_SIGNATURES_PROGRAM_IDl = {
       },
     },
   ],
-};
+} as const;

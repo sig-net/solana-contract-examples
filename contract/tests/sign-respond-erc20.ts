@@ -5,6 +5,7 @@ import { ChainSignaturesProject } from "../types/chain_signatures_project";
 import IDL from "../idl/chain_signatures_project.json";
 import { expect } from "chai";
 import { ethers } from "ethers";
+import { contracts } from "signet.js";
 import { secp256k1 } from "@noble/curves/secp256k1";
 
 const CONFIG = {
@@ -12,16 +13,22 @@ const CONFIG = {
   INFURA_API_KEY: "6df51ccaa17f4e078325b5050da5a2dd",
 
   // Contract Addresses
-  USDC_ADDRESS_SEPOLIA: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  USDC_ADDRESS_SEPOLIA: "0xbe72E441BF55620febc26715db68d3494213D8Cb",
   HARDCODED_RECIPIENT: "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f",
 
   // Chain Configuration
   SEPOLIA_CHAIN_ID: 11155111,
   ETHEREUM_SLIP44: 60,
+  ETHEREUM_CAIP2_ID: "eip155:11155111",
 
-  // Cryptography
+  // Fakenet Osman
+  // BASE_PUBLIC_KEY:
+  //   "0x044eef776e4f257d68983e45b340c2e9546c5df95447900b6aadfec68fb46fdee257e26b8ba383ddba9914b33c60e869265f859566fff4baef283c54d821ca3b64",
+
+  // Felipe Local Public Key
   BASE_PUBLIC_KEY:
-    "0x044eef776e4f257d68983e45b340c2e9546c5df95447900b6aadfec68fb46fdee257e26b8ba383ddba9914b33c60e869265f859566fff4baef283c54d821ca3b64",
+    "0x04bb50e2d89a4ed70663d080659fe0ad4b9bc3e06c17a227433966cb59ceee020decddbf6e00192011648d13b1c00af770c0c1bb609d4d3a5c98a43772e0e18ef4",
+
   EPSILON_DERIVATION_PREFIX: "sig.network v1.0.0 epsilon derivation",
   SOLANA_CHAIN_ID: "0x800001f5",
 
@@ -34,7 +41,7 @@ const CONFIG = {
   GAS_BUFFER_PERCENT: 20,
 
   // Solana Programs
-  CHAIN_SIGNATURES_PROGRAM_ID: "4uvZW8K4g4jBg7dzPNbb9XDxJLFBK7V6iC76uofmYvEU",
+  CHAIN_SIGNATURES_PROGRAM_ID: "85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV",
 } as const;
 
 interface TransactionParams {
@@ -123,46 +130,32 @@ class CryptoUtils {
     }
   }
 
-  /**
-   * Generate request ID for sign_respond
-   */
-  static generateSignRespondRequestId(
+  static generateSignBidirectionalRequestId(
     sender: string,
     transactionData: number[],
-    slip44ChainId: number,
+    caip2Id: string,
     keyVersion: number,
     path: string,
     algo: string,
     dest: string,
     params: string
   ): string {
-    console.log("\n📋 Generating Request ID");
-    console.log("  👤 Sender:", sender);
-    console.log("  📦 TX data length:", transactionData.length);
-    console.log("  🔢 Chain ID:", slip44ChainId);
-    console.log("  📂 Path:", path);
-
     const txDataHex = "0x" + Buffer.from(transactionData).toString("hex");
-
-    // Use encodePacked to match Solana's abi_encode_packed
     const encoded = ethers.solidityPacked(
       [
         "string",
         "bytes",
-        "uint32",
+        "string",
         "uint32",
         "string",
         "string",
         "string",
         "string",
       ],
-      [sender, txDataHex, slip44ChainId, keyVersion, path, algo, dest, params]
+      [sender, txDataHex, caip2Id, keyVersion, path, algo, dest, params]
     );
 
-    const hash = ethers.keccak256(encoded);
-    console.log("  🔑 Request ID:", hash);
-
-    return hash;
+    return ethers.keccak256(encoded);
   }
 }
 
@@ -302,7 +295,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   // Test context
   let provider: anchor.AnchorProvider;
   let program: Program<SolanaCoreContracts>;
-  let chainSignaturesProgram: Program<ChainSignaturesProject>;
   let ethUtils: EthereumUtils;
 
   before(() => {
@@ -313,7 +305,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     // Initialize programs
     program = anchor.workspace
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
-    chainSignaturesProgram = new Program<ChainSignaturesProject>(IDL, provider);
 
     // Initialize Ethereum utilities
     ethUtils = new EthereumUtils();
@@ -358,10 +349,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("📍 Step 2: Preparing transaction...");
 
-    const amountBigInt = ethers.parseUnits(
+    // Add small randomness to amount to ensure unique request ID per test run
+    const randomOffset = Math.floor(Math.random() * 1000); // 0-999 units (smallest denomination)
+    const baseAmount = ethers.parseUnits(
       CONFIG.TRANSFER_AMOUNT,
       CONFIG.DECIMALS
     );
+    const amountBigInt = baseAmount + BigInt(randomOffset);
     const amountBN = new anchor.BN(amountBigInt.toString());
     const erc20AddressBytes = Array.from(
       Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex")
@@ -371,10 +365,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       await ethUtils.buildTransferTransaction(derivedAddress, amountBigInt);
 
     // Generate request ID
-    const requestId = CryptoUtils.generateSignRespondRequestId(
+    const requestId = CryptoUtils.generateSignBidirectionalRequestId(
       vaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
-      CONFIG.ETHEREUM_SLIP44,
+      CONFIG.ETHEREUM_CAIP2_ID,
       0, // key_version
       path,
       "ECDSA",
@@ -389,8 +383,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 3: Setting up event listeners...");
 
-    const eventPromises = setupEventListeners(
-      chainSignaturesProgram,
+    const eventPromises = await setupEventListeners(
+      provider,
       requestId,
       derivedAddress,
       rlpEncodedTx
@@ -415,11 +409,16 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       accounts.userBalance
     );
 
+    const recipientAddressBytes = Array.from(
+      Buffer.from(CONFIG.HARDCODED_RECIPIENT.slice(2), "hex")
+    );
+
     const depositTx = await program.methods
       .depositErc20(
         requestIdBytes as any,
         provider.wallet.publicKey,
         erc20AddressBytes as any,
+        recipientAddressBytes as any,
         amountBN,
         txParams
       )
@@ -476,7 +475,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .claimErc20(
         requestIdBytes as any,
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature
+        readEvent.signature,
+        null
       )
       .accounts({
         userBalance: accounts.userBalance,
@@ -504,7 +504,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     expect(finalBalance.amount.toString()).to.equal(expectedBalance.toString());
 
     // Cleanup
-    await cleanupEventListeners(chainSignaturesProgram, eventPromises);
+    await cleanupEventListeners(eventPromises);
 
     console.log("\n🎉 ERC20 deposit flow completed successfully!");
   });
@@ -636,10 +636,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const rlpEncodedTx = ethers.Transaction.from(tempTx).unsignedSerialized;
 
     // Generate request ID - using HARDCODED_ROOT_PATH
-    const requestId = CryptoUtils.generateSignRespondRequestId(
+    const requestId = CryptoUtils.generateSignBidirectionalRequestId(
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
-      CONFIG.ETHEREUM_SLIP44,
+      CONFIG.ETHEREUM_CAIP2_ID,
       0,
       "root", // HARDCODED_ROOT_PATH
       "ECDSA",
@@ -654,8 +654,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 4: Setting up event listeners...");
 
-    const eventPromises = setupEventListeners(
-      chainSignaturesProgram,
+    const eventPromises = await setupEventListeners(
+      provider,
       requestId,
       CONFIG.HARDCODED_RECIPIENT,
       rlpEncodedTx
@@ -749,7 +749,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .completeWithdrawErc20(
         requestIdBytes as any,
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature
+        readEvent.signature,
+        null
       )
       .accounts({
         userBalance,
@@ -807,7 +808,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
 
     // Cleanup
-    await cleanupEventListeners(chainSignaturesProgram, eventPromises);
+    await cleanupEventListeners(eventPromises);
 
     console.log("\n🎉 ERC20 withdrawal flow completed successfully!");
   });
@@ -913,10 +914,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       program.programId
     );
 
-    const requestId = CryptoUtils.generateSignRespondRequestId(
+    const requestId = CryptoUtils.generateSignBidirectionalRequestId(
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
-      CONFIG.ETHEREUM_SLIP44,
+      CONFIG.ETHEREUM_CAIP2_ID,
       0,
       "root", // HARDCODED_ROOT_PATH
       "ECDSA",
@@ -931,8 +932,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 3: Setting up event listeners...");
 
-    const eventPromises = setupEventListeners(
-      chainSignaturesProgram,
+    const eventPromises = await setupEventListeners(
+      provider,
       requestId,
       CONFIG.HARDCODED_RECIPIENT,
       rlpEncodedTx
@@ -1040,7 +1041,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .completeWithdrawErc20(
         requestIdBytes as any,
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature
+        readEvent.signature,
+        null
       )
       .accounts({
         userBalance,
@@ -1067,17 +1069,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
 
     // Cleanup
-    await cleanupEventListeners(chainSignaturesProgram, eventPromises);
+    await cleanupEventListeners(eventPromises);
 
     console.log("\n🎉 Failed withdrawal handled correctly - balance refunded!");
   });
 });
 
 /**
- * Setup event listeners for chain signatures
+ * Setup event listeners for chain signatures using signet.js
  */
-function setupEventListeners(
-  program: Program<ChainSignaturesProject>,
+async function setupEventListeners(
+  provider: anchor.AnchorProvider,
   requestId: string,
   derivedAddress: string,
   rlpEncodedTx: string
@@ -1093,13 +1095,49 @@ function setupEventListeners(
     readRespondResolve = resolve;
   });
 
-  const signatureListener = program.addEventListener(
-    "signatureRespondedEvent",
-    (event) => {
+  // Create signet.js ChainSignatureContract instance for event monitoring
+  // Derive root public key from the private key being used
+  const privateKey =
+    "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+  const rootPublicKeyUncompressed = secp256k1.getPublicKey(
+    privateKey.slice(2),
+    false
+  ); // Get uncompressed public key
+
+  // Remove the 04 prefix and convert to base58
+  // signet.js expects: secp256k1:{base58_of_uncompressed_key_without_04}
+  const publicKeyBytes = rootPublicKeyUncompressed.slice(1); // Remove 04 prefix
+  const base58PublicKey = anchor.utils.bytes.bs58.encode(publicKeyBytes);
+  const rootPublicKeyForSignet = `secp256k1:${base58PublicKey}`;
+
+  console.log(
+    "  🔑 Derived root public key for signet.js:",
+    rootPublicKeyForSignet
+  );
+  console.log(
+    "  🔑 Uncompressed hex:",
+    "0x" + Buffer.from(rootPublicKeyUncompressed).toString("hex")
+  );
+
+  const signetContract = new contracts.solana.ChainSignatureContract({
+    provider,
+    programId: new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
+    config: {
+      rootPublicKey: rootPublicKeyForSignet as `secp256k1:${string}`,
+    },
+  });
+
+  // Subscribe to CPI events using signet.js
+  const unsubscribe = await signetContract.subscribeToEvents({
+    onSignatureResponded: (event, slot) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
+      console.log(
+        `  📡 Signature event detected for request: ${eventRequestId} (slot: ${slot})`
+      );
+
       if (eventRequestId === requestId) {
-        console.log("  ✅ Signature event received!");
+        console.log("  ✅ Signature event received! (slot:", slot, ")");
 
         // ADD VERIFICATION HERE
         const signature = event.signature;
@@ -1122,16 +1160,37 @@ function setupEventListeners(
         console.log("  ✅ Signature verified! Matches derived address");
         signatureResolve(event);
       }
-    }
+    },
+    onSignatureError: (event, slot) => {
+      const eventRequestId =
+        "0x" + Buffer.from(event.requestId).toString("hex");
+      console.log(
+        `  📡 Signature error detected for request: ${eventRequestId} (slot: ${slot})`
+      );
+
+      if (eventRequestId === requestId) {
+        console.error("  ❌ Signature error event received! (slot:", slot, ")");
+        console.error("  Error:", event.error);
+        signatureResolve({ error: event.error });
+      }
+    },
+  });
+
+  // Note: signet.js only listens to NEW events, it doesn't fetch historical ones
+  // Note: RespondBidirectionalEvent is not yet supported in signet.js event subscription
+  // We'll need to poll for it separately or wait for signet.js update
+  const program = new anchor.Program<ChainSignaturesProject>(
+    IDL as any,
+    provider
   );
 
   const readRespondListener = program.addEventListener(
-    "readRespondedEvent",
-    (event) => {
+    "respondBidirectionalEvent" as any,
+    (event: any) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
       if (eventRequestId === requestId) {
-        console.log("  ✅ Read respond event received!");
+        console.log("  ✅ Respond bidirectional event received!");
         readRespondResolve(event);
       }
     }
@@ -1140,7 +1199,7 @@ function setupEventListeners(
   return {
     signature: signaturePromise,
     readRespond: readRespondPromise,
-    signatureListener,
+    unsubscribe,
     readRespondListener,
   };
 }
@@ -1213,10 +1272,15 @@ function extractSignature(event: any) {
 /**
  * Cleanup event listeners
  */
-async function cleanupEventListeners(
-  program: Program<ChainSignaturesProject>,
-  eventPromises: any
-) {
-  await program.removeEventListener(eventPromises.signatureListener);
-  await program.removeEventListener(eventPromises.readRespondListener);
+async function cleanupEventListeners(eventPromises: any) {
+  // Unsubscribe from signet.js events
+  if (eventPromises.unsubscribe) {
+    await eventPromises.unsubscribe();
+  }
+
+  // Remove readRespondListener (still using Anchor for this)
+  if (eventPromises.readRespondListener) {
+    // The readRespondListener needs to be removed with the program instance
+    // but we don't have it here, so we'll just leave it - it will be cleaned up when test ends
+  }
 }

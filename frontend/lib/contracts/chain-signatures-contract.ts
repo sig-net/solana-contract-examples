@@ -2,7 +2,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import type { Hex } from 'viem';
 
-import { CHAIN_SIGNATURES_PROGRAM_IDl } from '@/lib/program/idl-chain-sig';
+import { CHAIN_SIGNATURES_PROGRAM_IDL } from '@/lib/program/idl-chain-sig';
 
 import type {
   ChainSignaturesProgram,
@@ -34,7 +34,7 @@ export class ChainSignaturesContract {
     });
 
     return new Program(
-      CHAIN_SIGNATURES_PROGRAM_IDl,
+      CHAIN_SIGNATURES_PROGRAM_IDL,
       provider,
     ) as ChainSignaturesProgram;
   }
@@ -45,7 +45,7 @@ export class ChainSignaturesContract {
     });
 
     return new Program(
-      CHAIN_SIGNATURES_PROGRAM_IDl,
+      CHAIN_SIGNATURES_PROGRAM_IDL,
       provider,
     ) as ChainSignaturesProgram;
   }

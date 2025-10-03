@@ -8,6 +8,8 @@ export const ETHEREUM_CONFIG = {
   CHAIN_ID: 11155111,
   /** Ethereum SLIP-44 coin type */
   SLIP44_COIN_TYPE: 60,
+  /** CAIP-2 chain ID (eip155:chainId format) */
+  CAIP2_ID: 'eip155:11155111',
 } as const;
 
 export const CRYPTOGRAPHY_CONFIG = {
