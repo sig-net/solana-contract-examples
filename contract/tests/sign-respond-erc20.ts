@@ -5,44 +5,10 @@ import { ChainSignaturesProject } from "../types/chain_signatures_project";
 import IDL from "../idl/chain_signatures_project.json";
 import { expect } from "chai";
 import { ethers } from "ethers";
-import { contracts } from "signet.js";
 import { secp256k1 } from "@noble/curves/secp256k1";
-
-const CONFIG = {
-  // API Keys
-  INFURA_API_KEY: "6df51ccaa17f4e078325b5050da5a2dd",
-
-  // Contract Addresses
-  USDC_ADDRESS_SEPOLIA: "0xbe72E441BF55620febc26715db68d3494213D8Cb",
-  HARDCODED_RECIPIENT: "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f",
-
-  // Chain Configuration
-  SEPOLIA_CHAIN_ID: 11155111,
-  ETHEREUM_SLIP44: 60,
-  ETHEREUM_CAIP2_ID: "eip155:11155111",
-
-  // Fakenet Osman
-  // BASE_PUBLIC_KEY:
-  //   "0x044eef776e4f257d68983e45b340c2e9546c5df95447900b6aadfec68fb46fdee257e26b8ba383ddba9914b33c60e869265f859566fff4baef283c54d821ca3b64",
-
-  // Felipe Local Public Key
-  BASE_PUBLIC_KEY:
-    "0x04bb50e2d89a4ed70663d080659fe0ad4b9bc3e06c17a227433966cb59ceee020decddbf6e00192011648d13b1c00af770c0c1bb609d4d3a5c98a43772e0e18ef4",
-
-  EPSILON_DERIVATION_PREFIX: "sig.network v1.0.0 epsilon derivation",
-  SOLANA_CHAIN_ID: "0x800001f5",
-
-  // Timing
-  WAIT_FOR_FUNDING_MS: 5000,
-
-  // Test Parameters
-  TRANSFER_AMOUNT: "0.1", // USDC
-  DECIMALS: 6,
-  GAS_BUFFER_PERCENT: 20,
-
-  // Solana Programs
-  CHAIN_SIGNATURES_PROGRAM_ID: "85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV",
-} as const;
+import { contracts, utils as signetUtils } from "signet.js";
+import { ChainSignatureServer, RequestIdGenerator } from "fakenet-signer";
+import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
 
 interface TransactionParams {
   nonce: anchor.BN;
@@ -51,110 +17,6 @@ interface TransactionParams {
   maxFeePerGas: anchor.BN;
   gasLimit: anchor.BN;
   chainId: anchor.BN;
-}
-
-interface Point {
-  x: bigint;
-  y: bigint;
-}
-
-class CryptoUtils {
-  /**
-   * Derive epsilon value for key derivation
-   */
-  static deriveEpsilon(requester: string, path: string): bigint {
-    const derivationPath = `${CONFIG.EPSILON_DERIVATION_PREFIX},${CONFIG.SOLANA_CHAIN_ID},${requester},${path}`;
-    const hash = ethers.keccak256(ethers.toUtf8Bytes(derivationPath));
-    return BigInt(hash);
-  }
-
-  /**
-   * Convert public key string to elliptic curve point
-   */
-  static publicKeyToPoint(publicKey: string): Point {
-    const cleanPubKey = publicKey.slice(4); // Remove 0x04 prefix
-    const x = cleanPubKey.slice(0, 64);
-    const y = cleanPubKey.slice(64, 128);
-    return {
-      x: BigInt("0x" + x),
-      y: BigInt("0x" + y),
-    };
-  }
-
-  /**
-   * Convert elliptic curve point to public key string
-   */
-  static pointToPublicKey(point: Point): string {
-    const x = point.x.toString(16).padStart(64, "0");
-    const y = point.y.toString(16).padStart(64, "0");
-    return "0x04" + x + y;
-  }
-
-  /**
-   * Derive public key using epsilon and base public key
-   */
-  static derivePublicKey(
-    path: string,
-    requesterAddress: string,
-    basePublicKey: string
-  ): string {
-    try {
-      const epsilon = this.deriveEpsilon(requesterAddress, path);
-      const basePoint = this.publicKeyToPoint(basePublicKey);
-
-      // Calculate epsilon * G
-      const epsilonPoint = secp256k1.ProjectivePoint.BASE.multiply(epsilon);
-
-      // Convert base point to projective
-      const baseProjectivePoint = new secp256k1.ProjectivePoint(
-        basePoint.x,
-        basePoint.y,
-        BigInt(1)
-      );
-
-      // Add points: result = base + epsilon * G
-      const resultPoint = epsilonPoint.add(baseProjectivePoint);
-      const resultAffine = resultPoint.toAffine();
-
-      const derivedPublicKey = this.pointToPublicKey({
-        x: resultAffine.x,
-        y: resultAffine.y,
-      });
-
-      return derivedPublicKey;
-    } catch (error) {
-      console.error("❌ Error deriving public key:", error);
-      throw error;
-    }
-  }
-
-  static generateSignBidirectionalRequestId(
-    sender: string,
-    transactionData: number[],
-    caip2Id: string,
-    keyVersion: number,
-    path: string,
-    algo: string,
-    dest: string,
-    params: string
-  ): string {
-    const txDataHex = "0x" + Buffer.from(transactionData).toString("hex");
-    const encoded = ethers.solidityPacked(
-      [
-        "string",
-        "bytes",
-        "string",
-        "uint32",
-        "string",
-        "string",
-        "string",
-        "string",
-      ],
-      [sender, txDataHex, caip2Id, keyVersion, path, algo, dest, params]
-    );
-
-    return ethers.keccak256(encoded);
-  }
 }
 
 class EthereumUtils {
@@ -275,18 +137,40 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   let provider: anchor.AnchorProvider;
   let program: Program<SolanaCoreContracts>;
   let ethUtils: EthereumUtils;
+  let server: ChainSignatureServer | null = null;
 
-  before(() => {
-    // Setup Anchor provider
+  before(async function () {
+    this.timeout(30000);
+
     provider = anchor.AnchorProvider.env();
     anchor.setProvider(provider);
 
-    // Initialize programs
     program = anchor.workspace
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
 
-    // Initialize Ethereum utilities
     ethUtils = new EthereumUtils();
+
+    const serverConfig = {
+      solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
+      solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
+      mpcRootKey: CONFIG.MPC_ROOT_KEY,
+      infuraApiKey: CONFIG.INFURA_API_KEY,
+      programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+      isDevnet: true,
+      verbose: false,
+    };
+
+    server = new ChainSignatureServer(serverConfig);
+    await server.start();
+  });
+
+  after(async function () {
+    this.timeout(10000);
+
+    if (server) {
+      await server.shutdown();
+      server = null;
+    }
   });
 
   it("Should complete full ERC20 deposit flow", async function () {
@@ -304,12 +188,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
 
     const path = provider.wallet.publicKey.toString();
-    const derivedPublicKey = CryptoUtils.derivePublicKey(
-      path,
+    const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
-      CONFIG.BASE_PUBLIC_KEY
+      path,
+      CONFIG.SOLANA_CHAIN_ID
     );
-    const derivedAddress = ethers.computeAddress(derivedPublicKey);
+    const derivedAddress = ethers.computeAddress("0x" + derivedPublicKey);
 
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
     console.log("  🔑 Derived address:", derivedAddress);
@@ -342,7 +227,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("  💰 Depositing:", amountBN.toString(), "units");
 
     // Generate request ID
-    const requestId = CryptoUtils.generateSignBidirectionalRequestId(
+    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
       vaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
@@ -531,21 +416,23 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
 
     // Derive the MPC signer address (for signature verification)
-    const signerPublicKey = CryptoUtils.derivePublicKey(
-      "root",
+    const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      CONFIG.BASE_PUBLIC_KEY
+      "root",
+      CONFIG.SOLANA_CHAIN_ID
     );
-    const signerAddress = ethers.computeAddress(signerPublicKey);
+    const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     // Derive the recipient address (where funds will be sent)
     const path = provider.wallet.publicKey.toString();
-    const derivedPublicKey = CryptoUtils.derivePublicKey(
-      path,
+    const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
-      CONFIG.BASE_PUBLIC_KEY
+      path,
+      CONFIG.SOLANA_CHAIN_ID
     );
-    const recipientAddress = ethers.computeAddress(derivedPublicKey);
+    const recipientAddress = ethers.computeAddress("0x" + derivedPublicKey);
     const recipientAddressBytes = Array.from(
       Buffer.from(recipientAddress.slice(2), "hex")
     );
@@ -619,7 +506,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const rlpEncodedTx = ethers.Transaction.from(tempTx).unsignedSerialized;
 
     // Generate request ID - using HARDCODED_ROOT_PATH
-    const requestId = CryptoUtils.generateSignBidirectionalRequestId(
+    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
@@ -832,12 +719,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       program.programId
     );
 
-    const signerPublicKey = CryptoUtils.derivePublicKey(
-      "root",
+    const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      CONFIG.BASE_PUBLIC_KEY
+      "root",
+      CONFIG.SOLANA_CHAIN_ID
     );
-    const signerAddress = ethers.computeAddress(signerPublicKey);
+    const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     // Get current nonce for MPC signer
     const ethprovider = ethUtils.getProvider();
@@ -892,7 +780,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const rlpEncodedTx = ethers.Transaction.from(tempTx).unsignedSerialized;
 
-    const requestId = CryptoUtils.generateSignBidirectionalRequestId(
+    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
@@ -1057,10 +945,8 @@ async function setupEventListeners(
 
   // Create signet.js ChainSignatureContract instance for event monitoring
   // Derive root public key from the private key being used
-  const privateKey =
-    "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
   const rootPublicKeyUncompressed = secp256k1.getPublicKey(
-    privateKey.slice(2),
+    CONFIG.MPC_ROOT_KEY.slice(2),
     false
   ); // Get uncompressed public key
 
