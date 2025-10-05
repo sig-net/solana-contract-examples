@@ -40,6 +40,7 @@ class EthereumUtils {
    */
   async buildTransferTransaction(
     from: string,
+    to: string,
     amount: bigint
   ): Promise<{
     callData: string;
@@ -53,7 +54,7 @@ class EthereumUtils {
       "function transfer(address to, uint256 amount) returns (bool)",
     ]);
     const callData = transferInterface.encodeFunctionData("transfer", [
-      CONFIG.HARDCODED_RECIPIENT,
+      to,
       amount,
     ]);
 
@@ -187,6 +188,11 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       program.programId
     );
 
+    const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("global_vault_authority")],
+      program.programId
+    );
+
     const path = provider.wallet.publicKey.toString();
     const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.BASE_PUBLIC_KEY as `04${string}`,
@@ -196,8 +202,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
     const derivedAddress = ethers.computeAddress("0x" + derivedPublicKey);
 
+    const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+      globalVaultAuthority.toString(),
+      "root",
+      CONFIG.SOLANA_CHAIN_ID
+    );
+    const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
+
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
-    console.log("  🔑 Derived address:", derivedAddress);
+    console.log("  🔑 Derived address (FROM):", derivedAddress);
+    console.log("  🎯 Signer address (TO):", signerAddress);
     console.log("  ⏳ Waiting 5 seconds...\n");
     await new Promise((resolve) =>
       setTimeout(resolve, CONFIG.WAIT_FOR_FUNDING_MS)
@@ -219,7 +234,11 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
 
     const { callData, txParams, rlpEncodedTx, nonce } =
-      await ethUtils.buildTransferTransaction(derivedAddress, amountBigInt);
+      await ethUtils.buildTransferTransaction(
+        derivedAddress,
+        signerAddress,
+        amountBigInt
+      );
 
     console.log("  💰 Depositing:", amountBN.toString(), "units");
 
@@ -269,7 +288,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
 
     const recipientAddressBytes = Array.from(
-      Buffer.from(CONFIG.HARDCODED_RECIPIENT.slice(2), "hex")
+      Buffer.from(signerAddress.slice(2), "hex")
     );
 
     const depositTx = await program.methods
@@ -400,19 +419,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     // STEP 2: DERIVE RECIPIENT ADDRESS
     // =====================================================
 
-    console.log("\n📍 Step 2: Deriving recipient address...");
-
-    const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_authority"), provider.wallet.publicKey.toBuffer()],
-      program.programId
-    );
+    console.log("\n📍 Step 2: Deriving signer address...");
 
     const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("global_vault_authority")],
       program.programId
     );
 
-    // Derive the MPC signer address (for signature verification)
     const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
@@ -421,15 +434,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
-    // Derive the recipient address (where funds will be sent)
-    const path = provider.wallet.publicKey.toString();
-    const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
-      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-      vaultAuthority.toString(),
-      path,
-      CONFIG.SOLANA_CHAIN_ID
-    );
-    const recipientAddress = ethers.computeAddress("0x" + derivedPublicKey);
+    const recipientAddress = CONFIG.WITHDRAWAL_RECIPIENT_ADDRESS;
     const recipientAddressBytes = Array.from(
       Buffer.from(recipientAddress.slice(2), "hex")
     );
