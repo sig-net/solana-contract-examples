@@ -209,13 +209,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("📍 Step 2: Preparing transaction...");
 
-    // Add small randomness to amount to ensure unique request ID per test run
-    const randomOffset = Math.floor(Math.random() * 1000); // 0-999 units (smallest denomination)
-    const baseAmount = ethers.parseUnits(
+    const amountBigInt = ethers.parseUnits(
       CONFIG.TRANSFER_AMOUNT,
       CONFIG.DECIMALS
     );
-    const amountBigInt = baseAmount + BigInt(randomOffset);
     const amountBN = new anchor.BN(amountBigInt.toString());
     const erc20AddressBytes = Array.from(
       Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex")
@@ -277,10 +274,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const depositTx = await program.methods
       .depositErc20(
-        requestIdBytes as any,
+        requestIdBytes,
         provider.wallet.publicKey,
-        erc20AddressBytes as any,
-        recipientAddressBytes as any,
+        erc20AddressBytes,
+        recipientAddressBytes,
         amountBN,
         txParams
       )
@@ -299,7 +296,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 5: Waiting for signature...");
 
-    const signatureEvent = (await eventPromises.signature) as any;
+    const signatureEvent = await eventPromises.signature;
     const signature = extractSignature(signatureEvent);
 
     // =====================================================
@@ -336,7 +333,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const claimTx = await program.methods
       .claimErc20(
-        requestIdBytes as any,
+        requestIdBytes,
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
         null
@@ -539,10 +536,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const withdrawTx = await program.methods
       .withdrawErc20(
-        requestIdBytes as any,
-        erc20AddressBytes as any,
+        requestIdBytes,
+        erc20AddressBytes,
         withdrawAmount,
-        recipientAddressBytes as any,
+        recipientAddressBytes,
         txParams
       )
       .accounts({
@@ -574,7 +571,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 6: Waiting for signature...");
 
-    const signatureEvent = (await eventPromises.signature) as any;
+    const signatureEvent = await eventPromises.signature;
     const signature = extractSignature(signatureEvent);
 
     // =====================================================
@@ -624,7 +621,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     await program.methods
       .completeWithdrawErc20(
-        requestIdBytes as any,
+        requestIdBytes,
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
         null
@@ -815,10 +812,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const withdrawTx = await program.methods
       .withdrawErc20(
-        requestIdBytes as any,
-        erc20AddressBytes as any,
+        requestIdBytes,
+        erc20AddressBytes,
         withdrawAmount,
-        recipientAddressBytes as any,
+        recipientAddressBytes,
         txParams
       )
       .accounts({
@@ -846,7 +843,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 5: Waiting for signature...");
 
-    const signatureEvent = (await eventPromises.signature) as any;
+    const signatureEvent = await eventPromises.signature;
     const signature = extractSignature(signatureEvent);
 
     // =====================================================
@@ -892,7 +889,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     await program.methods
       .completeWithdrawErc20(
-        requestIdBytes as any,
+        requestIdBytes,
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
         null
@@ -943,12 +940,10 @@ async function setupEventListeners(
     readRespondResolve = resolve;
   });
 
-  // Create signet.js ChainSignatureContract instance for event monitoring
-  // Derive root public key from the private key being used
   const rootPublicKeyUncompressed = secp256k1.getPublicKey(
     CONFIG.MPC_ROOT_KEY.slice(2),
     false
-  ); // Get uncompressed public key
+  );
 
   // Remove the 04 prefix and convert to base58
   // signet.js expects: secp256k1:{base58_of_uncompressed_key_without_04}
@@ -1003,13 +998,7 @@ async function setupEventListeners(
     },
   });
 
-  // Note: signet.js only listens to NEW events, it doesn't fetch historical ones
-  // Note: RespondBidirectionalEvent is not yet supported in signet.js event subscription
-  // We'll need to poll for it separately or wait for signet.js update
-  const program = new anchor.Program<ChainSignaturesProject>(
-    IDL as any,
-    provider
-  );
+  const program = new anchor.Program<ChainSignaturesProject>(IDL, provider);
 
   const readRespondListener = program.addEventListener(
     "respondBidirectionalEvent" as any,
@@ -1091,18 +1080,8 @@ function extractSignature(event: any) {
   return { r, s, v };
 }
 
-/**
- * Cleanup event listeners
- */
 async function cleanupEventListeners(eventPromises: any) {
-  // Unsubscribe from signet.js events
   if (eventPromises.unsubscribe) {
     await eventPromises.unsubscribe();
-  }
-
-  // Remove readRespondListener (still using Anchor for this)
-  if (eventPromises.readRespondListener) {
-    // The readRespondListener needs to be removed with the program instance
-    // but we don't have it here, so we'll just leave it - it will be cleaned up when test ends
   }
 }
