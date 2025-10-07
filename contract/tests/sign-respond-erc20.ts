@@ -150,19 +150,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
 
     ethUtils = new EthereumUtils();
-
-    const serverConfig = {
-      solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
-      solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
-      mpcRootKey: CONFIG.MPC_ROOT_KEY,
-      infuraApiKey: CONFIG.INFURA_API_KEY,
-      programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
-      isDevnet: true,
-      verbose: false,
-    };
-
-    server = new ChainSignatureServer(serverConfig);
-    await server.start();
   });
 
   after(async function () {
@@ -194,13 +181,24 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
 
     const path = provider.wallet.publicKey.toString();
+    // console.log("  🔑 Path:", path);
+    // console.log("  🔑 Base public key:", CONFIG.BASE_PUBLIC_KEY);
+    // console.log("  🔑 Vault authority:", vaultAuthority.toString());
+    // console.log("  🔑 Solana chain ID:", CONFIG.SOLANA_CHAIN_ID);
     const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
       path,
       CONFIG.SOLANA_CHAIN_ID
     );
-    const derivedAddress = ethers.computeAddress("0x" + derivedPublicKey);
+
+    console.log("  🔑 Derived public key:", derivedPublicKey);
+    const derivedPublicKeyWith0x = `0x${derivedPublicKey}`;
+    console.log("  🔑 Derived public key with 0x:", derivedPublicKeyWith0x);
+
+    const derivedAddress = ethers.computeAddress(derivedPublicKeyWith0x);
+
+    console.log("  🔑 Derived address:", derivedAddress);
 
     const signerPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.BASE_PUBLIC_KEY as `04${string}`,
@@ -945,14 +943,18 @@ async function setupEventListeners(
     readRespondResolve = resolve;
   });
 
-  const rootPublicKeyUncompressed = secp256k1.getPublicKey(
-    CONFIG.MPC_ROOT_KEY.slice(2),
-    false
-  );
+  const rootPublicKeyUncompressed = CONFIG.MPC_ROOT_KEY;
 
   // Remove the 04 prefix and convert to base58
   // signet.js expects: secp256k1:{base58_of_uncompressed_key_without_04}
-  const publicKeyBytes = rootPublicKeyUncompressed.slice(1); // Remove 04 prefix
+  // Convert hex string public key to bytes and remove the uncompressed 0x04 prefix
+  const hexKey = rootPublicKeyUncompressed.startsWith("0x")
+    ? rootPublicKeyUncompressed.slice(2)
+    : rootPublicKeyUncompressed;
+  const hexKeyWithout04Prefix = hexKey.startsWith("04")
+    ? hexKey.slice(2)
+    : hexKey;
+  const publicKeyBytes = ethers.getBytes("0x" + hexKeyWithout04Prefix);
   const base58PublicKey = anchor.utils.bytes.bs58.encode(publicKeyBytes);
   const rootPublicKeyForSignet = `secp256k1:${base58PublicKey}`;
 
