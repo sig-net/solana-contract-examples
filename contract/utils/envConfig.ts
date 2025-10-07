@@ -11,7 +11,7 @@ const envSchema = z.object({
   MPC_ROOT_KEY: z
     .string()
     .regex(
-      /^0x(?:04[a-fA-F0-9]{128}|0[23][a-fA-F0-9]{64})$/,
+      /^04(?:[a-fA-F0-9]{128}|0[23][a-fA-F0-9]{64})$/,
       "Invalid public key"
     ),
   SOLANA_RPC_URL: z
@@ -64,7 +64,7 @@ export const CONFIG = {
   EPSILON_DERIVATION_PREFIX: "sig.network v1.0.0 epsilon derivation",
   SOLANA_CHAIN_ID: "0x800001f5",
   WAIT_FOR_FUNDING_MS: 5000,
-  TRANSFER_AMOUNT: "100000000",
+  TRANSFER_AMOUNT: "5000000",
   DECIMALS: 6,
   GAS_BUFFER_PERCENT: 20,
 } as const;
