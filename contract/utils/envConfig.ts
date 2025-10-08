@@ -54,6 +54,7 @@ const deriveBasePublicKey = (privateKey: string): string => {
 
 export const CONFIG = {
   INFURA_API_KEY: ENV_CONFIG.INFURA_API_KEY,
+  // no 0x, starts with 04, then the decoded pub key from the script
   BASE_PUBLIC_KEY: ENV_CONFIG.MPC_ROOT_KEY,
   CHAIN_SIGNATURES_PROGRAM_ID: ENV_CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
   MPC_ROOT_KEY: ENV_CONFIG.MPC_ROOT_KEY,
