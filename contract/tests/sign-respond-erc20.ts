@@ -133,6 +133,56 @@ class EthereumUtils {
   }
 }
 
+async function ensureVaultConfigInitialized(
+  program: Program<SolanaCoreContracts>,
+  provider: anchor.AnchorProvider
+) {
+  const [vaultConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("vault_config")],
+    program.programId
+  );
+
+  const rootSignerAddress = ethers.computeAddress(
+    `0x${CONFIG.BASE_PUBLIC_KEY}`
+  );
+  const expectedAddressBytes = Array.from(
+    Buffer.from(rootSignerAddress.slice(2), "hex")
+  );
+
+  type VaultConfigAccount = Awaited<
+    ReturnType<typeof program.account.vaultConfig.fetch>
+  >;
+
+  const vaultConfigAccount = (await program.account.vaultConfig.fetchNullable(
+    vaultConfigPda
+  )) as VaultConfigAccount | null;
+
+  if (!vaultConfigAccount) {
+    await program.methods
+      .initializeConfig(expectedAddressBytes)
+      .accountsStrict({
+        payer: provider.wallet.publicKey,
+        config: vaultConfigPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc();
+    return;
+  }
+
+  const storedAddressHex = Buffer.from(vaultConfigAccount.mpcRootSignerAddress)
+    .toString("hex")
+    .toLowerCase();
+
+  if (storedAddressHex !== rootSignerAddress.slice(2).toLowerCase()) {
+    await program.methods
+      .updateConfig(expectedAddressBytes)
+      .accountsStrict({
+        config: vaultConfigPda,
+      })
+      .rpc();
+  }
+}
+
 describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   // Test context
   let provider: anchor.AnchorProvider;
@@ -148,6 +198,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     program = anchor.workspace
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
+
+    await ensureVaultConfigInitialized(program, provider);
 
     ethUtils = new EthereumUtils();
 
