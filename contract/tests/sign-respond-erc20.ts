@@ -203,18 +203,22 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     ethUtils = new EthereumUtils();
 
-    const serverConfig = {
-      solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
-      solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
-      mpcRootKey: CONFIG.MPC_ROOT_KEY,
-      infuraApiKey: CONFIG.INFURA_API_KEY,
-      programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
-      isDevnet: true,
-      verbose: false,
-    };
+    if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
+      const serverConfig = {
+        solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
+        solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
+        mpcRootKey: CONFIG.MPC_ROOT_KEY,
+        infuraApiKey: CONFIG.INFURA_API_KEY,
+        programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+        isDevnet: true,
+        verbose: false,
+      };
 
-    server = new ChainSignatureServer(serverConfig);
-    await server.start();
+      server = new ChainSignatureServer(serverConfig);
+      await server.start();
+    } else {
+      console.log("🔌 Local ChainSignatureServer disabled via config");
+    }
   });
 
   after(async function () {

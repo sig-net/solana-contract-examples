@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use chain_signatures::cpi::accounts::SignBidirectional;
 use chain_signatures::cpi::sign_bidirectional;
 
-use signet_rs::evm::EVMTransactionBuilder;
+use signet_rs::{TransactionBuilder, TxBuilder, EVM};
 
 use crate::state::transaction_status::{TransactionRecord, TransactionStatus, TransactionType};
 use crate::state::vault::{EvmTransactionParams, IERC20};
@@ -45,7 +45,7 @@ pub fn deposit_erc20(
 
     // Build EVM transaction
 
-    msg!("Deposit: EVMTransactionBuilder::build_and_encode");
+    msg!("Deposit: Building EVM transaction");
     msg!("Chain ID: {}", tx_params.chain_id);
     msg!("Nonce: {}", tx_params.nonce);
     msg!("ERC20 address: {:?}", erc20_address);
@@ -58,17 +58,18 @@ pub fn deposit_erc20(
     );
     msg!("Call data: {:?}", call.abi_encode());
 
-    let rlp_encoded_tx = EVMTransactionBuilder::build_and_encode(
-        tx_params.chain_id,
-        tx_params.nonce,
-        Some(erc20_address),
-        tx_params.value,
-        call.abi_encode(),
-        tx_params.gas_limit,
-        tx_params.max_fee_per_gas,
-        tx_params.max_priority_fee_per_gas,
-        None,
-    );
+    let evm_tx = TransactionBuilder::new::<EVM>()
+        .chain_id(tx_params.chain_id)
+        .nonce(tx_params.nonce)
+        .to(erc20_address)
+        .value(tx_params.value)
+        .input(call.abi_encode())
+        .gas_limit(tx_params.gas_limit)
+        .max_fee_per_gas(tx_params.max_fee_per_gas)
+        .max_priority_fee_per_gas(tx_params.max_priority_fee_per_gas)
+        .build();
+
+    let rlp_encoded_tx = evm_tx.build_for_signing();
 
     // Generate CAIP-2 ID from chain ID
     let caip2_id = format!("eip155:{}", tx_params.chain_id);
@@ -170,6 +171,7 @@ pub fn deposit_erc20(
         "ECDSA".to_string(),
         "ethereum".to_string(),
         "".to_string(),
+        ctx.accounts.chain_signatures_program.key(),
         explorer_schema,
         callback_schema,
     )?;
@@ -277,7 +279,7 @@ pub fn withdraw_erc20(
         amount: U256::from(amount),
     };
 
-    msg!("Withdraw: EVMTransactionBuilder::build_and_encode");
+    msg!("Withdraw: Building EVM transaction");
     msg!("Chain ID: {}", tx_params.chain_id);
     msg!("Nonce: {}", tx_params.nonce);
     msg!("ERC20 address: {:?}", erc20_address);
@@ -291,17 +293,18 @@ pub fn withdraw_erc20(
     msg!("Call data: {:?}", call.abi_encode());
 
     // Build EVM transaction - note: this is FROM the hardcoded recipient address
-    let rlp_encoded_tx = EVMTransactionBuilder::build_and_encode(
-        tx_params.chain_id,
-        tx_params.nonce,
-        Some(erc20_address),
-        tx_params.value,
-        call.abi_encode(),
-        tx_params.gas_limit,
-        tx_params.max_fee_per_gas,
-        tx_params.max_priority_fee_per_gas,
-        None,
-    );
+    let evm_tx = TransactionBuilder::new::<EVM>()
+        .chain_id(tx_params.chain_id)
+        .nonce(tx_params.nonce)
+        .to(erc20_address)
+        .value(tx_params.value)
+        .input(call.abi_encode())
+        .gas_limit(tx_params.gas_limit)
+        .max_fee_per_gas(tx_params.max_fee_per_gas)
+        .max_priority_fee_per_gas(tx_params.max_priority_fee_per_gas)
+        .build();
+
+    let rlp_encoded_tx = evm_tx.build_for_signing();
 
     // Generate CAIP-2 ID from chain ID
     let caip2_id = format!("eip155:{}", tx_params.chain_id);
@@ -386,6 +389,7 @@ pub fn withdraw_erc20(
         "ECDSA".to_string(),
         "ethereum".to_string(),
         "".to_string(),
+        ctx.accounts.chain_signatures_program.key(),
         explorer_schema,
         callback_schema,
     )?;

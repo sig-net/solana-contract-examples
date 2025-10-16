@@ -5,17 +5,56 @@
  * IDL can be found at `target/idl/chain_signatures_project.json`.
  */
 export type ChainSignaturesProject = {
-  address: "85hZuPHErQ6y1o59oMGjVCjHz4xgzKzjVCpgPm6kdBTV";
+  address: "H5tHfpYoEnarrrzcV7sWBcZhiKMvL2aRpUYvb1ydWkwS";
   metadata: {
-    name: "chainSignaturesProject";
-    version: "0.1.2";
+    name: "chainSignatures";
+    version: "0.1.3";
     spec: "0.1.0";
     description: "Chain signatures program for cross-chain signing on Solana";
-    repository: "https://github.com/esaminu/chain-signatures-solana";
+    repository: "https://github.com/sig-net/signet-solana-program";
   };
   instructions: [
     {
+      name: "getSignatureDeposit";
+      docs: [
+        "* @dev Function to get the current signature deposit amount.\n     * @return The current signature deposit amount."
+      ];
+      discriminator: [45, 243, 86, 86, 58, 57, 172, 253];
+      accounts: [
+        {
+          name: "programState";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [
+                  112,
+                  114,
+                  111,
+                  103,
+                  114,
+                  97,
+                  109,
+                  45,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ];
+              }
+            ];
+          };
+        }
+      ];
+      args: [];
+      returns: "u64";
+    },
+    {
       name: "initialize";
+      docs: [
+        "* @dev Function to initialize the program state.\n     * @param signature_deposit The deposit required for signature requests.\n     * @param chain_id The CAIP-2 chain identifier."
+      ];
       discriminator: [175, 175, 109, 31, 13, 152, 155, 237];
       accounts: [
         {
@@ -58,12 +97,84 @@ export type ChainSignaturesProject = {
         {
           name: "signatureDeposit";
           type: "u64";
+        },
+        {
+          name: "chainId";
+          type: "string";
         }
       ];
     },
     {
-      name: "readRespond";
-      discriminator: [250, 9, 163, 167, 41, 67, 181, 182];
+      name: "respond";
+      docs: [
+        "* @dev Function to respond to signature requests.\n     * @param request_ids The array of request IDs.\n     * @param signatures The array of signature responses."
+      ];
+      discriminator: [72, 65, 227, 97, 42, 255, 147, 12];
+      accounts: [
+        {
+          name: "responder";
+          signer: true;
+        },
+        {
+          name: "eventAuthority";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ];
+              }
+            ];
+          };
+        },
+        {
+          name: "program";
+        }
+      ];
+      args: [
+        {
+          name: "requestIds";
+          type: {
+            vec: {
+              array: ["u8", 32];
+            };
+          };
+        },
+        {
+          name: "signatures";
+          type: {
+            vec: {
+              defined: {
+                name: "signature";
+              };
+            };
+          };
+        }
+      ];
+    },
+    {
+      name: "respondBidirectional";
+      docs: [
+        "* @dev Function to finalize bidirectional flow\n     * @param request_id The ID of the signature request to respond to\n     * @param serialized_output output of the previously executed transaction\n     * @param signature ECDSA signature of the serialized output and request_id (keccak256(request_id.concat(serialized_output)))"
+      ];
+      discriminator: [138, 0, 45, 246, 236, 211, 109, 81];
       accounts: [
         {
           name: "responder";
@@ -92,8 +203,11 @@ export type ChainSignaturesProject = {
       ];
     },
     {
-      name: "respond";
-      discriminator: [72, 65, 227, 97, 42, 255, 147, 12];
+      name: "respondError";
+      docs: [
+        "* @dev Function to emit signature generation errors.\n     * @param errors The array of signature generation errors."
+      ];
+      discriminator: [3, 170, 41, 132, 72, 184, 252, 69];
       accounts: [
         {
           name: "responder";
@@ -102,19 +216,11 @@ export type ChainSignaturesProject = {
       ];
       args: [
         {
-          name: "requestIds";
-          type: {
-            vec: {
-              array: ["u8", 32];
-            };
-          };
-        },
-        {
-          name: "signatures";
+          name: "errors";
           type: {
             vec: {
               defined: {
-                name: "signature";
+                name: "errorResponse";
               };
             };
           };
@@ -123,6 +229,9 @@ export type ChainSignaturesProject = {
     },
     {
       name: "sign";
+      docs: [
+        "* @dev Function to request a signature.\n     * @param payload The payload to be signed.\n     * @param key_version The version of the key used for signing.\n     * @param path The derivation path for the user account.\n     * @param algo The algorithm used for signing.\n     * @param dest The response destination.\n     * @param params Additional parameters."
+      ];
       discriminator: [5, 221, 155, 46, 237, 91, 28, 236];
       accounts: [
         {
@@ -165,6 +274,38 @@ export type ChainSignaturesProject = {
         {
           name: "systemProgram";
           address: "11111111111111111111111111111111";
+        },
+        {
+          name: "eventAuthority";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ];
+              }
+            ];
+          };
+        },
+        {
+          name: "program";
         }
       ];
       args: [
@@ -197,8 +338,11 @@ export type ChainSignaturesProject = {
       ];
     },
     {
-      name: "signRespond";
-      discriminator: [67, 108, 87, 191, 44, 180, 46, 45];
+      name: "signBidirectional";
+      docs: [
+        "* @dev Function to initiate bidirectional flow\n     * @param serialized_transaction transaction to be signed\n     * @param caip2_id chain identifier\n     * @param key_version The version of the key used for signing.\n     * @param path The derivation path for the user account.\n     * @param algo The algorithm used for signing.\n     * @param dest The response destination.\n     * @param params Additional parameters.\n     * @param program_id Program to execute downstream operations.\n     * @param output_deserialization_schema schema for transaction output deserialization\n     * @param respond_serialization_schema serialization schema for respond_bidirectional payload"
+      ];
+      discriminator: [21, 104, 182, 213, 189, 143, 219, 48];
       accounts: [
         {
           name: "programState";
@@ -244,6 +388,38 @@ export type ChainSignaturesProject = {
         {
           name: "instructions";
           optional: true;
+        },
+        {
+          name: "eventAuthority";
+          pda: {
+            seeds: [
+              {
+                kind: "const";
+                value: [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ];
+              }
+            ];
+          };
+        },
+        {
+          name: "program";
         }
       ];
       args: [
@@ -252,8 +428,8 @@ export type ChainSignaturesProject = {
           type: "bytes";
         },
         {
-          name: "slip44ChainId";
-          type: "u32";
+          name: "caip2Id";
+          type: "string";
         },
         {
           name: "keyVersion";
@@ -276,33 +452,24 @@ export type ChainSignaturesProject = {
           type: "string";
         },
         {
-          name: "explorerDeserializationFormat";
-          type: {
-            defined: {
-              name: "serializationFormat";
-            };
-          };
+          name: "programId";
+          type: "pubkey";
         },
         {
-          name: "explorerDeserializationSchema";
+          name: "outputDeserializationSchema";
           type: "bytes";
         },
         {
-          name: "callbackSerializationFormat";
-          type: {
-            defined: {
-              name: "serializationFormat";
-            };
-          };
-        },
-        {
-          name: "callbackSerializationSchema";
+          name: "respondSerializationSchema";
           type: "bytes";
         }
       ];
     },
     {
       name: "updateDeposit";
+      docs: [
+        "* @dev Function to set the signature deposit amount.\n     * @param new_deposit The new deposit amount."
+      ];
       discriminator: [126, 116, 15, 164, 238, 179, 155, 59];
       accounts: [
         {
@@ -351,6 +518,9 @@ export type ChainSignaturesProject = {
     },
     {
       name: "withdrawFunds";
+      docs: [
+        "* @dev Function to withdraw funds from the program.\n     * @param amount The amount to withdraw."
+      ];
       discriminator: [241, 36, 29, 111, 208, 31, 104, 217];
       accounts: [
         {
@@ -419,12 +589,12 @@ export type ChainSignaturesProject = {
       discriminator: [86, 232, 194, 4, 211, 69, 172, 202];
     },
     {
-      name: "readRespondedEvent";
-      discriminator: [38, 24, 41, 249, 9, 133, 164, 204];
+      name: "respondBidirectionalEvent";
+      discriminator: [195, 195, 28, 1, 102, 100, 189, 234];
     },
     {
-      name: "signRespondRequestedEvent";
-      discriminator: [30, 12, 56, 70, 97, 168, 45, 32];
+      name: "signBidirectionalEvent";
+      discriminator: [135, 205, 217, 152, 96, 187, 11, 124];
     },
     {
       name: "signatureErrorEvent";
@@ -499,6 +669,9 @@ export type ChainSignaturesProject = {
     },
     {
       name: "depositUpdatedEvent";
+      docs: [
+        "* @dev Emitted when the deposit amount is updated.\n * @param old_deposit The previous deposit amount.\n * @param new_deposit The new deposit amount."
+      ];
       type: {
         kind: "struct";
         fields: [
@@ -514,7 +687,28 @@ export type ChainSignaturesProject = {
       };
     },
     {
+      name: "errorResponse";
+      type: {
+        kind: "struct";
+        fields: [
+          {
+            name: "requestId";
+            type: {
+              array: ["u8", 32];
+            };
+          },
+          {
+            name: "errorMessage";
+            type: "string";
+          }
+        ];
+      };
+    },
+    {
       name: "fundsWithdrawnEvent";
+      docs: [
+        "* @dev Emitted when a withdrawal is made.\n * @param amount The amount withdrawn.\n * @param recipient The address of the recipient."
+      ];
       type: {
         kind: "struct";
         fields: [
@@ -541,12 +735,19 @@ export type ChainSignaturesProject = {
           {
             name: "signatureDeposit";
             type: "u64";
+          },
+          {
+            name: "chainId";
+            type: "string";
           }
         ];
       };
     },
     {
-      name: "readRespondedEvent";
+      name: "respondBidirectionalEvent";
+      docs: [
+        "* @dev Emitted when a read response is received.\n * @param request_id The ID of the request. Must be calculated off-chain.\n * @param responder The address of the responder.\n * @param serialized_output The serialized output.\n * @param signature The signature."
+      ];
       type: {
         kind: "struct";
         fields: [
@@ -576,42 +777,24 @@ export type ChainSignaturesProject = {
       };
     },
     {
-      name: "serializationFormat";
-      repr: {
-        kind: "rust";
-      };
-      type: {
-        kind: "enum";
-        variants: [
-          {
-            name: "borsh";
-          },
-          {
-            name: "abiJson";
-          }
-        ];
-      };
-    },
-    {
-      name: "signRespondRequestedEvent";
+      name: "signBidirectionalEvent";
+      docs: [
+        "* @dev Emitted when a sign_bidirectional request is made.\n * @param sender The address of the sender.\n * @param serialized_transaction The serialized transaction to be signed.\n * @param caip2_id The SLIP-44 chain ID.\n * @param key_version The version of the key used for signing.\n * @param deposit The deposit amount.\n * @param path The derivation path for the user account.\n * @param algo The algorithm used for signing.\n * @param dest The response destination.\n * @param params Additional parameters.\n * @param program_id Program to execute downstream operations.\n * @param output_deserialization_schema Schema for transaction output deserialization.\n * @param respond_serialization_schema Serialization schema for respond_bidirectional payload."
+      ];
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "predecessor";
-            type: "pubkey";
-          },
           {
             name: "sender";
             type: "pubkey";
           },
           {
-            name: "transactionData";
+            name: "serializedTransaction";
             type: "bytes";
           },
           {
-            name: "slip44ChainId";
-            type: "u32";
+            name: "caip2Id";
+            type: "string";
           },
           {
             name: "keyVersion";
@@ -638,19 +821,15 @@ export type ChainSignaturesProject = {
             type: "string";
           },
           {
-            name: "explorerDeserializationFormat";
-            type: "u8";
+            name: "programId";
+            type: "pubkey";
           },
           {
-            name: "explorerDeserializationSchema";
+            name: "outputDeserializationSchema";
             type: "bytes";
           },
           {
-            name: "callbackSerializationFormat";
-            type: "u8";
-          },
-          {
-            name: "callbackSerializationSchema";
+            name: "respondSerializationSchema";
             type: "bytes";
           }
         ];
@@ -684,6 +863,9 @@ export type ChainSignaturesProject = {
     },
     {
       name: "signatureErrorEvent";
+      docs: [
+        "* @dev Emitted when a signature error is received.\n * @notice Any address can emit this event. Do not rely on it for business logic.\n * @param request_id The ID of the request. Must be calculated off-chain.\n * @param responder The address of the responder.\n * @param error The error message."
+      ];
       type: {
         kind: "struct";
         fields: [
@@ -706,6 +888,9 @@ export type ChainSignaturesProject = {
     },
     {
       name: "signatureRequestedEvent";
+      docs: [
+        "* @dev Emitted when a signature is requested.\n * @param sender The address of the sender.\n * @param payload The payload to be signed.\n * @param key_version The version of the key used for signing.\n * @param deposit The deposit amount.\n * @param chain_id The CAIP-2 ID of the blockchain.\n * @param path The derivation path for the user account.\n * @param algo The algorithm used for signing.\n * @param dest The response destination.\n * @param params Additional parameters.\n * @param fee_payer Optional fee payer account."
+      ];
       type: {
         kind: "struct";
         fields: [
@@ -729,7 +914,7 @@ export type ChainSignaturesProject = {
           },
           {
             name: "chainId";
-            type: "u64";
+            type: "string";
           },
           {
             name: "path";
@@ -758,6 +943,9 @@ export type ChainSignaturesProject = {
     },
     {
       name: "signatureRespondedEvent";
+      docs: [
+        "* @dev Emitted when a signature response is received.\n * @notice Any address can emit this event. Clients should always verify the validity of the signature.\n * @param request_id The ID of the request. Must be calculated off-chain.\n * @param responder The address of the responder.\n * @param signature The signature response."
+      ];
       type: {
         kind: "struct";
         fields: [

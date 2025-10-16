@@ -10,7 +10,7 @@ use ::chain_signatures::Signature;
 pub use constants::*;
 pub use state::*;
 
-declare_id!("3wgi78Dc9kStc1bV4SmrHQXNerE3Z97yd1rQtDoDq5Xo");
+declare_id!("rqHSrDmbKyH17Dm9cRtnC4hCGPG2DXbSXfVG4pteitA");
 
 #[program]
 pub mod solana_core_contracts {
