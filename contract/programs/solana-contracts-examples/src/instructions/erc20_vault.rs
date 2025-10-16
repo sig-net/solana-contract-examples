@@ -171,7 +171,7 @@ pub fn deposit_erc20(
         "ECDSA".to_string(),
         "ethereum".to_string(),
         "".to_string(),
-        ctx.accounts.chain_signatures_program.key(),
+        crate::ID,
         explorer_schema,
         callback_schema,
     )?;
@@ -389,7 +389,7 @@ pub fn withdraw_erc20(
         "ECDSA".to_string(),
         "ethereum".to_string(),
         "".to_string(),
-        ctx.accounts.chain_signatures_program.key(),
+        crate::ID,
         explorer_schema,
         callback_schema,
     )?;

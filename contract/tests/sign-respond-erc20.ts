@@ -267,6 +267,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
+    console.log(
+      "  🔑 Chain Signatures Program ID:",
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
+    );
     console.log("  🔑 Derived address (FROM):", derivedAddress);
     console.log("  🎯 Signer address (TO):", signerAddress);
     console.log("  ⏳ Waiting 5 seconds...\n");
