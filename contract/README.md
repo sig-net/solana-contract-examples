@@ -10,7 +10,7 @@
 
 - Compile programs: `anchor build`
 - Type check and lint: `yarn lint`
-- Run the Anchor test suite: `yarn test`
+- Run the Anchor test suite: `anchor test --provider.cluster devnet`
 - The TypeScript integration tests automatically ensure the on-chain `vault_config`
   account is initialized with the derived MPC root signer. If the account already
   exists with the correct key, the setup skips re-initialization.
