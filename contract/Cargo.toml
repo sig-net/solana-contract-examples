@@ -4,6 +4,10 @@ members = [
 ]
 resolver = "2"
 
+[workspace.dependencies]
+base64ct = "=1.6.0"
+ruint = "=1.12.3"
+
 [profile.release]
 overflow-checks = true
 lto = "fat"

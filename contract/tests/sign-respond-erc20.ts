@@ -133,6 +133,56 @@ class EthereumUtils {
   }
 }
 
+async function ensureVaultConfigInitialized(
+  program: Program<SolanaCoreContracts>,
+  provider: anchor.AnchorProvider
+) {
+  const [vaultConfigPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("vault_config")],
+    program.programId
+  );
+
+  const rootSignerAddress = ethers.computeAddress(
+    `0x${CONFIG.BASE_PUBLIC_KEY}`
+  );
+  const expectedAddressBytes = Array.from(
+    Buffer.from(rootSignerAddress.slice(2), "hex")
+  );
+
+  type VaultConfigAccount = Awaited<
+    ReturnType<typeof program.account.vaultConfig.fetch>
+  >;
+
+  const vaultConfigAccount = (await program.account.vaultConfig.fetchNullable(
+    vaultConfigPda
+  )) as VaultConfigAccount | null;
+
+  if (!vaultConfigAccount) {
+    await program.methods
+      .initializeConfig(expectedAddressBytes)
+      .accountsStrict({
+        payer: provider.wallet.publicKey,
+        config: vaultConfigPda,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc();
+    return;
+  }
+
+  const storedAddressHex = Buffer.from(vaultConfigAccount.mpcRootSignerAddress)
+    .toString("hex")
+    .toLowerCase();
+
+  if (storedAddressHex !== rootSignerAddress.slice(2).toLowerCase()) {
+    await program.methods
+      .updateConfig(expectedAddressBytes)
+      .accountsStrict({
+        config: vaultConfigPda,
+      })
+      .rpc();
+  }
+}
+
 describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   // Test context
   let provider: anchor.AnchorProvider;
@@ -149,20 +199,26 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     program = anchor.workspace
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
 
+    await ensureVaultConfigInitialized(program, provider);
+
     ethUtils = new EthereumUtils();
 
-    const serverConfig = {
-      solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
-      solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
-      mpcRootKey: CONFIG.MPC_ROOT_KEY,
-      infuraApiKey: CONFIG.INFURA_API_KEY,
-      programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
-      isDevnet: true,
-      verbose: false,
-    };
+    if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
+      const serverConfig = {
+        solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
+        solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
+        mpcRootKey: CONFIG.MPC_ROOT_KEY,
+        infuraApiKey: CONFIG.INFURA_API_KEY,
+        programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+        isDevnet: true,
+        verbose: false,
+      };
 
-    server = new ChainSignatureServer(serverConfig);
-    await server.start();
+      server = new ChainSignatureServer(serverConfig);
+      await server.start();
+    } else {
+      console.log("🔌 Local ChainSignatureServer disabled via config");
+    }
   });
 
   after(async function () {
@@ -211,6 +267,10 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
+    console.log(
+      "  🔑 Chain Signatures Program ID:",
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
+    );
     console.log("  🔑 Derived address (FROM):", derivedAddress);
     console.log("  🎯 Signer address (TO):", signerAddress);
     console.log("  ⏳ Waiting 5 seconds...\n");
@@ -1022,6 +1082,7 @@ async function setupEventListeners(
     readRespond: readRespondPromise,
     unsubscribe,
     readRespondListener,
+    program,
   };
 }
 
@@ -1088,5 +1149,10 @@ function extractSignature(event: any) {
 async function cleanupEventListeners(eventPromises: any) {
   if (eventPromises.unsubscribe) {
     await eventPromises.unsubscribe();
+  }
+  if (eventPromises.readRespondListener && eventPromises.program) {
+    await eventPromises.program.removeEventListener(
+      eventPromises.readRespondListener
+    );
   }
 }
