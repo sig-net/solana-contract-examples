@@ -340,7 +340,7 @@ export type ChainSignaturesProject = {
     {
       name: "signBidirectional";
       docs: [
-        "* @dev Function to initiate bidirectional flow\n     * @param serialized_transaction transaction to be signed\n     * @param caip2_id chain identifier\n     * @param key_version The version of the key used for signing.\n     * @param path The derivation path for the user account.\n     * @param algo The algorithm used for signing.\n     * @param dest The response destination.\n     * @param params Additional parameters.\n     * @param program_id Program to execute downstream operations.\n     * @param output_deserialization_schema schema for transaction output deserialization\n     * @param respond_serialization_schema serialization schema for respond_bidirectional payload"
+        "* @dev Function to initiate bidirectional flow\n     * @param serialized_transaction transaction to be signed\n     * @param caip2_id chain identifier\n     * @param key_version The version of the key used for signing.\n     * @param path The derivation path for the user account.\n     * @param algo The algorithm used for signing.\n     * @param dest The response destination.\n     * @param params Additional parameters.\n     * @param program_id Program ID to callback after execution (not yet enabled).\n     * @param output_deserialization_schema schema for transaction output deserialization\n     * @param respond_serialization_schema serialization schema for respond_bidirectional payload"
       ];
       discriminator: [21, 104, 182, 213, 189, 143, 219, 48];
       accounts: [
@@ -779,7 +779,7 @@ export type ChainSignaturesProject = {
     {
       name: "signBidirectionalEvent";
       docs: [
-        "* @dev Emitted when a sign_bidirectional request is made.\n * @param sender The address of the sender.\n * @param serialized_transaction The serialized transaction to be signed.\n * @param caip2_id The SLIP-44 chain ID.\n * @param key_version The version of the key used for signing.\n * @param deposit The deposit amount.\n * @param path The derivation path for the user account.\n * @param algo The algorithm used for signing.\n * @param dest The response destination.\n * @param params Additional parameters.\n * @param program_id Program to execute downstream operations.\n * @param output_deserialization_schema Schema for transaction output deserialization.\n * @param respond_serialization_schema Serialization schema for respond_bidirectional payload."
+        "* @dev Emitted when a sign_bidirectional request is made.\n * @param sender The address of the sender.\n * @param serialized_transaction The serialized transaction to be signed.\n * @param caip2_id The SLIP-44 chain ID.\n * @param key_version The version of the key used for signing.\n * @param deposit The deposit amount.\n * @param path The derivation path for the user account.\n * @param algo The algorithm used for signing.\n * @param dest The response destination.\n * @param params Additional parameters.\n * @param program_id Program ID to callback after execution (not yet enabled).\n * @param output_deserialization_schema Schema for transaction output deserialization.\n * @param respond_serialization_schema Serialization schema for respond_bidirectional payload."
       ];
       type: {
         kind: "struct";

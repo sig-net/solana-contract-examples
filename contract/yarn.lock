@@ -1108,11 +1108,6 @@ diff@^3.1.0:
   resolved "https://registry.yarnpkg.com/diff/-/diff-3.5.0.tgz#800c0dd1e0a8bfbc95835c202ad220fe317e5a12"
   integrity sha512-A46qtFgd+g7pDZinpnwiRJtxbC1hpgf0uzP3iG89scHk0AUC7A1TGxf5OiiOUv/JMZR8GOt8hL900hV0bOy5xA==
 
-dotenv@^16.4.7:
-  version "16.6.1"
-  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-16.6.1.tgz#773f0e69527a8315c7285d5ee73c4459d20a8020"
-  integrity sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==
-
 dotenv@^17.2.3:
   version "17.2.3"
   resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.2.3.tgz#ad995d6997f639b11065f419a22fabf567cdb9a2"
@@ -1254,17 +1249,17 @@ eyes@^0.1.8:
   resolved "https://registry.yarnpkg.com/eyes/-/eyes-0.1.8.tgz#62cf120234c683785d902348a800ef3e0cc20bc0"
   integrity sha512-GipyPsXO1anza0AOZdy69Im7hGFCNB7Y/NGjDlZGJ3GJJLtwNSb2vrzYrTYJRrRloVx7pl+bhUaTB8yiccPvFQ==
 
-fakenet-signer@1.2.1-beta.3:
-  version "1.2.1-beta.3"
-  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.2.1-beta.3.tgz#674fecb6b52ebb5801316fb6920eec4094e31990"
-  integrity sha512-2vQXL/uxINHv6lIfIvf+dWP4o/DDxCsVvWKesCy5ZQJgW6wt/cZ1XPfnm4LD2xsp360tOLVFMZKUEEuihc5C6A==
+fakenet-signer@1.2.1-beta.5:
+  version "1.2.1-beta.5"
+  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.2.1-beta.5.tgz#ca71112789245ec95c22aa56aa84ad895a92f8ec"
+  integrity sha512-DCaQSQU3aUg3jdTQOgHGnFSEylCo7GGsdJGbPyIgut+Tn8AiWwHaXJwlQb2C49m3zwBDZWPF2QhjYFPuTJZXpw==
   dependencies:
     "@coral-xyz/anchor" "^0.31.0"
     "@solana/spl-token" "^0.4.13"
     "@solana/web3.js" "^1.98.0"
     borsh "^2.0.0"
     bs58 "^6.0.0"
-    dotenv "^16.4.7"
+    dotenv "^17.2.3"
     ethers "^6.13.5"
     pino "^10.0.0"
     tsx "^4.19.2"
