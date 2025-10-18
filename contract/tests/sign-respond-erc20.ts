@@ -1082,6 +1082,7 @@ async function setupEventListeners(
     readRespond: readRespondPromise,
     unsubscribe,
     readRespondListener,
+    program,
   };
 }
 
@@ -1148,5 +1149,10 @@ function extractSignature(event: any) {
 async function cleanupEventListeners(eventPromises: any) {
   if (eventPromises.unsubscribe) {
     await eventPromises.unsubscribe();
+  }
+  if (eventPromises.readRespondListener && eventPromises.program) {
+    await eventPromises.program.removeEventListener(
+      eventPromises.readRespondListener
+    );
   }
 }
