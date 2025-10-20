@@ -28,4 +28,10 @@ pub enum ErrorCode {
     Underflow,
     #[msg("Transaction not found in history")]
     TransactionNotFound,
+    #[msg("Invalid destination address")]
+    InvalidDestination,
+    #[msg("Deposit amount must be greater than zero")]
+    ZeroDeposit,
+    #[msg("Invalid number of attestations")]
+    InvalidAttestationCount,
 }

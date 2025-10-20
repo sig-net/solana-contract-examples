@@ -61,7 +61,13 @@ pub mod solana_core_contracts {
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
     ) -> Result<()> {
-        instructions::erc20_vault::claim_erc20(ctx, request_id, serialized_output, signature, ethereum_tx_hash)
+        instructions::erc20_vault::claim_erc20(
+            ctx,
+            request_id,
+            serialized_output,
+            signature,
+            ethereum_tx_hash,
+        )
     }
 
     pub fn withdraw_erc20(
@@ -96,6 +102,30 @@ pub mod solana_core_contracts {
             signature,
             ethereum_tx_hash,
         )
+    }
+
+    pub fn deposit_bitcoin(
+        ctx: Context<DepositBitcoin>,
+        deposit_params: BitcoinDepositParams,
+    ) -> Result<()> {
+        instructions::bitcoin_vault::deposit_bitcoin(ctx, deposit_params)
+    }
+
+    pub fn claim_bitcoin(
+        ctx: Context<ClaimBitcoin>,
+        request_ids: Vec<[u8; 32]>,
+        serialized_outputs: Vec<Vec<u8>>,
+        signatures: Vec<Signature>,
+    ) -> Result<()> {
+        instructions::bitcoin_vault::claim_bitcoin(ctx, request_ids, serialized_outputs, signatures)
+    }
+
+    pub fn sign_withdraw_transaction(
+        ctx: Context<SignVaultTransaction>,
+        tx: VaultTransaction,
+        signing_params: SigningParams,
+    ) -> Result<()> {
+        instructions::sign_vault::sign_withdraw_transaction(ctx, tx, signing_params)
     }
 }
 
@@ -366,4 +396,130 @@ pub struct CompleteWithdrawErc20<'info> {
         bump
     )]
     pub transaction_history: Account<'info, UserTransactionHistory>,
+}
+
+#[derive(Accounts)]
+pub struct DepositBitcoin<'info> {
+    #[account(mut)]
+    pub requester: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault_authority", requester.key().as_ref()],
+        bump
+    )]
+    pub requester_pda: SystemAccount<'info>,
+
+    #[account(
+        init,
+        payer = requester,
+        space = PendingBitcoinDeposit::space(),
+        seeds = [
+            b"pending_bitcoin_deposit",
+            requester.key().as_ref()
+        ],
+        bump
+    )]
+    pub pending_deposit: Account<'info, PendingBitcoinDeposit>,
+
+    #[account(mut)]
+    pub fee_payer: Option<Signer<'info>>,
+
+    /// CHECK: Chain signatures state
+    #[account(
+        mut,
+        seeds = [crate::constants::CHAIN_SIGNATURES_STATE_SEED],
+        bump,
+        seeds::program = chain_signatures_program.key()
+    )]
+    pub chain_signatures_state: AccountInfo<'info>,
+
+    /// CHECK: Event authority
+    #[account(
+        seeds = [b"__event_authority"],
+        bump,
+        seeds::program = chain_signatures_program.key()
+    )]
+    pub event_authority: AccountInfo<'info>,
+
+    pub chain_signatures_program:
+        Program<'info, ::chain_signatures::program::ChainSignaturesProject>,
+    pub system_program: Program<'info, System>,
+    pub instructions: Option<AccountInfo<'info>>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimBitcoin<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [
+            b"pending_bitcoin_deposit",
+            pending_deposit.requester.as_ref()
+        ],
+        bump,
+        close = payer
+    )]
+    pub pending_deposit: Account<'info, PendingBitcoinDeposit>,
+
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = UserBitcoinBalance::space(),
+        seeds = [
+            b"user_bitcoin_balance",
+            pending_deposit.requester.as_ref()
+        ],
+        bump
+    )]
+    pub user_balance: Account<'info, UserBitcoinBalance>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SignVaultTransaction<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"global_vault_authority"],
+        bump
+    )]
+    /// CHECK: This is a PDA that will be used as a signer
+    pub requester: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub fee_payer: Option<Signer<'info>>,
+
+    /// CHECK: Chain signatures state
+    #[account(
+        mut,
+        seeds = [crate::constants::CHAIN_SIGNATURES_STATE_SEED],
+        bump,
+        seeds::program = chain_signatures_program.key()
+    )]
+    pub chain_signatures_state: AccountInfo<'info>,
+
+    /// CHECK: Event authority for CPI events
+    #[account(
+        seeds = [b"__event_authority"],
+        bump,
+        seeds::program = chain_signatures_program.key()
+    )]
+    pub event_authority: AccountInfo<'info>,
+
+    pub chain_signatures_program:
+        Program<'info, ::chain_signatures::program::ChainSignaturesProject>,
+    pub system_program: Program<'info, System>,
+    pub instructions: Option<AccountInfo<'info>>,
+
+    #[account(
+        seeds = [b"vault_config"],
+        bump
+    )]
+    pub config: Account<'info, VaultConfig>,
 }
