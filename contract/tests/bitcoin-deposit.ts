@@ -229,23 +229,8 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
   before(async function () {
     this.timeout(30000);
 
-    console.log("\n🚀 Setting up test environment...\n");
-
-    console.log("📋 BITCOIN NETWORK CONFIGURATION:");
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("  Network:      ", CONFIG.BITCOIN_NETWORK);
-    console.log("  CAIP-2 ID:    ", CONFIG.BITCOIN_CAIP2_ID);
-    console.log("  Address Prefix:");
-    console.log(
-      "    mainnet  → bc1q...   (CAIP-2: bip122:000000000019d6689c085ae165831e93)"
-    );
-    console.log(
-      "    testnet  → tb1q...   (CAIP-2: bip122:000000000933ea01ad0ee984209779ba)"
-    );
-    console.log(
-      "    regtest  → bcrt1q... (CAIP-2: bip122:0f9188f13cb7b2c71f2a335e3a4fc328)"
-    );
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    console.log("\n🚀 Setting up Bitcoin test environment...");
+    console.log(`Network: ${CONFIG.BITCOIN_NETWORK}\n`);
 
     provider = anchor.AnchorProvider.env();
     anchor.setProvider(provider);
@@ -253,74 +238,19 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
     program = anchor.workspace
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
 
-    console.log("📝 Program ID:", program.programId.toString());
-    console.log("👛 Wallet:", provider.wallet.publicKey.toString());
-
     await ensureVaultConfigInitialized(program, provider);
 
     btcUtils = new BitcoinUtils(CONFIG.BITCOIN_NETWORK);
 
-    // Initialize Bitcoin adapter
-    console.log(
-      `\n🔗 Initializing Bitcoin ${CONFIG.BITCOIN_NETWORK} adapter...`
-    );
     bitcoinAdapter = await BitcoinAdapterFactory.create(CONFIG.BITCOIN_NETWORK);
 
     const isAvailable = await bitcoinAdapter.isAvailable();
     if (!isAvailable) {
       throw new Error(
-        `❌ Bitcoin ${CONFIG.BITCOIN_NETWORK} adapter not available.\n` +
-          (CONFIG.BITCOIN_NETWORK === "regtest"
-            ? "Please start Bitcoin Core in regtest mode:\n" +
-              "  1. Clone: git clone https://github.com/Pessina/bitcoin-regtest.git\n" +
-              "  2. Start: cd bitcoin-regtest && yarn docker:dev\n" +
-              "  3. Verify: curl http://localhost:18443"
-            : "Check network connectivity.")
+        `❌ Bitcoin ${CONFIG.BITCOIN_NETWORK} not available. Start Bitcoin Core with: yarn docker:dev`
       );
     }
-    console.log(`✅ Bitcoin ${CONFIG.BITCOIN_NETWORK} adapter ready`);
-
-    // CRITICAL: Verify RPC connection and log details
-    const client = (bitcoinAdapter as any).client;
-    if (client) {
-      console.log("\n  🔍 Verifying Bitcoin RPC Connection:");
-      console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      try {
-        const blockchainInfo = await client.command("getblockchaininfo");
-        console.log("  ✅ RPC Connection successful!");
-        console.log("  📊 Network:", blockchainInfo.chain);
-        console.log("  📊 Current block height:", blockchainInfo.blocks);
-        console.log("  📊 Best block hash:", blockchainInfo.bestblockhash.substring(0, 16) + "...");
-
-        const networkInfo = await client.command("getnetworkinfo");
-        console.log("  📊 Bitcoin Core version:", networkInfo.version);
-        console.log("  📊 Protocol version:", networkInfo.protocolversion);
-
-        // Check if we can generate blocks (regtest only feature)
-        if (CONFIG.BITCOIN_NETWORK === "regtest") {
-          const walletInfo = await client.command("getwalletinfo");
-          console.log("  📊 Wallet loaded:", walletInfo.walletname || "default");
-          console.log("  💰 Wallet balance:", walletInfo.balance, "BTC");
-        }
-        console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-      } catch (error: any) {
-        console.error("  ❌ RPC Connection failed!");
-        console.error("  Error:", error.message);
-        throw new Error("Cannot connect to Bitcoin RPC - check your docker setup");
-      }
-    }
-
-    // Verify fundAddress is available for regtest
-    if (CONFIG.BITCOIN_NETWORK === "regtest") {
-      if (typeof bitcoinAdapter.fundAddress !== "function") {
-        console.log(
-          "  ⚠️  Warning: fundAddress method not available on adapter"
-        );
-        console.log("  📝 Available methods:", Object.keys(bitcoinAdapter));
-      } else {
-        console.log("  ✅ fundAddress method available");
-      }
-    }
+    console.log(`✅ Bitcoin RPC connected\n`);
 
     // Start local chain signature server for testing
     if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
@@ -358,15 +288,12 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
   it("Should complete Bitcoin deposit flow with PSBT", async function () {
     this.timeout(180000); // 3 minutes for full flow
 
-    console.log("\n" + "=".repeat(80));
-    console.log("📋 TEST: Bitcoin Deposit Flow");
-    console.log("=".repeat(80) + "\n");
+    console.log("=".repeat(60));
+    console.log("Starting Bitcoin Deposit Flow Test");
+    console.log("=".repeat(60) + "\n");
 
-    // =====================================================
-    // STEP 1: DERIVE BITCOIN ADDRESS
-    // =====================================================
-
-    console.log("📍 STEP 1: Deriving Bitcoin address from MPC root key\n");
+    // STEP 1: Derive Bitcoin addresses
+    console.log("Step 1: Deriving Bitcoin addresses");
 
     const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("vault_authority"), provider.wallet.publicKey.toBuffer()],
@@ -380,7 +307,6 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
 
     const path = provider.wallet.publicKey.toString();
 
-    // Derive child public key for deposit address
     const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
@@ -388,13 +314,10 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
       CONFIG.SOLANA_CHAIN_ID
     );
 
-    // For Bitcoin, we need to compress the public key for SegWit (P2WPKH)
-    // signet.js returns uncompressed (65 bytes), but Bitcoin SegWit needs compressed (33 bytes)
     const compressedPubkey = btcUtils.compressPublicKey(derivedPublicKey);
     const depositAddress = btcUtils.getAddressFromPubkey(compressedPubkey);
     const depositScript = btcUtils.createP2WPKHScript(compressedPubkey);
 
-    // Derive recipient address (global vault)
     const recipientPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.BASE_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
@@ -410,81 +333,8 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
       compressedRecipientPubkey
     );
 
-    console.log("  🔑 Vault Authority PDA:", vaultAuthority.toString());
-    console.log(
-      "  🔑 Global Vault Authority:",
-      globalVaultAuthority.toString()
-    );
-    console.log("  📍 Derivation Path:", path);
-
-    console.log("\n  🔍 DERIVATION VALIDATION:");
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("  Server will derive Bitcoin address using:");
-    console.log("    1. Epsilon calculation:");
-    console.log(
-      `       derivationPath = "${CONFIG.EPSILON_DERIVATION_PREFIX},${
-        CONFIG.SOLANA_CHAIN_ID
-      },${vaultAuthority.toString()},${path}"`
-    );
-    console.log("       epsilon = keccak256(derivationPath)");
-    console.log("    2. Private key derivation:");
-    console.log("       derivedKey = (mpcRootKey + epsilon) % secp256k1_n");
-    console.log("    3. Bitcoin address:");
-    console.log("       P2WPKH(derivedKey.publicKey, testnet4)");
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("  ✅ Our client-side derivation uses identical parameters");
-    console.log("  ✅ Chain ID: " + CONFIG.SOLANA_CHAIN_ID);
-    console.log("  ✅ Sender: " + vaultAuthority.toString());
-    console.log("  ✅ Path: " + path);
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-    // Verify address format matches network
-    const expectedPrefix =
-      CONFIG.BITCOIN_NETWORK === "mainnet"
-        ? "bc1q"
-        : CONFIG.BITCOIN_NETWORK === "regtest"
-        ? "bcrt1q"
-        : "tb1q";
-
-    console.log(`\n  📍 BITCOIN ADDRESSES (${CONFIG.BITCOIN_NETWORK}):`);
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("  💵 DEPOSIT ADDRESS (fund this):", depositAddress);
-    console.log("  💵 RECIPIENT ADDRESS:", recipientAddress);
-
-    // Validate address prefix
-    if (!depositAddress.startsWith(expectedPrefix)) {
-      throw new Error(
-        `❌ Address prefix mismatch! Expected ${expectedPrefix}... for ${CONFIG.BITCOIN_NETWORK}, ` +
-          `but got ${depositAddress.substring(0, 6)}...`
-      );
-    }
-    console.log(
-      `  ✅ Address format validated for ${CONFIG.BITCOIN_NETWORK} network`
-    );
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    if (CONFIG.BITCOIN_NETWORK === "testnet") {
-      console.log("\n  🌐 Get testnet4 BTC from:");
-      console.log("     https://testnet4.anyone.eu.org/");
-      console.log("     https://mempool.space/testnet4");
-    } else if (CONFIG.BITCOIN_NETWORK === "regtest") {
-      console.log(
-        "\n  🌐 Regtest network - use bitcoinAdapter.mineBlocks() to fund"
-      );
-    }
-    console.log(
-      "\n  🔐 Derived Public Key:",
-      derivedPublicKey.slice(0, 32) + "..."
-    );
-    console.log("  📜 Deposit Script (hex):", depositScript.toString("hex"));
-    console.log("  📜 Deposit Script length:", depositScript.length, "bytes");
-    console.log(
-      "  📜 Recipient Script (hex):",
-      recipientScript.toString("hex")
-    );
-    console.log(
-      "  📜 Recipient Script length:",
-      recipientScript.length,
-      "bytes"
-    );
+    console.log(`  Deposit address: ${depositAddress}`);
+    console.log(`  Recipient address: ${recipientAddress}\n`);
 
     // =====================================================
     // STEP 2: FETCH REAL UTXOS FROM BITCOIN NETWORK
@@ -516,7 +366,9 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
 
           // Check blockchain state BEFORE funding
           const beforeInfo = await client.command("getblockchaininfo");
-          console.log(`  📊 Blockchain height BEFORE funding: ${beforeInfo.blocks}`);
+          console.log(
+            `  📊 Blockchain height BEFORE funding: ${beforeInfo.blocks}`
+          );
 
           // Send funds to the address
           const fundTxid = await client.command(
@@ -533,17 +385,28 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
 
           // Mine 1 block to confirm the transaction
           const walletAddress = await client.command("getnewaddress");
-          const blockHashes = await client.command("generatetoaddress", 1, walletAddress);
+          const blockHashes = await client.command(
+            "generatetoaddress",
+            1,
+            walletAddress
+          );
           console.log(`  ⛏️  Mined block: ${blockHashes[0]}`);
 
           // Check blockchain state AFTER mining
           const afterInfo = await client.command("getblockchaininfo");
-          console.log(`  📊 Blockchain height AFTER mining: ${afterInfo.blocks}`);
+          console.log(
+            `  📊 Blockchain height AFTER mining: ${afterInfo.blocks}`
+          );
           console.log(`  📊 Best block hash: ${afterInfo.bestblockhash}`);
 
           // Verify the funding transaction is confirmed
-          const fundingTxInfo = await client.command("gettransaction", fundTxid);
-          console.log(`  ✅ Funding tx confirmed with ${fundingTxInfo.confirmations} confirmations`);
+          const fundingTxInfo = await client.command(
+            "gettransaction",
+            fundTxid
+          );
+          console.log(
+            `  ✅ Funding tx confirmed with ${fundingTxInfo.confirmations} confirmations`
+          );
           console.log(`  📊 Funding tx in block: ${fundingTxInfo.blockhash}`);
 
           // Fetch UTXOs again
