@@ -7,8 +7,16 @@ import { expect } from "chai";
 import { ethers } from "ethers";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { contracts, utils as signetUtils } from "signet.js";
-import { ChainSignatureServer, RequestIdGenerator } from "fakenet-signer";
+import FakenetSignerDefault from "fakenet-signer";
 import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
+
+const FakenetSigner =
+  (
+    FakenetSignerDefault as typeof FakenetSignerDefault & {
+      default?: typeof FakenetSignerDefault;
+    }
+  ).default || FakenetSignerDefault;
+const { ChainSignatureServer, RequestIdGenerator } = FakenetSigner;
 
 interface TransactionParams {
   nonce: anchor.BN;
@@ -212,6 +220,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
         isDevnet: true,
         verbose: false,
+        bitcoinNetwork: CONFIG.BITCOIN_NETWORK,
       };
 
       server = new ChainSignatureServer(serverConfig);

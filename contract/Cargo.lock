@@ -1188,12 +1188,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hashbrown"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
-
-[[package]]
 name = "heck"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1250,7 +1244,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
- "hashbrown 0.16.0",
+ "hashbrown 0.15.5",
  "serde",
  "serde_core",
 ]
@@ -1991,6 +1985,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-big-array"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11fc7cc2c76d73e0f27ee52abbd64eec84d46f370c88371120433196934e4b7f"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_bytes"
 version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2105,12 +2108,16 @@ dependencies = [
 [[package]]
 name = "signet-rs"
 version = "0.2.5"
-source = "git+https://github.com/sig-net/signet.rs?branch=master#86956c4fa7adcbdb7ed28c8d4ecf83de3257fde0"
+source = "git+https://github.com/sig-net/signet.rs?branch=pre-compiled#7af47c3cc34acb6d3206616898ade79cbbe4f0d4"
 dependencies = [
+ "borsh 1.5.7",
+ "bs58",
  "hex",
  "rlp 0.6.1",
  "serde",
+ "serde-big-array",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

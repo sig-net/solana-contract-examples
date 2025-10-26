@@ -1,109 +1,135 @@
-use alloy_primitives::{Address, U256};
-use alloy_sol_types::SolCall;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::keccak;
 use anchor_lang::solana_program::secp256k1_recover::secp256k1_recover;
-use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSerialize, BorshSchema};
 use chain_signatures::cpi::accounts::SignBidirectional;
 use chain_signatures::cpi::sign_bidirectional;
 
-use signet_rs::{TransactionBuilder, TxBuilder, EVM};
+use signet_rs::bitcoin::psbt::Psbt;
+use signet_rs::bitcoin::types::*;
+use signet_rs::{TransactionBuilder, TxBuilder, BITCOIN};
 
-use crate::state::{EvmTransactionParams, IERC20};
+use crate::state::{BtcInput, BtcOutput, BtcTransactionParams};
 use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
-use crate::contexts::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
+use crate::contexts::{ClaimBtc, CompleteWithdrawBtc, DepositBtc, WithdrawBtc};
 
 const HARDCODED_ROOT_PATH: &str = "root";
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
-pub struct NonFunctionCallResult {
-    pub message: String,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
-pub struct Erc20TransferResult {
+pub struct BtcTransferResult {
     pub success: bool,
 }
 
-pub fn deposit_erc20(
-    ctx: Context<DepositErc20>,
+pub fn deposit_btc(
+    ctx: Context<DepositBtc>,
     request_id: [u8; 32],
     requester: Pubkey,
-    erc20_address: [u8; 20],
-    recipient_address: [u8; 20],
-    amount: u128,
-    tx_params: EvmTransactionParams,
+    inputs: Vec<BtcInput>,
+    outputs: Vec<BtcOutput>,
+    tx_params: BtcTransactionParams,
 ) -> Result<()> {
     let path = requester.to_string();
 
-    // Create ERC20 transfer call
-    let recipient = Address::from_slice(&recipient_address);
-    let call = IERC20::transferCall {
-        to: recipient,
-        amount: U256::from(amount),
-    };
+    // Build Bitcoin transaction inputs
+    let mut btc_inputs = Vec::new();
+    let mut total_input_value = 0u64;
 
-    // Build EVM transaction
+    for input in &inputs {
+        let txid = Txid(Hash(input.txid));
 
-    msg!("Deposit: Building EVM transaction");
-    msg!("Chain ID: {}", tx_params.chain_id);
-    msg!("Nonce: {}", tx_params.nonce);
-    msg!("ERC20 address: {:?}", erc20_address);
-    msg!("Value: {}", tx_params.value);
-    msg!("Gas limit: {}", tx_params.gas_limit);
-    msg!("Max fee per gas: {}", tx_params.max_fee_per_gas);
-    msg!(
-        "Max priority fee per gas: {}",
-        tx_params.max_priority_fee_per_gas
-    );
-    msg!("Call data: {:?}", call.abi_encode());
+        let txin = TxIn {
+            previous_output: OutPoint::new(txid, input.vout),
+            script_sig: ScriptBuf::default(),
+            sequence: Sequence::MAX,
+            witness: Witness::default(),
+        };
 
-    let evm_tx = TransactionBuilder::new::<EVM>()
-        .chain_id(tx_params.chain_id)
-        .nonce(tx_params.nonce)
-        .to(erc20_address)
-        .value(tx_params.value)
-        .input(call.abi_encode())
-        .gas_limit(tx_params.gas_limit)
-        .max_fee_per_gas(tx_params.max_fee_per_gas)
-        .max_priority_fee_per_gas(tx_params.max_priority_fee_per_gas)
+        btc_inputs.push(txin);
+        total_input_value = total_input_value
+            .checked_add(input.value)
+            .ok_or(crate::error::ErrorCode::Overflow)?;
+    }
+
+    // Build Bitcoin transaction outputs
+    let mut btc_outputs = Vec::new();
+    let mut total_output_value = 0u64;
+
+    for output in &outputs {
+        let script_pubkey = ScriptBuf::from_bytes(output.script_pubkey.clone());
+
+        let txout = TxOut {
+            value: Amount::from_sat(output.value),
+            script_pubkey,
+        };
+
+        btc_outputs.push(txout);
+        total_output_value = total_output_value
+            .checked_add(output.value)
+            .ok_or(crate::error::ErrorCode::Overflow)?;
+    }
+
+    msg!("Deposit: Building Bitcoin SegWit transaction");
+    msg!("Total input value: {} sats", total_input_value);
+    msg!("Total output value: {} sats", total_output_value);
+    msg!("Inputs: {}", btc_inputs.len());
+    msg!("Outputs: {}", btc_outputs.len());
+
+    // Build unsigned Bitcoin transaction (SegWit - Version::Two)
+    let lock_time = LockTime::from_height(tx_params.lock_time)
+        .map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
+
+    let tx = TransactionBuilder::new::<BITCOIN>()
+        .version(Version::Two)
+        .inputs(btc_inputs)
+        .outputs(btc_outputs)
+        .lock_time(lock_time)
         .build();
 
-    let rlp_encoded_tx = evm_tx.build_for_signing();
+    // Get the TXID from the transaction (returns [u8; 32] directly)
+    let txid_bytes = tx.txid();
 
-    // Generate CAIP-2 ID from chain ID
-    let caip2_id = format!("eip155:{}", tx_params.chain_id);
+    msg!("=== TRANSACTION BUILD DEBUG ===");
+    msg!("Built transaction with {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    msg!("Transaction TXID: {}", hex::encode(&txid_bytes));
 
-    // Add detailed logging
+    // Generate PSBT for MPC signing (includes metadata for signing)
+    let mut psbt = Psbt::from_unsigned_tx(tx);
+
+    // Add witnessUtxo for each input (required for SegWit P2WPKH signing)
+    for (i, input) in inputs.iter().enumerate() {
+        psbt.update_input_with_witness_utxo(i, input.script_pubkey.clone(), input.value)
+            .map_err(|_| crate::error::ErrorCode::SerializationError)?;
+    }
+
+    msg!("Added witnessUtxo to {} PSBT inputs", psbt.inputs.len());
+
+    let psbt_bytes = psbt.serialize()
+        .map_err(|_| crate::error::ErrorCode::SerializationError)?;
+
+    // Use CAIP-2 ID from transaction params (network-specific genesis block hash)
+    let caip2_id = tx_params.caip2_id.clone();
+
     msg!("=== REQUEST ID CALCULATION DEBUG ===");
     msg!("Sender (requester): {}", ctx.accounts.requester_pda.key());
-    msg!("Transaction data length: {}", rlp_encoded_tx.len());
-    msg!(
-        "Transaction data (first 32 bytes): {:?}",
-        &rlp_encoded_tx[..32.min(rlp_encoded_tx.len())]
-    );
+    msg!("TXID (computed): {}", hex::encode(&txid_bytes));
+    msg!("PSBT length: {} bytes", psbt_bytes.len());
     msg!("CAIP-2 ID: {}", caip2_id);
-    msg!("Key version: {}", 0);
     msg!("Path: {}", path);
-    msg!("Algo: {}", "ECDSA");
-    msg!("Dest: {}", "ethereum");
-    msg!("Params: {}", "");
 
-    // Generate request ID and verify it matches the one passed in
+    // Generate request ID using TXID (deterministic!)
     let computed_request_id = generate_sign_bidirectional_request_id(
         &ctx.accounts.requester_pda.key(),
-        &rlp_encoded_tx,
+        &txid_bytes,
         &caip2_id,
-        0, // key_version
+        0,
         &path,
         "ECDSA",
-        "ethereum",
+        "bitcoin",
         "",
     );
 
     msg!("Computed request ID: {:?}", computed_request_id);
     msg!("Provided request ID: {:?}", request_id);
-    msg!("Request IDs match: {}", computed_request_id == request_id);
 
     require!(
         computed_request_id == request_id,
@@ -113,25 +139,17 @@ pub fn deposit_erc20(
     // Store pending deposit info
     let pending = &mut ctx.accounts.pending_deposit;
     pending.requester = requester;
-    pending.amount = amount;
-    pending.erc20_address = erc20_address;
+    pending.amount = total_output_value;
     pending.path = path.clone();
     pending.request_id = request_id;
 
-    // Create schema for ERC20 transfer return value from alloy-sol-types
-    let functions = IERC20::abi::functions();
-    let transfer_func = functions
-        .get("transfer")
-        .and_then(|funcs| funcs.first())
-        .ok_or(crate::error::ErrorCode::FunctionNotFound)?;
-
-    let explorer_schema = serde_json::to_vec(&transfer_func.outputs)
-        .map_err(|_| crate::error::ErrorCode::SerializationError)?;
-
+    // Create callback schema for boolean result
     let callback_schema = serde_json::to_vec(&serde_json::json!("bool"))
         .map_err(|_| crate::error::ErrorCode::SerializationError)?;
 
-    // CPI to sign_respond
+    let explorer_schema = callback_schema.clone();
+
+    // CPI to sign_bidirectional
     let requester_key_bytes = requester.to_bytes();
     let requester_bump = ctx.bumps.requester_pda;
     let signer_seeds: &[&[&[u8]]] = &[&[
@@ -162,54 +180,53 @@ pub fn deposit_erc20(
         signer_seeds,
     );
 
+    // Send PSBT to Chain Signatures for signing (needs metadata!)
     sign_bidirectional(
         cpi_ctx,
-        rlp_encoded_tx,
+        psbt_bytes,
         caip2_id,
-        0, // key_version
+        0,
         path,
         "ECDSA".to_string(),
-        "ethereum".to_string(),
+        "bitcoin".to_string(),
         "".to_string(),
         crate::ID,
         explorer_schema,
         callback_schema,
     )?;
 
-    msg!("ERC20 deposit initiated with request_id: {:?}", request_id);
+    msg!("BTC deposit initiated with request_id: {:?}", request_id);
 
     // Add deposit transaction record
     let deposit_record = TransactionRecord {
         request_id,
         transaction_type: TransactionType::Deposit,
         status: TransactionStatus::Pending,
-        amount,
-        erc20_address,
-        recipient_address: [0u8; 20], // Not used for deposits
+        amount: total_output_value as u128,
+        erc20_address: [0u8; 20],
+        recipient_address: [0u8; 20],
         timestamp: Clock::get()?.unix_timestamp,
         ethereum_tx_hash: None,
     };
 
     let history = &mut ctx.accounts.transaction_history;
     history.add_deposit(deposit_record);
-    msg!("Added deposit to transaction history");
+    msg!("Added BTC deposit to transaction history");
 
     Ok(())
 }
 
-pub fn claim_erc20(
-    ctx: Context<ClaimErc20>,
+pub fn claim_btc(
+    ctx: Context<ClaimBtc>,
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
-    ethereum_tx_hash: Option<[u8; 32]>,
+    bitcoin_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
 
     // Verify signature
     let message_hash = hash_message(&request_id, &serialized_output);
-
-    // Verify the signature
     let expected_address = format!(
         "0x{}",
         hex::encode(ctx.accounts.config.mpc_root_signer_address)
@@ -218,7 +235,7 @@ pub fn claim_erc20(
 
     msg!("Signature verified successfully");
 
-    // Deserialize directly as bool (server now sends just the boolean)
+    // Deserialize result as boolean
     let success: bool = BorshDeserialize::try_from_slice(&serialized_output)
         .map_err(|_| crate::error::ErrorCode::InvalidOutput)?;
 
@@ -232,29 +249,28 @@ pub fn claim_erc20(
         .ok_or(crate::error::ErrorCode::Overflow)?;
 
     msg!(
-        "ERC20 deposit claimed successfully. New balance: {}",
+        "BTC deposit claimed successfully. New balance: {} sats",
         balance.amount
     );
 
-    // Update transaction history to mark deposit as completed
+    // Update transaction history
     let history = &mut ctx.accounts.transaction_history;
-    history.update_deposit_status(&request_id, TransactionStatus::Completed, ethereum_tx_hash)?;
+    history.update_deposit_status(&request_id, TransactionStatus::Completed, bitcoin_tx_hash)?;
     msg!("Updated deposit status to completed in transaction history");
 
     Ok(())
 }
 
-pub fn withdraw_erc20(
-    ctx: Context<WithdrawErc20>,
+pub fn withdraw_btc(
+    ctx: Context<WithdrawBtc>,
     request_id: [u8; 32],
-    erc20_address: [u8; 20],
-    amount: u128,
-    recipient_address: [u8; 20],
-    tx_params: EvmTransactionParams,
+    inputs: Vec<BtcInput>,
+    outputs: Vec<BtcOutput>,
+    amount: u64,
+    recipient_address: String,
+    tx_params: BtcTransactionParams,
 ) -> Result<()> {
     let authority = ctx.accounts.authority.key();
-
-    // Use the hardcoded root path for withdrawals
     let path = HARDCODED_ROOT_PATH.to_string();
 
     // Check user has sufficient balance
@@ -270,54 +286,90 @@ pub fn withdraw_erc20(
         .checked_sub(amount)
         .ok_or(crate::error::ErrorCode::Underflow)?;
 
-    msg!("Optimistically decremented balance by {}", amount);
+    msg!("Optimistically decremented balance by {} sats", amount);
 
-    // Create ERC20 transfer call
-    let recipient = Address::from_slice(&recipient_address);
-    let call = IERC20::transferCall {
-        to: recipient,
-        amount: U256::from(amount),
-    };
+    // Build Bitcoin transaction inputs
+    let mut btc_inputs = Vec::new();
+    for input in &inputs {
+        let txid = Txid(Hash(input.txid));
 
-    msg!("Withdraw: Building EVM transaction");
-    msg!("Chain ID: {}", tx_params.chain_id);
-    msg!("Nonce: {}", tx_params.nonce);
-    msg!("ERC20 address: {:?}", erc20_address);
-    msg!("Value: {}", tx_params.value);
-    msg!("Gas limit: {}", tx_params.gas_limit);
-    msg!("Max fee per gas: {}", tx_params.max_fee_per_gas);
-    msg!(
-        "Max priority fee per gas: {}",
-        tx_params.max_priority_fee_per_gas
-    );
-    msg!("Call data: {:?}", call.abi_encode());
+        let txin = TxIn {
+            previous_output: OutPoint::new(txid, input.vout),
+            script_sig: ScriptBuf::default(),
+            sequence: Sequence::MAX,
+            witness: Witness::default(),
+        };
 
-    // Build EVM transaction - note: this is FROM the hardcoded recipient address
-    let evm_tx = TransactionBuilder::new::<EVM>()
-        .chain_id(tx_params.chain_id)
-        .nonce(tx_params.nonce)
-        .to(erc20_address)
-        .value(tx_params.value)
-        .input(call.abi_encode())
-        .gas_limit(tx_params.gas_limit)
-        .max_fee_per_gas(tx_params.max_fee_per_gas)
-        .max_priority_fee_per_gas(tx_params.max_priority_fee_per_gas)
+        btc_inputs.push(txin);
+    }
+
+    // Build Bitcoin transaction outputs
+    let mut btc_outputs = Vec::new();
+    for output in &outputs {
+        let script_pubkey = ScriptBuf::from_bytes(output.script_pubkey.clone());
+
+        let txout = TxOut {
+            value: Amount::from_sat(output.value),
+            script_pubkey,
+        };
+
+        btc_outputs.push(txout);
+    }
+
+    msg!("Withdraw: Building Bitcoin SegWit transaction");
+    msg!("Inputs: {}", btc_inputs.len());
+    msg!("Outputs: {}", btc_outputs.len());
+
+    // Build unsigned Bitcoin transaction (SegWit - Version::Two)
+    let lock_time = LockTime::from_height(tx_params.lock_time)
+        .map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
+
+    let tx = TransactionBuilder::new::<BITCOIN>()
+        .version(Version::Two)
+        .inputs(btc_inputs)
+        .outputs(btc_outputs)
+        .lock_time(lock_time)
         .build();
 
-    let rlp_encoded_tx = evm_tx.build_for_signing();
+    // Get the TXID from the transaction (returns [u8; 32] directly)
+    let txid_bytes = tx.txid();
 
-    // Generate CAIP-2 ID from chain ID
-    let caip2_id = format!("eip155:{}", tx_params.chain_id);
+    msg!("=== TRANSACTION BUILD DEBUG ===");
+    msg!("Built transaction with {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    msg!("Transaction TXID: {}", hex::encode(&txid_bytes));
 
-    // Generate request ID
+    // Generate PSBT for MPC signing (includes metadata for signing)
+    let mut psbt = Psbt::from_unsigned_tx(tx);
+
+    // Add witnessUtxo for each input (required for SegWit P2WPKH signing)
+    for (i, input) in inputs.iter().enumerate() {
+        psbt.update_input_with_witness_utxo(i, input.script_pubkey.clone(), input.value)
+            .map_err(|_| crate::error::ErrorCode::SerializationError)?;
+    }
+
+    msg!("Added witnessUtxo to {} PSBT inputs", psbt.inputs.len());
+
+    let psbt_bytes = psbt.serialize()
+        .map_err(|_| crate::error::ErrorCode::SerializationError)?;
+
+    let caip2_id = "bip122:000000000019d6689c085ae165831e93".to_string();
+
+    msg!("=== REQUEST ID CALCULATION DEBUG ===");
+    msg!("Sender (requester): {}", ctx.accounts.requester.key());
+    msg!("TXID (computed): {}", hex::encode(&txid_bytes));
+    msg!("PSBT length: {} bytes", psbt_bytes.len());
+    msg!("CAIP-2 ID: {}", caip2_id);
+    msg!("Path: {}", path);
+
+    // Generate request ID using TXID (deterministic!)
     let computed_request_id = generate_sign_bidirectional_request_id(
         &ctx.accounts.requester.key(),
-        &rlp_encoded_tx,
+        &txid_bytes,
         &caip2_id,
-        0, // key_version
+        0,
         &path,
         "ECDSA",
-        "ethereum",
+        "bitcoin",
         "",
     );
 
@@ -333,30 +385,19 @@ pub fn withdraw_erc20(
     let pending = &mut ctx.accounts.pending_withdrawal;
     pending.requester = authority;
     pending.amount = amount;
-    pending.erc20_address = erc20_address;
     pending.recipient_address = recipient_address;
     pending.path = path.clone();
     pending.request_id = request_id;
 
-    // Create schema for ERC20 transfer return value
-    let functions = IERC20::abi::functions();
-    let transfer_func = functions
-        .get("transfer")
-        .and_then(|funcs| funcs.first())
-        .ok_or(crate::error::ErrorCode::FunctionNotFound)?;
-
-    let explorer_schema = serde_json::to_vec(&transfer_func.outputs)
-        .map_err(|_| crate::error::ErrorCode::SerializationError)?;
-
+    // Create callback schema
     let callback_schema = serde_json::to_vec(&serde_json::json!("bool"))
         .map_err(|_| crate::error::ErrorCode::SerializationError)?;
 
-    // CPI to sign_respond
+    let explorer_schema = callback_schema.clone();
+
+    // CPI to sign_bidirectional
     let requester_bump = ctx.bumps.requester;
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        b"global_vault_authority", // Just this seed
-        &[requester_bump],
-    ]];
+    let signer_seeds: &[&[&[u8]]] = &[&[b"global_vault_authority", &[requester_bump]]];
 
     let cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.chain_signatures_program.to_account_info(),
@@ -380,14 +421,15 @@ pub fn withdraw_erc20(
         signer_seeds,
     );
 
+    // Send PSBT to Chain Signatures for signing (needs metadata!)
     sign_bidirectional(
         cpi_ctx,
-        rlp_encoded_tx,
+        psbt_bytes,
         caip2_id,
-        0, // key_version
+        0,
         path,
         "ECDSA".to_string(),
-        "ethereum".to_string(),
+        "bitcoin".to_string(),
         "".to_string(),
         crate::ID,
         explorer_schema,
@@ -395,7 +437,7 @@ pub fn withdraw_erc20(
     )?;
 
     msg!(
-        "ERC20 withdrawal initiated with request_id: {:?}",
+        "BTC withdrawal initiated with request_id: {:?}",
         request_id
     );
 
@@ -404,9 +446,9 @@ pub fn withdraw_erc20(
         request_id,
         transaction_type: TransactionType::Withdrawal,
         status: TransactionStatus::Pending,
-        amount,
-        erc20_address,
-        recipient_address,
+        amount: amount as u128,
+        erc20_address: [0u8; 20],
+        recipient_address: [0u8; 20],
         timestamp: Clock::get()?.unix_timestamp,
         ethereum_tx_hash: None,
     };
@@ -418,12 +460,12 @@ pub fn withdraw_erc20(
     Ok(())
 }
 
-pub fn complete_withdraw_erc20(
-    ctx: Context<CompleteWithdrawErc20>,
+pub fn complete_withdraw_btc(
+    ctx: Context<CompleteWithdrawBtc>,
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
-    ethereum_tx_hash: Option<[u8; 32]>,
+    bitcoin_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
 
@@ -442,18 +484,17 @@ pub fn complete_withdraw_erc20(
 
     let should_refund = if serialized_output.len() >= 4 && serialized_output[..4] == ERROR_PREFIX {
         msg!("Detected error response (magic prefix)");
-        true // Always refund on error
+        true
     } else {
-        // Normal response - deserialize as boolean
         let success: bool = BorshDeserialize::try_from_slice(&serialized_output)
             .map_err(|_| crate::error::ErrorCode::InvalidOutput)?;
 
         if !success {
             msg!("Transfer returned false");
-            true // Refund if transfer returned false
+            true
         } else {
             msg!("Transfer returned true");
-            false // Don't refund
+            false
         }
     };
 
@@ -465,65 +506,55 @@ pub fn complete_withdraw_erc20(
             .checked_add(pending.amount)
             .ok_or(crate::error::ErrorCode::Overflow)?;
 
-        msg!("Balance refunded: {}", pending.amount);
+        msg!("Balance refunded: {} sats", pending.amount);
 
-        // Update transaction history to mark withdrawal as failed
+        // Update transaction history
         let history = &mut ctx.accounts.transaction_history;
         history.update_withdrawal_status(
             &request_id,
             TransactionStatus::Failed,
-            ethereum_tx_hash,
+            bitcoin_tx_hash,
         )?;
         msg!("Updated withdrawal status to failed in transaction history");
     } else {
-        // Update transaction history to mark withdrawal as completed
+        // Update transaction history
         let history = &mut ctx.accounts.transaction_history;
         history.update_withdrawal_status(
             &request_id,
             TransactionStatus::Completed,
-            ethereum_tx_hash,
+            bitcoin_tx_hash,
         )?;
         msg!("Updated withdrawal status to completed in transaction history");
     }
 
-    msg!("ERC20 withdrawal process completed");
+    msg!("BTC withdrawal process completed");
 
     Ok(())
 }
 
-// Add this helper function to verify signature by recovering address
 fn verify_signature_from_address(
     message_hash: &[u8; 32],
     signature: &chain_signatures::Signature,
     expected_address: &str,
 ) -> Result<()> {
-    // Validate recovery ID
     require!(
         signature.recovery_id < 4,
         crate::error::ErrorCode::InvalidSignature
     );
 
-    // Prepare signature for secp256k1_recover
     let mut sig_bytes = [0u8; 64];
     sig_bytes[..32].copy_from_slice(&signature.big_r.x);
     sig_bytes[32..].copy_from_slice(&signature.s);
 
-    // Recover the public key
     let recovered_pubkey = secp256k1_recover(message_hash, signature.recovery_id, &sig_bytes)
         .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
 
-    // Convert public key to Ethereum address
-    // The recovered key is 64 bytes (without the 0x04 prefix)
     let pubkey_bytes = recovered_pubkey.to_bytes();
-
-    // Hash the public key to get address
     let pubkey_hash = keccak::hash(&pubkey_bytes);
-    let address_bytes = &pubkey_hash.to_bytes()[12..]; // Last 20 bytes
+    let address_bytes = &pubkey_hash.to_bytes()[12..];
 
-    // Convert to hex string for comparison
     let recovered_address = format!("0x{}", hex::encode(address_bytes));
 
-    // Compare addresses (case-insensitive)
     require!(
         recovered_address.to_lowercase() == expected_address.to_lowercase(),
         crate::error::ErrorCode::InvalidSignature
@@ -531,8 +562,6 @@ fn verify_signature_from_address(
 
     Ok(())
 }
-
-// Helper functions
 
 #[allow(clippy::too_many_arguments)]
 fn generate_sign_bidirectional_request_id(
@@ -547,11 +576,6 @@ fn generate_sign_bidirectional_request_id(
 ) -> [u8; 32] {
     use alloy_sol_types::SolValue;
 
-    msg!("=== generate_sign_bidirectional_request_id ===");
-    msg!("Encoding with abi_encode_packed");
-
-    // Match TypeScript implementation using packed ABI encoding
-    // This matches: ethers.solidityPacked()
     let encoded = (
         sender.to_string(),
         transaction_data,
@@ -564,16 +588,7 @@ fn generate_sign_bidirectional_request_id(
     )
         .abi_encode_packed();
 
-    msg!("Encoded data length: {}", encoded.len());
-    msg!(
-        "Encoded data (first 32 bytes): {:?}",
-        &encoded[..32.min(encoded.len())]
-    );
-
-    let hash = keccak::hash(&encoded).to_bytes();
-    msg!("Resulting hash: {:?}", hash);
-
-    hash
+    keccak::hash(&encoded).to_bytes()
 }
 
 fn hash_message(request_id: &[u8; 32], serialized_output: &[u8]) -> [u8; 32] {

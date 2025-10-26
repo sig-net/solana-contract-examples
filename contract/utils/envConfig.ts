@@ -1,8 +1,10 @@
 import { config } from "dotenv";
 import { z } from "zod";
 import path from "path";
+import { fileURLToPath } from "url";
 import { secp256k1 } from "@noble/curves/secp256k1";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, "../.env") });
 
 const deriveBasePublicKey = (privateKey: string): string => {
@@ -37,6 +39,10 @@ const envSchema = z
       .string()
       .optional()
       .default("false"),
+    BITCOIN_NETWORK: z
+      .enum(["regtest", "testnet", "mainnet"])
+      .optional()
+      .default("testnet"),
   })
   .superRefine((data, ctx) => {
     if (!data.MPC_ROOT_KEY && !data.BASE_PUBLIC_KEY) {
@@ -109,6 +115,13 @@ export const CONFIG = {
   TRANSFER_AMOUNT: "0.01",
   DECIMALS: 18,
   GAS_BUFFER_PERCENT: 20,
+  BITCOIN_NETWORK: ENV_CONFIG.BITCOIN_NETWORK,
+  BITCOIN_CAIP2_ID:
+    ENV_CONFIG.BITCOIN_NETWORK === "mainnet"
+      ? "bip122:000000000019d6689c085ae165831e93"
+      : ENV_CONFIG.BITCOIN_NETWORK === "testnet"
+      ? "bip122:000000000933ea01ad0ee984209779ba"
+      : "bip122:0f9188f13cb7b2c71f2a335e3a4fc328",
 } as const;
 
 export const SERVER_CONFIG = {

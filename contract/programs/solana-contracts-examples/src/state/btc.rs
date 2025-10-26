@@ -1,0 +1,49 @@
+use anchor_lang::prelude::*;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct BtcInput {
+    pub txid: [u8; 32],
+    pub vout: u32,
+    pub script_pubkey: Vec<u8>,
+    pub value: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct BtcOutput {
+    pub script_pubkey: Vec<u8>,
+    pub value: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct BtcTransactionParams {
+    pub lock_time: u32,
+    pub caip2_id: String,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct PendingBtcDeposit {
+    pub requester: Pubkey,
+    pub amount: u64,
+    #[max_len(64)]
+    pub path: String,
+    pub request_id: [u8; 32],
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct PendingBtcWithdrawal {
+    pub requester: Pubkey,
+    pub amount: u64,
+    #[max_len(64)]
+    pub recipient_address: String,
+    #[max_len(64)]
+    pub path: String,
+    pub request_id: [u8; 32],
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct UserBtcBalance {
+    pub amount: u64,
+}
