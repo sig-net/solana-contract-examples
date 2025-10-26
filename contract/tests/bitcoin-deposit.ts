@@ -280,6 +280,36 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
     }
     console.log(`✅ Bitcoin ${CONFIG.BITCOIN_NETWORK} adapter ready`);
 
+    // CRITICAL: Verify RPC connection and log details
+    const client = (bitcoinAdapter as any).client;
+    if (client) {
+      console.log("\n  🔍 Verifying Bitcoin RPC Connection:");
+      console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      try {
+        const blockchainInfo = await client.command("getblockchaininfo");
+        console.log("  ✅ RPC Connection successful!");
+        console.log("  📊 Network:", blockchainInfo.chain);
+        console.log("  📊 Current block height:", blockchainInfo.blocks);
+        console.log("  📊 Best block hash:", blockchainInfo.bestblockhash.substring(0, 16) + "...");
+
+        const networkInfo = await client.command("getnetworkinfo");
+        console.log("  📊 Bitcoin Core version:", networkInfo.version);
+        console.log("  📊 Protocol version:", networkInfo.protocolversion);
+
+        // Check if we can generate blocks (regtest only feature)
+        if (CONFIG.BITCOIN_NETWORK === "regtest") {
+          const walletInfo = await client.command("getwalletinfo");
+          console.log("  📊 Wallet loaded:", walletInfo.walletname || "default");
+          console.log("  💰 Wallet balance:", walletInfo.balance, "BTC");
+        }
+        console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+      } catch (error: any) {
+        console.error("  ❌ RPC Connection failed!");
+        console.error("  Error:", error.message);
+        throw new Error("Cannot connect to Bitcoin RPC - check your docker setup");
+      }
+    }
+
     // Verify fundAddress is available for regtest
     if (CONFIG.BITCOIN_NETWORK === "regtest") {
       if (typeof bitcoinAdapter.fundAddress !== "function") {
@@ -484,6 +514,10 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
             throw new Error("Bitcoin Core RPC client not available on adapter");
           }
 
+          // Check blockchain state BEFORE funding
+          const beforeInfo = await client.command("getblockchaininfo");
+          console.log(`  📊 Blockchain height BEFORE funding: ${beforeInfo.blocks}`);
+
           // Send funds to the address
           const fundTxid = await client.command(
             "sendtoaddress",
@@ -491,12 +525,26 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
             fundingAmount
           );
           console.log(`  ✅ Sent ${fundingAmount} BTC to ${depositAddress}`);
-          console.log(`  📝 Transaction ID: ${fundTxid}`);
+          console.log(`  📝 Funding Transaction ID: ${fundTxid}`);
+
+          // Verify it's in mempool
+          const mempoolInfo = await client.command("getmempoolinfo");
+          console.log(`  📊 Mempool size: ${mempoolInfo.size} transactions`);
 
           // Mine 1 block to confirm the transaction
           const walletAddress = await client.command("getnewaddress");
-          await client.command("generatetoaddress", 1, walletAddress);
-          console.log(`  ⛏️  Mined 1 block for confirmation`);
+          const blockHashes = await client.command("generatetoaddress", 1, walletAddress);
+          console.log(`  ⛏️  Mined block: ${blockHashes[0]}`);
+
+          // Check blockchain state AFTER mining
+          const afterInfo = await client.command("getblockchaininfo");
+          console.log(`  📊 Blockchain height AFTER mining: ${afterInfo.blocks}`);
+          console.log(`  📊 Best block hash: ${afterInfo.bestblockhash}`);
+
+          // Verify the funding transaction is confirmed
+          const fundingTxInfo = await client.command("gettransaction", fundTxid);
+          console.log(`  ✅ Funding tx confirmed with ${fundingTxInfo.confirmations} confirmations`);
+          console.log(`  📊 Funding tx in block: ${fundingTxInfo.blockhash}`);
 
           // Fetch UTXOs again
           utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
@@ -785,20 +833,64 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
       ]
     );
 
-    // Convert ECDSA signature to DER format for Bitcoin
-    const rBuf = Buffer.from(signature.r.slice(2), "hex");
-    const sBuf = Buffer.from(signature.s.slice(2), "hex");
+    // Convert ECDSA signature to canonical DER format for Bitcoin
+    let rBuf = Buffer.from(signature.r.slice(2), "hex");
+    let sBuf = Buffer.from(signature.s.slice(2), "hex");
 
-    // Create DER signature
+    // Bitcoin requires low-S signatures (BIP62) to prevent malleability
+    // If S > secp256k1_n/2, then S' = secp256k1_n - S
+    const secp256k1N = Buffer.from(
+      "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+      "hex"
+    );
+    const halfN = Buffer.from(
+      "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0",
+      "hex"
+    );
+
+    const sBigInt = BigInt("0x" + sBuf.toString("hex"));
+    const halfNBigInt = BigInt("0x" + halfN.toString("hex"));
+
+    if (sBigInt > halfNBigInt) {
+      // Normalize S to low value
+      const nBigInt = BigInt("0x" + secp256k1N.toString("hex"));
+      const sNormalized = nBigInt - sBigInt;
+      sBuf = Buffer.from(sNormalized.toString(16).padStart(64, "0"), "hex");
+      console.log("  ⚡ Normalized S to low value (BIP62)");
+    }
+
+    // Helper to encode DER integer (handles padding for high bit)
+    function toDERInteger(value: Buffer): Buffer {
+      // Remove leading zeros (except when next byte has high bit set)
+      let i = 0;
+      while (i < value.length - 1 && value[i] === 0 && value[i + 1] < 0x80) {
+        i++;
+      }
+      let trimmed = value.slice(i);
+
+      // Add 0x00 padding if high bit is set (to indicate positive number)
+      if (trimmed[0] >= 0x80) {
+        trimmed = Buffer.concat([Buffer.from([0x00]), trimmed]);
+      }
+
+      // Return: 0x02 (INTEGER tag) + length + value
+      return Buffer.concat([
+        Buffer.from([0x02]),
+        Buffer.from([trimmed.length]),
+        trimmed,
+      ]);
+    }
+
+    // Encode R and S as DER integers
+    const rDER = toDERInteger(rBuf);
+    const sDER = toDERInteger(sBuf);
+
+    // Create DER signature: 0x30 + length + R + S
     const derSig = Buffer.concat([
-      Buffer.from([0x30]), // DER sequence tag
-      Buffer.from([rBuf.length + sBuf.length + 4]), // total length
-      Buffer.from([0x02]), // integer tag for r
-      Buffer.from([rBuf.length]), // r length
-      rBuf,
-      Buffer.from([0x02]), // integer tag for s
-      Buffer.from([sBuf.length]), // s length
-      sBuf,
+      Buffer.from([0x30]), // DER SEQUENCE tag
+      Buffer.from([rDER.length + sDER.length]), // total length
+      rDER,
+      sDER,
     ]);
 
     // Add SIGHASH_ALL flag
