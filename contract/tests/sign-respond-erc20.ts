@@ -7,16 +7,8 @@ import { expect } from "chai";
 import { ethers } from "ethers";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { contracts, utils as signetUtils } from "signet.js";
-import FakenetSignerDefault from "fakenet-signer";
+import { ChainSignatureServer, RequestIdGenerator } from "fakenet-signer";
 import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
-
-const FakenetSigner =
-  (
-    FakenetSignerDefault as typeof FakenetSignerDefault & {
-      default?: typeof FakenetSignerDefault;
-    }
-  ).default || FakenetSignerDefault;
-const { ChainSignatureServer, RequestIdGenerator } = FakenetSigner;
 
 interface TransactionParams {
   nonce: anchor.BN;

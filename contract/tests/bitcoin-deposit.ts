@@ -11,17 +11,13 @@ import * as bitcoin from "bitcoinjs-lib";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { ethers } from "ethers";
 import { contracts, utils as signetUtils } from "signet.js";
-import FakenetSignerDefault from "fakenet-signer";
+import {
+  ChainSignatureServer,
+  RequestIdGenerator,
+  BitcoinAdapterFactory,
+  IBitcoinAdapter,
+} from "fakenet-signer";
 import { CONFIG, SERVER_CONFIG } from "../utils/envConfig.js";
-
-const FakenetSigner =
-  (
-    FakenetSignerDefault as typeof FakenetSignerDefault & {
-      default?: typeof FakenetSignerDefault;
-    }
-  ).default || FakenetSignerDefault;
-const { ChainSignatureServer, RequestIdGenerator, BitcoinAdapterFactory } =
-  FakenetSigner;
 
 interface UTXO {
   txid: string;
@@ -32,14 +28,6 @@ interface UTXO {
     block_height?: number;
   };
 }
-
-interface IBitcoinAdapter {
-  isAvailable(): Promise<boolean>;
-  getAddressUtxos(address: string): Promise<UTXO[]>;
-  fundAddress?(address: string, amount: number): Promise<string>;
-}
-import * as crypto from "crypto";
-
 interface BtcInput {
   txid: number[];
   vout: number;
@@ -350,78 +338,35 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
     let utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
 
     if (!utxos || utxos.length === 0) {
-      if (CONFIG.BITCOIN_NETWORK === "regtest") {
+      // Check if we can fund the address (either through fundAddress or getClient)
+
+      if (bitcoinAdapter.fundAddress) {
         console.log(
-          "  💰 No UTXOs found. Auto-funding address via Bitcoin Core RPC..."
+          "  💰 No UTXOs found. Auto-funding address via Bitcoin adapter..."
         );
         const fundingAmount = 0.001; // 0.001 BTC = 100,000 sats
 
         try {
-          // Access Bitcoin Core RPC client
-          const client = (bitcoinAdapter as any).client;
-
-          if (!client) {
-            throw new Error("Bitcoin Core RPC client not available on adapter");
-          }
-
-          // Check blockchain state BEFORE funding
-          const beforeInfo = await client.command("getblockchaininfo");
-          console.log(
-            `  📊 Blockchain height BEFORE funding: ${beforeInfo.blocks}`
-          );
-
-          // Send funds to the address
-          const fundTxid = await client.command(
-            "sendtoaddress",
+          const fundTxid = await bitcoinAdapter.fundAddress(
             depositAddress,
             fundingAmount
           );
-          console.log(`  ✅ Sent ${fundingAmount} BTC to ${depositAddress}`);
+
           console.log(`  📝 Funding Transaction ID: ${fundTxid}`);
-
-          // Verify it's in mempool
-          const mempoolInfo = await client.command("getmempoolinfo");
-          console.log(`  📊 Mempool size: ${mempoolInfo.size} transactions`);
-
-          // Mine 1 block to confirm the transaction
-          const walletAddress = await client.command("getnewaddress");
-          const blockHashes = await client.command(
-            "generatetoaddress",
-            1,
-            walletAddress
-          );
-          console.log(`  ⛏️  Mined block: ${blockHashes[0]}`);
-
-          // Check blockchain state AFTER mining
-          const afterInfo = await client.command("getblockchaininfo");
-          console.log(
-            `  📊 Blockchain height AFTER mining: ${afterInfo.blocks}`
-          );
-          console.log(`  📊 Best block hash: ${afterInfo.bestblockhash}`);
-
-          // Verify the funding transaction is confirmed
-          const fundingTxInfo = await client.command(
-            "gettransaction",
-            fundTxid
-          );
-          console.log(
-            `  ✅ Funding tx confirmed with ${fundingTxInfo.confirmations} confirmations`
-          );
-          console.log(`  📊 Funding tx in block: ${fundingTxInfo.blockhash}`);
 
           // Fetch UTXOs again
           utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
 
           if (!utxos || utxos.length === 0) {
             throw new Error(
-              `❌ Failed to fund address. No UTXOs found after funding and mining.`
+              `❌ Failed to fund address. No UTXOs found after funding.`
             );
           }
 
-          console.log(`  ✅ Address funded and confirmed`);
+          console.log(`  ✅ Address funded and confirmed\n`);
         } catch (error) {
           throw new Error(
-            `❌ Failed to fund address on regtest:\n${error.message}\n\n` +
+            `❌ Failed to fund address:\n${error.message}\n\n` +
               `Please ensure Bitcoin Core is running:\n` +
               `  1. Start: cd bitcoin-regtest && yarn docker:dev\n` +
               `  2. Check: curl http://localhost:18443\n` +
@@ -518,52 +463,23 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
     unsignedTx.locktime = 0;
 
     // Get TXID - bitcoinjs-lib returns it in DISPLAY format (reversed)
-    const rawTxHex = unsignedTx.toHex();
-    const txidDisplay = unsignedTx.getId(); // Returns hex string in display format
+    const txidDisplay = unsignedTx.getId();
 
     // Rust tx.txid() returns bytes in INTERNAL format (reversed from display)
     // We need to reverse to match what Rust uses for request ID calculation
     const txidInternal = Buffer.from(txidDisplay, "hex").reverse();
-    const txidBuffer = txidInternal; // For backward compatibility with existing code
+    const txidBuffer = txidInternal;
 
-    console.log("  📦 Raw TX (full hex):", rawTxHex);
-    console.log("  📦 Raw TX length:", rawTxHex.length / 2, "bytes");
-    console.log("  📦 TXID (display format):", txidDisplay);
-    console.log(
-      "  📦 TXID (internal, for requestId):",
-      txidInternal.toString("hex")
-    );
-    console.log(
-      "  📦 TXID bytes (internal, first 16):",
-      Array.from(txidInternal).slice(0, 16).join(",") + "..."
-    );
+    console.log("  📦 TXID:", txidDisplay);
 
-    // Generate request ID using TXID (matching Rust code at line 120-122)
+    // Generate request ID using TXID (matching Rust code)
     const caip2Id = CONFIG.BITCOIN_CAIP2_ID;
-
-    console.log("\n  🔍 REQUEST ID GENERATION DEBUG:");
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    console.log("  Sender:", vaultAuthority.toString());
-    console.log(
-      "  Transaction Data (TXID internal):",
-      txidInternal.toString("hex")
-    );
-    console.log(
-      "  TXID (bytes internal, first 16):",
-      Array.from(txidInternal).slice(0, 16).join(",")
-    );
-    console.log("  CAIP-2 ID:", caip2Id);
-    console.log("  Path:", path);
-    console.log("  Key Version: 0");
-    console.log("  Signature Type: ECDSA");
-    console.log("  Chain: bitcoin");
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
       vaultAuthority.toString(),
-      Array.from(txidBuffer), // Use TXID bytes
+      Array.from(txidBuffer),
       caip2Id,
-      0, // key_version
+      0,
       path,
       "ECDSA",
       "bitcoin",
@@ -572,9 +488,7 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
 
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
-    console.log("  ✅ Client Request ID:", requestId);
-    console.log("  📝 Compare this with Solana program logs");
-    console.log("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    console.log("  🔑 Request ID:", requestId);
 
     // =====================================================
     // STEP 4: SETUP EVENT LISTENERS
@@ -780,22 +694,18 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
 
     // Submit to Bitcoin network
     try {
-      const client = (bitcoinAdapter as any).client;
-      if (!client) {
-        throw new Error("Bitcoin Core RPC client not available");
-      }
-
-      const submittedTxid = await client.command("sendrawtransaction", txHex);
-      console.log("  ✅ Transaction submitted to Bitcoin network");
+      const submittedTxid = await bitcoinAdapter.broadcastTransaction(txHex);
+      console.log("  ✅ Transaction broadcast to Bitcoin network");
       console.log("  📝 Bitcoin TxID:", submittedTxid);
 
-      // Mine a block to confirm
-      const walletAddress = await client.command("getnewaddress");
-      await client.command("generatetoaddress", 1, walletAddress);
-      console.log("  ⛏️  Mined 1 confirmation block");
+      // Mine a block to confirm (if mining is supported)
+      if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
+        await bitcoinAdapter.mineBlocks(1, depositAddress);
+        console.log("  ⛏️  Mined 1 confirmation block");
+      }
     } catch (error: any) {
       console.error(
-        "  ❌ Failed to submit Bitcoin transaction:",
+        "  ❌ Failed to broadcast Bitcoin transaction:",
         error.message
       );
       throw error;
