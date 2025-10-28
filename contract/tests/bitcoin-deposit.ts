@@ -700,7 +700,7 @@ describe.only("🪙 Bitcoin Deposit E2E Test", () => {
 
       // Mine a block to confirm (if mining is supported)
       if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
-        await bitcoinAdapter.mineBlocks(1, depositAddress);
+        await bitcoinAdapter.mineBlocks(1);
         console.log("  ⛏️  Mined 1 confirmation block");
       }
     } catch (error: any) {
