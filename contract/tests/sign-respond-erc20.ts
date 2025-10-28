@@ -284,6 +284,22 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("📍 Step 2: Preparing transaction...");
 
+    // initialize account if not already initialized
+    const rootPublicKeyUncompressed = CONFIG.BASE_PUBLIC_KEY;
+    const [configPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("vault_config")],
+      program.programId
+    );
+
+    let result = await program.methods
+      .updateConfig(rootPublicKeyUncompressed as any)
+      .accountsStrict({
+        config: configPda,
+      })
+      .rpc();
+
+    console.log(" ✅ Initialize config:", result);
+
     const amountBigInt = ethers.parseUnits(
       CONFIG.TRANSFER_AMOUNT,
       CONFIG.DECIMALS

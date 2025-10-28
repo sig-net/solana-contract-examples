@@ -29,3 +29,6 @@ hex                  = "0.4"
 chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", branch = "mock-signer-package-2", features = ["cpi"] }
 base64ct             = { workspace = true }
 ruint                = { workspace = true }
+mpc-node = { git = "https://github.com/sig-net/mpc", branch = "xiangyi/derive_user_addr_public" }
+mpc-crypto = { git = "https://github.com/sig-net/mpc", branch = "xiangyi/derive_user_addr_public" }
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

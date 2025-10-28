@@ -5,7 +5,7 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct VaultConfig {
-    pub mpc_root_signer_address: [u8; 20],
+    pub mpc_root_signer_pubkey: [u8; 65], // Uncompressed public key with 0x04 prefix
 }
 
 // Add ERC20 interface
