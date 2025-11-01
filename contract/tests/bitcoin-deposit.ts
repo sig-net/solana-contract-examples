@@ -40,10 +40,15 @@ interface BtcOutput {
   value: BN;
 }
 
-interface BtcTransactionParams {
+interface BtcDepositParams {
   lockTime: number;
   caip2Id: string;
   vaultScriptPubkey: Buffer;
+}
+
+interface BtcWithdrawParams extends BtcDepositParams {
+  recipientScriptPubkey: Buffer;
+  fee: BN;
 }
 
 type AffinePoint = {
@@ -88,8 +93,139 @@ type ChainSignatureEvents = {
   program: Program<ChainSignaturesProject>;
 };
 
+type VaultDepositContext = {
+  user: anchor.web3.Keypair;
+  path: string;
+  vaultAuthority: anchor.web3.PublicKey;
+  globalVaultAuthority: anchor.web3.PublicKey;
+  vaultAddress: string;
+  vaultScript: Buffer;
+  compressedVaultPubkey: Buffer;
+  vaultValue: number;
+  depositTxId: string;
+  userBalancePda: anchor.web3.PublicKey;
+};
+
+let latestVaultDeposit: VaultDepositContext | null = null;
+
 const formatError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const SECP256K1_ORDER = BigInt(
+  "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
+);
+const SECP256K1_HALF_ORDER = SECP256K1_ORDER >> 1n;
+const WITHDRAW_CAIP2_ID = "bip122:000000000019d6689c085ae165831e93";
+const WITHDRAW_PATH = "root";
+
+function encodeDerInteger(value: Buffer): Buffer {
+  let trimmed = value;
+  while (trimmed.length > 1 && trimmed[0] === 0x00 && trimmed[1] < 0x80) {
+    trimmed = trimmed.slice(1);
+  }
+
+  if (trimmed[0] >= 0x80) {
+    trimmed = Buffer.concat([Buffer.from([0x00]), trimmed]);
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x02]),
+    Buffer.from([trimmed.length]),
+    trimmed,
+  ]);
+}
+
+function encodeVarInt(value: number): Buffer {
+  if (value < 0xfd) {
+    return Buffer.from([value]);
+  }
+  if (value <= 0xffff) {
+    const buffer = Buffer.allocUnsafe(3);
+    buffer[0] = 0xfd;
+    buffer.writeUInt16LE(value, 1);
+    return buffer;
+  }
+  if (value <= 0xffffffff) {
+    const buffer = Buffer.allocUnsafe(5);
+    buffer[0] = 0xfe;
+    buffer.writeUInt32LE(value, 1);
+    return buffer;
+  }
+  const buffer = Buffer.allocUnsafe(9);
+  buffer[0] = 0xff;
+  buffer.writeBigUInt64LE(BigInt(value), 1);
+  return buffer;
+}
+
+function witnessStackToScriptWitness(witness: Buffer[]): Buffer {
+  const components: Buffer[] = [encodeVarInt(witness.length)];
+
+  for (const item of witness) {
+    components.push(encodeVarInt(item.length));
+    components.push(item);
+  }
+
+  return Buffer.concat(components);
+}
+
+function prepareSignatureWitness(
+  signature: ProcessedSignature,
+  publicKey: Buffer
+): { sigWithHashType: Buffer; witness: Buffer } {
+  const rBytes = Buffer.from(signature.r.slice(2), "hex");
+  const originalS = BigInt(signature.s);
+  const lowS =
+    originalS > SECP256K1_HALF_ORDER ? SECP256K1_ORDER - originalS : originalS;
+  const sBytes = Buffer.from(lowS.toString(16).padStart(64, "0"), "hex");
+
+  const rDer = encodeDerInteger(rBytes);
+  const sDer = encodeDerInteger(sBytes);
+  const derSignature = Buffer.concat([
+    Buffer.from([0x30]),
+    Buffer.from([rDer.length + sDer.length]),
+    rDer,
+    sDer,
+  ]);
+  const sigWithHashType = Buffer.concat([
+    derSignature,
+    Buffer.from([bitcoin.Transaction.SIGHASH_ALL]),
+  ]);
+  const witness = witnessStackToScriptWitness([sigWithHashType, publicKey]);
+
+  return { sigWithHashType, witness };
+}
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function waitForUtxoCount(
+  adapter: IBitcoinAdapter,
+  address: string,
+  minCount: number,
+  context: string,
+  maxAttempts = 15,
+  delayMs = 2_000
+): Promise<UTXO[]> {
+  let latest: UTXO[] = [];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    latest = (await adapter.getAddressUtxos(address)) ?? [];
+
+    if (latest.length >= minCount) {
+      return latest;
+    }
+
+    console.log(
+      `  ⏳ Waiting for ${minCount} UTXOs on ${address} (attempt ${
+        attempt + 1
+      }/${maxAttempts}) during ${context}. Currently have ${latest.length}.`
+    );
+
+    await sleep(delayMs);
+  }
+
+  return latest;
+}
 
 class BitcoinUtils {
   private network: bitcoin.Network;
@@ -400,16 +536,14 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
 
           console.log(`  📝 Funding Transaction ID: ${fundTxid}`);
 
-          // Fetch UTXOs again
-          utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
+          utxos = await waitForUtxoCount(
+            bitcoinAdapter,
+            depositAddress,
+            1,
+            "single deposit funding (awaiting UTXO visibility)"
+          );
 
-          if (!utxos || utxos.length === 0) {
-            throw new Error(
-              `❌ Failed to fund address. No UTXOs found after funding.`
-            );
-          }
-
-          console.log(`  ✅ Address funded and confirmed\n`);
+          console.log(`  ✅ Address funded, awaiting confirmation\n`);
         } catch (error: unknown) {
           throw new Error(
             `❌ Failed to fund address:\n${formatError(error)}\n\n` +
@@ -431,6 +565,12 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
           `❌ No UTXOs found for ${depositAddress}. Please fund this address.\n${fundingUrl}`
         );
       }
+    }
+
+    if (!utxos || utxos.length === 0) {
+      throw new Error(
+        `❌ Unable to prepare a funding UTXO for ${depositAddress}.`
+      );
     }
 
     console.log(`  ✅ Found ${utxos.length} UTXO(s)`);
@@ -477,7 +617,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       },
     ];
 
-    const txParams: BtcTransactionParams = {
+    const txParams: BtcDepositParams = {
       lockTime: 0,
       caip2Id: CONFIG.BITCOIN_CAIP2_ID,
       vaultScriptPubkey: recipientScript,
@@ -653,81 +793,13 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       ]
     );
 
-    // Convert ECDSA signature to canonical DER format for Bitcoin
-    let rBuf = Buffer.from(signature.r.slice(2), "hex");
-    let sBuf = Buffer.from(signature.s.slice(2), "hex");
-
-    // Bitcoin requires low-S signatures (BIP62) to prevent malleability
-    // If S > secp256k1_n/2, then S' = secp256k1_n - S
-    const secp256k1N = Buffer.from(
-      "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
-      "hex"
-    );
-    const halfN = Buffer.from(
-      "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0",
-      "hex"
+    const { sigWithHashType, witness } = prepareSignatureWitness(
+      signature,
+      compressedPubkey
     );
 
-    const sBigInt = BigInt("0x" + sBuf.toString("hex"));
-    const halfNBigInt = BigInt("0x" + halfN.toString("hex"));
-
-    if (sBigInt > halfNBigInt) {
-      // Normalize S to low value
-      const nBigInt = BigInt("0x" + secp256k1N.toString("hex"));
-      const sNormalized = nBigInt - sBigInt;
-      sBuf = Buffer.from(sNormalized.toString(16).padStart(64, "0"), "hex");
-      console.log("  ⚡ Normalized S to low value (BIP62)");
-    }
-
-    // Helper to encode DER integer (handles padding for high bit)
-    function toDERInteger(value: Buffer): Buffer {
-      // Remove leading zeros (except when next byte has high bit set)
-      let i = 0;
-      while (i < value.length - 1 && value[i] === 0 && value[i + 1] < 0x80) {
-        i++;
-      }
-      let trimmed = value.slice(i);
-
-      // Add 0x00 padding if high bit is set (to indicate positive number)
-      if (trimmed[0] >= 0x80) {
-        trimmed = Buffer.concat([Buffer.from([0x00]), trimmed]);
-      }
-
-      // Return: 0x02 (INTEGER tag) + length + value
-      return Buffer.concat([
-        Buffer.from([0x02]),
-        Buffer.from([trimmed.length]),
-        trimmed,
-      ]);
-    }
-
-    // Encode R and S as DER integers
-    const rDER = toDERInteger(rBuf);
-    const sDER = toDERInteger(sBuf);
-
-    // Create DER signature: 0x30 + length + R + S
-    const derSig = Buffer.concat([
-      Buffer.from([0x30]), // DER SEQUENCE tag
-      Buffer.from([rDER.length + sDER.length]), // total length
-      rDER,
-      sDER,
-    ]);
-
-    // Add SIGHASH_ALL flag
-    const sigWithHashType = Buffer.concat([
-      derSig,
-      Buffer.from([bitcoin.Transaction.SIGHASH_ALL]),
-    ]);
-
-    // Finalize the input with the signature
     psbt.updateInput(0, {
-      finalScriptWitness: Buffer.concat([
-        Buffer.from([0x02]), // 2 items in witness
-        Buffer.from([sigWithHashType.length]),
-        sigWithHashType,
-        Buffer.from([compressedPubkey.length]),
-        compressedPubkey,
-      ]),
+      finalScriptWitness: witness,
     });
 
     const signedTx = psbt.extractTransaction();
@@ -850,6 +922,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     const compressedDepositPubkey = btcUtils.compressPublicKey(
       depositPubkeyUncompressed
     );
+
     const depositAddress = btcUtils.getAddressFromPubkey(
       compressedDepositPubkey
     );
@@ -882,49 +955,67 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     const recipientScript = btcUtils.createP2WPKHScript(
       compressedRecipientPubkey
     );
+    const compressedVaultPubkey = Buffer.from(compressedRecipientPubkey);
 
     console.log(`  Deposit address (secondary requester): ${depositAddress}`);
     console.log(`  Recipient (vault) address: ${recipientAddress}\n`);
 
-    // STEP 2: Ensure at least two UTXOs are available
+    // STEP 2: Ensure at least four UTXOs are available
     console.log(
-      `\n📍 STEP 2: Ensuring at least two UTXOs are available for ${depositAddress}\n`
+      `\n📍 STEP 2: Ensuring at least four UTXOs are available for ${depositAddress}\n`
     );
+    console.log("  🎯 Goal: 4 inputs -> 4 MPC signatures");
 
+    const requiredUtxos = 4;
     let utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
 
-    if (!utxos || utxos.length < 2) {
+    if (!utxos || utxos.length < requiredUtxos) {
       if (!bitcoinAdapter.fundAddress) {
         throw new Error(
-          `❌ Need at least 2 UTXOs but only found ${
+          `❌ Need at least ${requiredUtxos} UTXOs but only found ${
             utxos?.length ?? 0
           }. Auto-funding not available.`
         );
       }
 
       const existing = utxos?.length ?? 0;
-      const needed = 2 - existing;
-
-      console.log(
-        `  💰 Funding deposit address ${needed} time(s) to create multiple UTXOs...`
-      );
-      for (let i = 0; i < needed; i++) {
-        const amountBtc = 0.0006 + i * 0.0001;
-        const fundTxid = await bitcoinAdapter.fundAddress(
-          depositAddress,
-          amountBtc
-        );
+      const rounds = Math.max(0, requiredUtxos - existing);
+      if (rounds > 0) {
         console.log(
-          `    - Funded ${amountBtc} BTC (txid: ${fundTxid ?? "unknown"})`
+          `  💰 Funding deposit address ${rounds} time(s) to guarantee four spendable inputs...`
+        );
+
+        for (let offset = 0; offset < rounds; offset++) {
+          const index = existing + offset;
+          const sats = 60_000 + index * 10_000;
+          const amountBtc = Number((sats / 1e8).toFixed(8));
+          const fundTxid = await bitcoinAdapter.fundAddress(
+            depositAddress,
+            amountBtc
+          );
+          console.log(
+            `    - Funding round ${index + 1}: ${amountBtc} BTC (txid: ${
+              fundTxid ?? "unknown"
+            })`
+          );
+
+          utxos = await waitForUtxoCount(
+            bitcoinAdapter,
+            depositAddress,
+            existing + offset + 1,
+            `multi-UTXO funding round ${index + 1}/4`
+          );
+        }
+      } else {
+        console.log(
+          `  ✅ Address already has ${existing} spendable inputs for deposit`
         );
       }
-
-      utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
     }
 
-    if (!utxos || utxos.length < 2) {
+    if (!utxos || utxos.length < requiredUtxos) {
       throw new Error(
-        `❌ Unable to prepare two UTXOs for ${depositAddress}. Found ${
+        `❌ Unable to prepare ${requiredUtxos} UTXOs for ${depositAddress}. Found ${
           utxos?.length ?? 0
         }.`
       );
@@ -932,7 +1023,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
 
     const selectedUtxos = [...utxos]
       .sort((a, b) => a.value - b.value)
-      .slice(0, 2);
+      .slice(0, requiredUtxos);
 
     console.log(`  ✅ Selected ${selectedUtxos.length} UTXOs:`);
     selectedUtxos.forEach((u, idx) => {
@@ -984,7 +1075,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       });
     }
 
-    const txParams: BtcTransactionParams = {
+    const txParams: BtcDepositParams = {
       lockTime: 0,
       caip2Id: CONFIG.BITCOIN_CAIP2_ID,
       vaultScriptPubkey: recipientScript,
@@ -1136,74 +1227,19 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
         ]
       );
 
-      const secp256k1N = Buffer.from(
-        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
-        "hex"
-      );
-      const halfN = Buffer.from(
-        "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0",
-        "hex"
-      );
-
-      const toDERInteger = (value: Buffer) => {
-        let i = 0;
-        while (i < value.length - 1 && value[i] === 0 && value[i + 1] < 0x80) {
-          i++;
-        }
-        let trimmed = value.slice(i);
-
-        if (trimmed[0] >= 0x80) {
-          trimmed = Buffer.concat([Buffer.from([0x00]), trimmed]);
-        }
-
-        return Buffer.concat([
-          Buffer.from([0x02]),
-          Buffer.from([trimmed.length]),
-          trimmed,
-        ]);
-      };
-
       signatures.forEach((sig, idx) => {
-        let rBuf = Buffer.from(sig.r.slice(2), "hex");
-        let sBuf = Buffer.from(sig.s.slice(2), "hex");
-
-        const sBigInt = BigInt("0x" + sBuf.toString("hex"));
-        const halfNBigInt = BigInt("0x" + halfN.toString("hex"));
-
-        if (sBigInt > halfNBigInt) {
-          const nBigInt = BigInt("0x" + secp256k1N.toString("hex"));
-          const sNormalized = nBigInt - sBigInt;
-          sBuf = Buffer.from(sNormalized.toString(16).padStart(64, "0"), "hex");
-          console.log("  ⚡ Normalized S to low value for input", idx);
-        }
-
-        const rDER = toDERInteger(rBuf);
-        const sDER = toDERInteger(sBuf);
-
-        const derSig = Buffer.concat([
-          Buffer.from([0x30]),
-          Buffer.from([rDER.length + sDER.length]),
-          rDER,
-          sDER,
-        ]);
-
-        const sigWithHashType = Buffer.concat([
-          derSig,
-          Buffer.from([bitcoin.Transaction.SIGHASH_ALL]),
-        ]);
-
+        const { witness } = prepareSignatureWitness(
+          sig,
+          compressedDepositPubkey
+        );
+        console.log(`  ✅ Prepared witness for input ${idx}`);
         psbt.updateInput(idx, {
-          finalScriptWitness: Buffer.concat([
-            Buffer.from([0x02]),
-            Buffer.from([sigWithHashType.length]),
-            sigWithHashType,
-            Buffer.from([compressedDepositPubkey.length]),
-            compressedDepositPubkey,
-          ]),
+          finalScriptWitness: witness,
         });
       });
 
       const signedTx = psbt.extractTransaction();
+      const depositTxId = signedTx.getId();
       const txHex = signedTx.toHex();
 
       console.log("  📦 Signed transaction hex:", txHex.slice(0, 64) + "...");
@@ -1306,6 +1342,19 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       console.log(
         `  ✅ Transaction history recorded total outputs (${expectedHistoryAmount.toString()} sats)`
       );
+
+      latestVaultDeposit = {
+        user: secondaryRequester,
+        path,
+        vaultAuthority,
+        globalVaultAuthority,
+        vaultAddress: recipientAddress,
+        vaultScript: recipientScript,
+        compressedVaultPubkey,
+        vaultValue,
+        depositTxId,
+        userBalancePda,
+      };
     } finally {
       await cleanupEventListeners(eventPromises);
     }
@@ -1313,6 +1362,337 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     console.log("\n" + "=".repeat(80));
     console.log("🎉 Multi-UTXO Deposit Flow Completed Successfully!");
     console.log("=".repeat(80) + "\n");
+  });
+
+  it("processes a BTC withdrawal end-to-end", async function () {
+    this.timeout(240000);
+
+    if (!latestVaultDeposit) {
+      throw new Error("No vault deposit context available for withdrawal test");
+    }
+
+    const {
+      user,
+      path,
+      vaultAuthority,
+      globalVaultAuthority,
+      vaultAddress,
+      vaultScript,
+      compressedVaultPubkey,
+      vaultValue,
+      depositTxId,
+      userBalancePda,
+    } = latestVaultDeposit;
+
+    console.log("\n" + "=".repeat(60));
+    console.log("Starting Bitcoin Withdrawal Flow Test");
+    console.log("=".repeat(60) + "\n");
+
+    console.log(`  💾 Vault deposit snapshot amount: ${vaultValue} sats`);
+
+    const withdrawPath = `${path}::withdraw`;
+    const withdrawPubkeyUncompressed =
+      signetUtils.cryptography.deriveChildPublicKey(
+        CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+        vaultAuthority.toString(),
+        withdrawPath,
+        CONFIG.SOLANA_CHAIN_ID
+      );
+    const compressedWithdrawPubkey = btcUtils.compressPublicKey(
+      withdrawPubkeyUncompressed
+    );
+    const withdrawScript = btcUtils.createP2WPKHScript(
+      compressedWithdrawPubkey
+    );
+    const withdrawAddress = btcUtils.getAddressFromPubkey(
+      compressedWithdrawPubkey
+    );
+
+    console.log(`  🏦 Vault UTXO address: ${vaultAddress}`);
+    console.log(`  🎯 Withdrawal recipient address: ${withdrawAddress}`);
+
+    let vaultUtxos = await bitcoinAdapter.getAddressUtxos(vaultAddress);
+    if (!vaultUtxos || vaultUtxos.length === 0) {
+      throw new Error(`❌ No UTXOs available at vault address ${vaultAddress}`);
+    }
+
+    const targetUtxo =
+      vaultUtxos.find((u) => u.txid === depositTxId && u.vout === 0) ??
+      vaultUtxos[0];
+
+    console.log("  ✅ Selected vault UTXO:");
+    console.log(`    - TxID: ${targetUtxo.txid}`);
+    console.log(`    - Vout: ${targetUtxo.vout}`);
+    console.log(`    - Value: ${targetUtxo.value} sats`);
+
+    const currentLamports = await provider.connection.getBalance(
+      user.publicKey
+    );
+    const requiredLamports = 2 * anchor.web3.LAMPORTS_PER_SOL;
+    const lamportsShortfall = requiredLamports - currentLamports;
+    if (lamportsShortfall > 0) {
+      console.log(
+        `  💧 Funding withdrawal authority from provider wallet (need ${lamportsShortfall} lamports)`
+      );
+      const transferIx = anchor.web3.SystemProgram.transfer({
+        fromPubkey: provider.wallet.publicKey,
+        toPubkey: user.publicKey,
+        lamports: lamportsShortfall,
+      });
+      await provider.sendAndConfirm(
+        new anchor.web3.Transaction().add(transferIx)
+      );
+      console.log("  ✅ Funding transfer confirmed");
+    }
+
+    const feeBudget = 500;
+    let withdrawAmount = Math.max(1000, Math.floor(targetUtxo.value / 3));
+    let changeValue = targetUtxo.value - withdrawAmount - feeBudget;
+
+    if (changeValue < 0) {
+      withdrawAmount = targetUtxo.value - feeBudget;
+      changeValue = 0;
+    }
+
+    if (withdrawAmount <= 0) {
+      throw new Error("❌ Withdraw amount computed as non-positive value");
+    }
+
+    console.log(`  💸 Withdraw amount: ${withdrawAmount} sats`);
+    console.log(`  🔁 Change amount: ${changeValue} sats`);
+
+    const unsignedWithdrawTx = new bitcoin.Transaction();
+    unsignedWithdrawTx.version = 2;
+    unsignedWithdrawTx.addInput(
+      Buffer.from(targetUtxo.txid, "hex").reverse(),
+      targetUtxo.vout,
+      0xffffffff
+    );
+    unsignedWithdrawTx.addOutput(withdrawScript, BigInt(withdrawAmount));
+    if (changeValue > 0) {
+      unsignedWithdrawTx.addOutput(vaultScript, BigInt(changeValue));
+    }
+    unsignedWithdrawTx.locktime = 0;
+
+    const withdrawTxIdDisplay = unsignedWithdrawTx.getId();
+    const withdrawTxIdInternal = Buffer.from(
+      withdrawTxIdDisplay,
+      "hex"
+    ).reverse();
+    console.log("  📦 Withdrawal TXID:", withdrawTxIdDisplay);
+
+    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
+      globalVaultAuthority.toString(),
+      Array.from(withdrawTxIdInternal),
+      WITHDRAW_CAIP2_ID,
+      0,
+      WITHDRAW_PATH,
+      "ECDSA",
+      "bitcoin",
+      ""
+    );
+    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
+
+    console.log("  🔑 Withdrawal Request ID:", requestId);
+
+    const eventPromises = await setupEventListeners(provider, requestId);
+
+    try {
+      const withdrawInputs: BtcInput[] = [
+        {
+          txid: Array.from(Buffer.from(targetUtxo.txid, "hex")),
+          vout: targetUtxo.vout,
+          scriptPubkey: vaultScript,
+          value: new BN(targetUtxo.value),
+        },
+      ];
+
+      const withdrawTxParams: BtcWithdrawParams = {
+        lockTime: 0,
+        caip2Id: WITHDRAW_CAIP2_ID,
+        vaultScriptPubkey: vaultScript,
+        recipientScriptPubkey: withdrawScript,
+        fee: new BN(feeBudget),
+      };
+
+      console.log("\n📍 STEP 1: Initiating withdrawal on Solana\n");
+
+      const preWithdrawBalanceAccount =
+        await program.account.userBtcBalance.fetch(userBalancePda);
+      const startingBalance = preWithdrawBalanceAccount.amount as BN;
+
+      console.log(
+        "  💰 Balance before withdrawal:",
+        startingBalance.toString(),
+        "sats"
+      );
+
+      const withdrawTx = await program.methods
+        .withdrawBtc(
+          requestIdBytes,
+          withdrawInputs,
+          new BN(withdrawAmount),
+          withdrawAddress,
+          withdrawTxParams
+        )
+        .accounts({
+          authority: user.publicKey,
+          feePayer: provider.wallet.publicKey,
+          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .signers([user])
+        .rpc();
+
+      console.log("  ✅ Withdrawal transaction sent:", withdrawTx);
+      await provider.connection.confirmTransaction(withdrawTx);
+      console.log("  ✅ Withdrawal transaction confirmed!");
+
+      const balanceAfterInitiationAccount =
+        await program.account.userBtcBalance.fetch(userBalancePda);
+      const balanceAfterInitiation = balanceAfterInitiationAccount.amount as BN;
+      const totalDebit = new BN(withdrawAmount).add(new BN(feeBudget));
+      const expectedAfterInitiation = startingBalance.sub(totalDebit);
+
+      console.log("  💸 Withdrawal amount:", withdrawAmount.toString(), "sats");
+      console.log("  🧾 Fee budget:", feeBudget.toString(), "sats");
+      console.log(
+        "  💰 Expected balance after initiation:",
+        expectedAfterInitiation.toString(),
+        "sats"
+      );
+      console.log(
+        "  💰 Actual balance after initiation:",
+        balanceAfterInitiation.toString(),
+        "sats"
+      );
+
+      expect(balanceAfterInitiation.toString()).to.equal(
+        expectedAfterInitiation.toString()
+      );
+
+      console.log("\n📍 STEP 2: Awaiting MPC signature for withdrawal...\n");
+      const signatureEvent = await eventPromises.signature;
+      const [mpcSignature] = extractSignatures(signatureEvent);
+      console.log("  ✅ Withdrawal signature received!");
+
+      console.log("\n📍 STEP 3: Broadcasting signed withdrawal transaction\n");
+
+      const withdrawPsbt = btcUtils.buildPSBT(
+        [
+          {
+            txid: targetUtxo.txid,
+            vout: targetUtxo.vout,
+            value: targetUtxo.value,
+            scriptPubkey: vaultScript,
+          },
+        ],
+        [
+          { script: withdrawScript, value: withdrawAmount },
+          ...(changeValue > 0
+            ? [{ script: vaultScript, value: changeValue }]
+            : []),
+        ]
+      );
+
+      const { witness: withdrawWitness } = prepareSignatureWitness(
+        mpcSignature,
+        compressedVaultPubkey
+      );
+
+      withdrawPsbt.updateInput(0, {
+        finalScriptWitness: withdrawWitness,
+      });
+
+      const signedWithdrawTx = withdrawPsbt.extractTransaction();
+      const withdrawTxHex = signedWithdrawTx.toHex();
+      const withdrawTxId = signedWithdrawTx.getId();
+
+      console.log(
+        "  📦 Signed withdrawal tx hex:",
+        withdrawTxHex.slice(0, 64) + "..."
+      );
+      console.log("  📝 Withdrawal Bitcoin TxID:", withdrawTxId);
+
+      const submittedTxid = await bitcoinAdapter.broadcastTransaction(
+        withdrawTxHex
+      );
+      console.log("  ✅ Withdrawal transaction broadcast to Bitcoin network");
+      console.log("  📝 Submitted TxID:", submittedTxid);
+
+      if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
+        await bitcoinAdapter.mineBlocks(1);
+        console.log("  ⛏️  Mined 1 confirmation block");
+      }
+
+      console.log("\n📍 STEP 4: Waiting for verification response...\n");
+      const readEvent = await eventPromises.readRespond;
+      console.log("  ✅ Verification response received!");
+
+      console.log("\n📍 STEP 5: Completing withdrawal on Solana\n");
+      const completeTx = await program.methods
+        .completeWithdrawBtc(
+          requestIdBytes,
+          Buffer.from(readEvent.serializedOutput),
+          readEvent.signature,
+          null
+        )
+        .rpc();
+
+      console.log("  ✅ Complete withdrawal transaction sent:", completeTx);
+      await provider.connection.confirmTransaction(completeTx);
+      console.log("  ✅ Withdrawal completion confirmed!");
+
+      const finalBalanceAccount = await program.account.userBtcBalance.fetch(
+        userBalancePda
+      );
+      const balanceAfter = finalBalanceAccount.amount as BN;
+
+      console.log("\n📍 STEP 6: Verifying post-withdrawal balance\n");
+      console.log(
+        "  💰 Balance after initiation:",
+        balanceAfterInitiation.toString(),
+        "sats"
+      );
+      console.log("  💰 Final balance:", balanceAfter.toString(), "sats");
+
+      expect(balanceAfter.toString()).to.equal(
+        balanceAfterInitiation.toString()
+      );
+
+      const [pendingWithdrawPda] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("pending_btc_withdrawal"), Buffer.from(requestIdBytes)],
+        program.programId
+      );
+
+      const pendingWithdrawal =
+        await program.account.pendingBtcWithdrawal.fetchNullable(
+          pendingWithdrawPda
+        );
+      expect(pendingWithdrawal).to.be.null;
+      console.log("  ✅ Pending withdrawal account closed");
+
+      const historyPda = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("user_transaction_history"), user.publicKey.toBuffer()],
+        program.programId
+      )[0];
+
+      const history = await program.account.userTransactionHistory.fetch(
+        historyPda
+      );
+      const latestWithdrawal = history.withdrawals[0];
+
+      expect(latestWithdrawal.amount.toString()).to.equal(
+        withdrawAmount.toString()
+      );
+      expect("completed" in latestWithdrawal.status).to.equal(true);
+      console.log("  ✅ Withdrawal history updated with completed status");
+
+      console.log("\n" + "=".repeat(80));
+      console.log("🎉 Bitcoin Withdrawal Flow Completed Successfully!");
+      console.log("=".repeat(80) + "\n");
+    } finally {
+      await cleanupEventListeners(eventPromises);
+    }
   });
 });
 
