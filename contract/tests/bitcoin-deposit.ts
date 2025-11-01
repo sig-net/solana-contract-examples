@@ -11,6 +11,7 @@ import * as bitcoin from "bitcoinjs-lib";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { ethers } from "ethers";
 import { contracts, utils as signetUtils } from "signet.js";
+import * as varuint from "varuint-bitcoin";
 import {
   ChainSignatureServer,
   RequestIdGenerator,
@@ -118,79 +119,38 @@ const SECP256K1_HALF_ORDER = SECP256K1_ORDER >> 1n;
 const WITHDRAW_CAIP2_ID = "bip122:000000000019d6689c085ae165831e93";
 const WITHDRAW_PATH = "root";
 
-function encodeDerInteger(value: Buffer): Buffer {
-  let trimmed = value;
-  while (trimmed.length > 1 && trimmed[0] === 0x00 && trimmed[1] < 0x80) {
-    trimmed = trimmed.slice(1);
-  }
-
-  if (trimmed[0] >= 0x80) {
-    trimmed = Buffer.concat([Buffer.from([0x00]), trimmed]);
-  }
-
-  return Buffer.concat([
-    Buffer.from([0x02]),
-    Buffer.from([trimmed.length]),
-    trimmed,
-  ]);
-}
-
 function encodeVarInt(value: number): Buffer {
-  if (value < 0xfd) {
-    return Buffer.from([value]);
-  }
-  if (value <= 0xffff) {
-    const buffer = Buffer.allocUnsafe(3);
-    buffer[0] = 0xfd;
-    buffer.writeUInt16LE(value, 1);
-    return buffer;
-  }
-  if (value <= 0xffffffff) {
-    const buffer = Buffer.allocUnsafe(5);
-    buffer[0] = 0xfe;
-    buffer.writeUInt32LE(value, 1);
-    return buffer;
-  }
-  const buffer = Buffer.allocUnsafe(9);
-  buffer[0] = 0xff;
-  buffer.writeBigUInt64LE(BigInt(value), 1);
-  return buffer;
+  const { buffer } = varuint.encode(value);
+  return Buffer.from(buffer);
 }
 
-function witnessStackToScriptWitness(witness: Buffer[]): Buffer {
-  const components: Buffer[] = [encodeVarInt(witness.length)];
-
-  for (const item of witness) {
-    components.push(encodeVarInt(item.length));
-    components.push(item);
+function encodeWitnessStack(items: Buffer[]): Buffer {
+  const chunks: Buffer[] = [encodeVarInt(items.length)];
+  for (const item of items) {
+    chunks.push(encodeVarInt(item.length));
+    chunks.push(item);
   }
-
-  return Buffer.concat(components);
+  return Buffer.concat(chunks);
 }
 
 function prepareSignatureWitness(
   signature: ProcessedSignature,
   publicKey: Buffer
 ): { sigWithHashType: Buffer; witness: Buffer } {
-  const rBytes = Buffer.from(signature.r.slice(2), "hex");
+  const rBytes = Buffer.from(signature.r.slice(2).padStart(64, "0"), "hex");
   const originalS = BigInt(signature.s);
   const lowS =
     originalS > SECP256K1_HALF_ORDER ? SECP256K1_ORDER - originalS : originalS;
   const sBytes = Buffer.from(lowS.toString(16).padStart(64, "0"), "hex");
 
-  const rDer = encodeDerInteger(rBytes);
-  const sDer = encodeDerInteger(sBytes);
-  const derSignature = Buffer.concat([
-    Buffer.from([0x30]),
-    Buffer.from([rDer.length + sDer.length]),
-    rDer,
-    sDer,
-  ]);
-  const sigWithHashType = Buffer.concat([
-    derSignature,
-    Buffer.from([bitcoin.Transaction.SIGHASH_ALL]),
-  ]);
-  const witness = witnessStackToScriptWitness([sigWithHashType, publicKey]);
+  const rawSignature = Buffer.concat([rBytes, sBytes]);
+  const sigWithHashType = Buffer.from(
+    bitcoin.script.signature.encode(
+      rawSignature,
+      bitcoin.Transaction.SIGHASH_ALL
+    )
+  );
+  const witness = encodeWitnessStack([sigWithHashType, publicKey]);
 
   return { sigWithHashType, witness };
 }
@@ -387,13 +347,11 @@ async function ensureVaultConfigInitialized(
   }
 }
 
-type ChainSignatureServerType = InstanceType<typeof ChainSignatureServer>;
-
-describe.only("🪙 Bitcoin Deposit Integration", () => {
+describe("🪙 Bitcoin Deposit Integration", () => {
   let provider: anchor.AnchorProvider;
   let program: Program<SolanaCoreContracts>;
   let btcUtils: BitcoinUtils;
-  let server: ChainSignatureServerType | null = null;
+  let server: ChainSignatureServer | null = null;
   let bitcoinAdapter: IBitcoinAdapter;
 
   before(async function () {
