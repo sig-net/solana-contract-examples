@@ -30,4 +30,12 @@ pub enum ErrorCode {
     TransactionNotFound,
     #[msg("No vault outputs found in transaction")]
     VaultOutputNotFound,
+    #[msg("Transaction fee does not match inputs and outputs")]
+    FeeMismatch,
+    #[msg("Recipient outputs do not match requested amount")]
+    RecipientAmountMismatch,
+    #[msg("Change outputs do not match expected vault amount")]
+    ChangeAmountMismatch,
+    #[msg("Provided inputs do not cover requested amount + fee")]
+    InsufficientInputs,
 }

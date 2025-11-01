@@ -112,7 +112,7 @@ pub mod solana_core_contracts {
         requester: Pubkey,
         inputs: Vec<BtcInput>,
         outputs: Vec<BtcOutput>,
-        tx_params: BtcTransactionParams,
+        tx_params: BtcDepositParams,
     ) -> Result<()> {
         instructions::btc_vault::deposit_btc(ctx, request_id, requester, inputs, outputs, tx_params)
     }
@@ -137,16 +137,14 @@ pub mod solana_core_contracts {
         ctx: Context<WithdrawBtc>,
         request_id: [u8; 32],
         inputs: Vec<BtcInput>,
-        outputs: Vec<BtcOutput>,
         amount: u64,
         recipient_address: String,
-        tx_params: BtcTransactionParams,
+        tx_params: BtcWithdrawParams,
     ) -> Result<()> {
         instructions::btc_vault::withdraw_btc(
             ctx,
             request_id,
             inputs,
-            outputs,
             amount,
             recipient_address,
             tx_params,

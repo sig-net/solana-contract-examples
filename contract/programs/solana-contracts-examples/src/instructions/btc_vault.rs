@@ -10,7 +10,7 @@ use signet_rs::bitcoin::types::*;
 use signet_rs::{TransactionBuilder, TxBuilder, BITCOIN};
 
 use crate::contexts::{ClaimBtc, CompleteWithdrawBtc, DepositBtc, WithdrawBtc};
-use crate::state::{BtcInput, BtcOutput, BtcTransactionParams};
+use crate::state::{BtcDepositParams, BtcInput, BtcOutput, BtcWithdrawParams};
 use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
 
 const HARDCODED_ROOT_PATH: &str = "root";
@@ -26,11 +26,11 @@ pub fn deposit_btc(
     requester: Pubkey,
     inputs: Vec<BtcInput>,
     outputs: Vec<BtcOutput>,
-    tx_params: BtcTransactionParams,
+    tx_params: BtcDepositParams,
 ) -> Result<()> {
     let path = requester.to_string();
     // SECURITY: outputs should eventually be restricted so vault destinations are contract-defined.
-    let BtcTransactionParams {
+    let BtcDepositParams {
         lock_time,
         caip2_id,
         vault_script_pubkey,
@@ -287,31 +287,45 @@ pub fn withdraw_btc(
     ctx: Context<WithdrawBtc>,
     request_id: [u8; 32],
     inputs: Vec<BtcInput>,
-    outputs: Vec<BtcOutput>,
     amount: u64,
     recipient_address: String,
-    tx_params: BtcTransactionParams,
+    tx_params: BtcWithdrawParams,
 ) -> Result<()> {
     let authority = ctx.accounts.authority.key();
     let path = HARDCODED_ROOT_PATH.to_string();
+    let BtcWithdrawParams {
+        lock_time,
+        caip2_id,
+        vault_script_pubkey,
+        recipient_script_pubkey,
+        fee,
+    } = tx_params;
+
+    let total_debit = amount
+        .checked_add(fee)
+        .ok_or(crate::error::ErrorCode::Overflow)?;
 
     // Check user has sufficient balance
     let balance = &mut ctx.accounts.user_balance;
     require!(
-        balance.amount >= amount,
+        balance.amount >= total_debit,
         crate::error::ErrorCode::InsufficientBalance
     );
 
     // Optimistically decrement the balance
     balance.amount = balance
         .amount
-        .checked_sub(amount)
+        .checked_sub(total_debit)
         .ok_or(crate::error::ErrorCode::Underflow)?;
 
-    msg!("Optimistically decremented balance by {} sats", amount);
+    msg!(
+        "Optimistically decremented balance by {} sats (amount + fee)",
+        total_debit
+    );
 
     // Build Bitcoin transaction inputs
     let mut btc_inputs = Vec::new();
+    let mut total_input_value = 0u64;
     for input in &inputs {
         let txid = Txid(Hash(input.txid));
 
@@ -323,28 +337,59 @@ pub fn withdraw_btc(
         };
 
         btc_inputs.push(txin);
+
+        total_input_value = total_input_value
+            .checked_add(input.value)
+            .ok_or(crate::error::ErrorCode::Overflow)?;
     }
 
-    // Build Bitcoin transaction outputs
+    require!(
+        total_input_value >= total_debit,
+        crate::error::ErrorCode::InsufficientInputs
+    );
+
+    let recipient_script = ScriptBuf::from_bytes(recipient_script_pubkey.clone());
+    let vault_script = ScriptBuf::from_bytes(vault_script_pubkey.clone());
+
+    let change_output_value = total_input_value
+        .checked_sub(total_debit)
+        .ok_or(crate::error::ErrorCode::Underflow)?;
+
+    // SECURITY: vault script should eventually be contract-enforced rather than caller-provided.
     let mut btc_outputs = Vec::new();
-    for output in &outputs {
-        let script_pubkey = ScriptBuf::from_bytes(output.script_pubkey.clone());
+    btc_outputs.push(TxOut {
+        value: Amount::from_sat(amount),
+        script_pubkey: recipient_script,
+    });
 
-        let txout = TxOut {
-            value: Amount::from_sat(output.value),
-            script_pubkey,
-        };
-
-        btc_outputs.push(txout);
+    if change_output_value > 0 {
+        btc_outputs.push(TxOut {
+            value: Amount::from_sat(change_output_value),
+            script_pubkey: vault_script.clone(),
+        });
     }
+
+    let total_output_value = amount
+        .checked_add(change_output_value)
+        .ok_or(crate::error::ErrorCode::Overflow)?;
+
+    msg!("Total input value: {} sats", total_input_value);
+    msg!("Total output value: {} sats", total_output_value);
+    msg!("Declared fee: {} sats", fee);
 
     msg!("Withdraw: Building Bitcoin SegWit transaction");
     msg!("Inputs: {}", btc_inputs.len());
     msg!("Outputs: {}", btc_outputs.len());
+    msg!(
+        "Total change value (to vault): {} sats",
+        change_output_value
+    );
+
+    // Change is derived deterministically, so no extra validation required beyond initial checks.
 
     // Build unsigned Bitcoin transaction (SegWit - Version::Two)
-    let lock_time = LockTime::from_height(tx_params.lock_time)
-        .map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
+    let lock_time =
+        LockTime::from_height(lock_time).map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
 
     let tx = TransactionBuilder::new::<BITCOIN>()
         .version(Version::Two)
@@ -379,8 +424,6 @@ pub fn withdraw_btc(
         .serialize()
         .map_err(|_| crate::error::ErrorCode::SerializationError)?;
 
-    let caip2_id = "bip122:000000000019d6689c085ae165831e93".to_string();
-
     msg!("=== REQUEST ID CALCULATION DEBUG ===");
     msg!("Sender (requester): {}", ctx.accounts.requester.key());
     msg!("TXID (computed): {}", hex::encode(&txid_bytes));
@@ -412,6 +455,7 @@ pub fn withdraw_btc(
     let pending = &mut ctx.accounts.pending_withdrawal;
     pending.requester = authority;
     pending.amount = amount;
+    pending.fee = fee;
     pending.recipient_address = recipient_address;
     pending.path = path.clone();
     pending.request_id = request_id;
@@ -452,7 +496,7 @@ pub fn withdraw_btc(
     sign_bidirectional(
         cpi_ctx,
         psbt_bytes,
-        caip2_id,
+        caip2_id.clone(),
         0,
         path,
         "ECDSA".to_string(),
@@ -525,12 +569,16 @@ pub fn complete_withdraw_btc(
     if should_refund {
         // Refund the balance
         let balance = &mut ctx.accounts.user_balance;
+        let refund_total = pending
+            .amount
+            .checked_add(pending.fee)
+            .ok_or(crate::error::ErrorCode::Overflow)?;
         balance.amount = balance
             .amount
-            .checked_add(pending.amount)
+            .checked_add(refund_total)
             .ok_or(crate::error::ErrorCode::Overflow)?;
 
-        msg!("Balance refunded: {} sats", pending.amount);
+        msg!("Balance refunded: {} sats (amount + fee)", refund_total);
 
         // Update transaction history
         let history = &mut ctx.accounts.transaction_history;

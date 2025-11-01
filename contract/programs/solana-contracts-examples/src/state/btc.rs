@@ -15,10 +15,19 @@ pub struct BtcOutput {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct BtcTransactionParams {
+pub struct BtcDepositParams {
     pub lock_time: u32,
     pub caip2_id: String,
     pub vault_script_pubkey: Vec<u8>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct BtcWithdrawParams {
+    pub lock_time: u32,
+    pub caip2_id: String,
+    pub vault_script_pubkey: Vec<u8>,
+    pub recipient_script_pubkey: Vec<u8>,
+    pub fee: u64,
 }
 
 #[account]
@@ -36,6 +45,7 @@ pub struct PendingBtcDeposit {
 pub struct PendingBtcWithdrawal {
     pub requester: Pubkey,
     pub amount: u64,
+    pub fee: u64,
     #[max_len(64)]
     pub recipient_address: String,
     #[max_len(64)]

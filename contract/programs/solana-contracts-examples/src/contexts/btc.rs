@@ -3,7 +3,7 @@ use crate::state::*;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
-#[instruction(request_id: [u8; 32], requester: Pubkey, inputs: Vec<BtcInput>, outputs: Vec<BtcOutput>, tx_params: BtcTransactionParams)]
+#[instruction(request_id: [u8; 32], requester: Pubkey, inputs: Vec<BtcInput>, outputs: Vec<BtcOutput>, tx_params: BtcDepositParams)]
 pub struct DepositBtc<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -119,7 +119,7 @@ pub struct ClaimBtc<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(request_id: [u8; 32], inputs: Vec<BtcInput>, outputs: Vec<BtcOutput>, amount: u64, recipient_address: String, tx_params: BtcTransactionParams)]
+#[instruction(request_id: [u8; 32], inputs: Vec<BtcInput>, amount: u64, recipient_address: String, tx_params: BtcWithdrawParams)]
 pub struct WithdrawBtc<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
