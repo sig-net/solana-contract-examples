@@ -18,6 +18,7 @@ pub struct BtcOutput {
 pub struct BtcTransactionParams {
     pub lock_time: u32,
     pub caip2_id: String,
+    pub vault_script_pubkey: Vec<u8>,
 }
 
 #[account]

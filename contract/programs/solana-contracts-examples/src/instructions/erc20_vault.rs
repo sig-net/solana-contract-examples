@@ -9,9 +9,9 @@ use chain_signatures::cpi::sign_bidirectional;
 
 use signet_rs::{TransactionBuilder, TxBuilder, EVM};
 
+use crate::contexts::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
 use crate::state::{EvmTransactionParams, IERC20};
 use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
-use crate::contexts::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
 
 const HARDCODED_ROOT_PATH: &str = "root";
 
@@ -35,7 +35,7 @@ pub fn deposit_erc20(
     tx_params: EvmTransactionParams,
 ) -> Result<()> {
     let path = requester.to_string();
-
+    // SECURITY: recipient_address should eventually be derived on-chain instead of supplied.
     // Create ERC20 transfer call
     let recipient = Address::from_slice(&recipient_address);
     let call = IERC20::transferCall {

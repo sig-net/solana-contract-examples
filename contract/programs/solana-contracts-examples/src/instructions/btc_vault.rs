@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::keccak;
 use anchor_lang::solana_program::secp256k1_recover::secp256k1_recover;
-use borsh::{BorshDeserialize, BorshSerialize, BorshSchema};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use chain_signatures::cpi::accounts::SignBidirectional;
 use chain_signatures::cpi::sign_bidirectional;
 
@@ -9,9 +9,9 @@ use signet_rs::bitcoin::psbt::Psbt;
 use signet_rs::bitcoin::types::*;
 use signet_rs::{TransactionBuilder, TxBuilder, BITCOIN};
 
+use crate::contexts::{ClaimBtc, CompleteWithdrawBtc, DepositBtc, WithdrawBtc};
 use crate::state::{BtcInput, BtcOutput, BtcTransactionParams};
 use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
-use crate::contexts::{ClaimBtc, CompleteWithdrawBtc, DepositBtc, WithdrawBtc};
 
 const HARDCODED_ROOT_PATH: &str = "root";
 
@@ -29,6 +29,12 @@ pub fn deposit_btc(
     tx_params: BtcTransactionParams,
 ) -> Result<()> {
     let path = requester.to_string();
+    // SECURITY: outputs should eventually be restricted so vault destinations are contract-defined.
+    let BtcTransactionParams {
+        lock_time,
+        caip2_id,
+        vault_script_pubkey,
+    } = tx_params;
 
     // Build Bitcoin transaction inputs
     let mut btc_inputs = Vec::new();
@@ -53,6 +59,7 @@ pub fn deposit_btc(
     // Build Bitcoin transaction outputs
     let mut btc_outputs = Vec::new();
     let mut total_output_value = 0u64;
+    let mut vault_output_value = 0u64;
 
     for output in &outputs {
         let script_pubkey = ScriptBuf::from_bytes(output.script_pubkey.clone());
@@ -66,17 +73,24 @@ pub fn deposit_btc(
         total_output_value = total_output_value
             .checked_add(output.value)
             .ok_or(crate::error::ErrorCode::Overflow)?;
+
+        if output.script_pubkey.as_slice() == vault_script_pubkey.as_slice() {
+            vault_output_value = vault_output_value
+                .checked_add(output.value)
+                .ok_or(crate::error::ErrorCode::Overflow)?;
+        }
     }
 
     msg!("Deposit: Building Bitcoin SegWit transaction");
     msg!("Total input value: {} sats", total_input_value);
     msg!("Total output value: {} sats", total_output_value);
+    msg!("Total vault output value: {} sats", vault_output_value);
     msg!("Inputs: {}", btc_inputs.len());
     msg!("Outputs: {}", btc_outputs.len());
 
     // Build unsigned Bitcoin transaction (SegWit - Version::Two)
-    let lock_time = LockTime::from_height(tx_params.lock_time)
-        .map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
+    let lock_time =
+        LockTime::from_height(lock_time).map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
 
     let tx = TransactionBuilder::new::<BITCOIN>()
         .version(Version::Two)
@@ -89,7 +103,11 @@ pub fn deposit_btc(
     let txid_bytes = tx.txid();
 
     msg!("=== TRANSACTION BUILD DEBUG ===");
-    msg!("Built transaction with {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    msg!(
+        "Built transaction with {} inputs, {} outputs",
+        tx.input.len(),
+        tx.output.len()
+    );
     msg!("Transaction TXID: {}", hex::encode(&txid_bytes));
 
     // Generate PSBT for MPC signing (includes metadata for signing)
@@ -103,12 +121,11 @@ pub fn deposit_btc(
 
     msg!("Added witnessUtxo to {} PSBT inputs", psbt.inputs.len());
 
-    let psbt_bytes = psbt.serialize()
+    let psbt_bytes = psbt
+        .serialize()
         .map_err(|_| crate::error::ErrorCode::SerializationError)?;
 
     // Use CAIP-2 ID from transaction params (network-specific genesis block hash)
-    let caip2_id = tx_params.caip2_id.clone();
-
     msg!("=== REQUEST ID CALCULATION DEBUG ===");
     msg!("Sender (requester): {}", ctx.accounts.requester_pda.key());
     msg!("TXID (computed): {}", hex::encode(&txid_bytes));
@@ -136,10 +153,15 @@ pub fn deposit_btc(
         crate::error::ErrorCode::InvalidRequestId
     );
 
+    require!(
+        vault_output_value > 0,
+        crate::error::ErrorCode::VaultOutputNotFound
+    );
+
     // Store pending deposit info
     let pending = &mut ctx.accounts.pending_deposit;
     pending.requester = requester;
-    pending.amount = total_output_value;
+    pending.amount = vault_output_value;
     pending.path = path.clone();
     pending.request_id = request_id;
 
@@ -335,7 +357,11 @@ pub fn withdraw_btc(
     let txid_bytes = tx.txid();
 
     msg!("=== TRANSACTION BUILD DEBUG ===");
-    msg!("Built transaction with {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    msg!(
+        "Built transaction with {} inputs, {} outputs",
+        tx.input.len(),
+        tx.output.len()
+    );
     msg!("Transaction TXID: {}", hex::encode(&txid_bytes));
 
     // Generate PSBT for MPC signing (includes metadata for signing)
@@ -349,7 +375,8 @@ pub fn withdraw_btc(
 
     msg!("Added witnessUtxo to {} PSBT inputs", psbt.inputs.len());
 
-    let psbt_bytes = psbt.serialize()
+    let psbt_bytes = psbt
+        .serialize()
         .map_err(|_| crate::error::ErrorCode::SerializationError)?;
 
     let caip2_id = "bip122:000000000019d6689c085ae165831e93".to_string();
@@ -436,10 +463,7 @@ pub fn withdraw_btc(
         callback_schema,
     )?;
 
-    msg!(
-        "BTC withdrawal initiated with request_id: {:?}",
-        request_id
-    );
+    msg!("BTC withdrawal initiated with request_id: {:?}", request_id);
 
     // Add withdrawal transaction record
     let withdrawal_record = TransactionRecord {

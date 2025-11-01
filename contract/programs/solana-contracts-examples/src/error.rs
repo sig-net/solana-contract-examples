@@ -28,4 +28,6 @@ pub enum ErrorCode {
     Underflow,
     #[msg("Transaction not found in history")]
     TransactionNotFound,
+    #[msg("No vault outputs found in transaction")]
+    VaultOutputNotFound,
 }

@@ -114,14 +114,7 @@ pub mod solana_core_contracts {
         outputs: Vec<BtcOutput>,
         tx_params: BtcTransactionParams,
     ) -> Result<()> {
-        instructions::btc_vault::deposit_btc(
-            ctx,
-            request_id,
-            requester,
-            inputs,
-            outputs,
-            tx_params,
-        )
+        instructions::btc_vault::deposit_btc(ctx, request_id, requester, inputs, outputs, tx_params)
     }
 
     pub fn claim_btc(
