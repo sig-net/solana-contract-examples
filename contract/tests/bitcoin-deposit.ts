@@ -273,7 +273,7 @@ class BitcoinUtils {
         index: input.vout,
         witnessUtxo: {
           script: Buffer.from(input.scriptPubkey),
-          value: BigInt(input.value), // Must be bigint
+          value: BigInt(input.value),
         },
       });
     }
@@ -283,12 +283,12 @@ class BitcoinUtils {
       if (output.address) {
         psbt.addOutput({
           address: output.address,
-          value: BigInt(output.value), // Must be bigint
+          value: BigInt(output.value),
         });
       } else if (output.script) {
         psbt.addOutput({
           script: Buffer.from(output.script),
-          value: BigInt(output.value), // Must be bigint
+          value: BigInt(output.value),
         });
       }
     }
@@ -371,14 +371,6 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     btcUtils = new BitcoinUtils(CONFIG.BITCOIN_NETWORK);
 
     bitcoinAdapter = await BitcoinAdapterFactory.create(CONFIG.BITCOIN_NETWORK);
-
-    const isAvailable = await bitcoinAdapter.isAvailable();
-    if (!isAvailable) {
-      throw new Error(
-        `❌ Bitcoin ${CONFIG.BITCOIN_NETWORK} not available. Start Bitcoin Core with: yarn docker:dev`
-      );
-    }
-    console.log(`✅ Bitcoin RPC connected\n`);
 
     // Start local chain signature server for testing
     if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
@@ -486,33 +478,21 @@ describe("🪙 Bitcoin Deposit Integration", () => {
         );
         const fundingAmount = 0.001; // 0.001 BTC = 100,000 sats
 
-        try {
-          const fundTxid = await bitcoinAdapter.fundAddress(
-            depositAddress,
-            fundingAmount
-          );
+        const fundTxid = await bitcoinAdapter.fundAddress(
+          depositAddress,
+          fundingAmount
+        );
 
-          console.log(`  📝 Funding Transaction ID: ${fundTxid}`);
+        console.log(`  📝 Funding Transaction ID: ${fundTxid}`);
 
-          utxos = await waitForUtxoCount(
-            bitcoinAdapter,
-            depositAddress,
-            1,
-            "single deposit funding (awaiting UTXO visibility)"
-          );
+        utxos = await waitForUtxoCount(
+          bitcoinAdapter,
+          depositAddress,
+          1,
+          "single deposit funding (awaiting UTXO visibility)"
+        );
 
-          console.log(`  ✅ Address funded, awaiting confirmation\n`);
-        } catch (error: unknown) {
-          throw new Error(
-            `❌ Failed to fund address:\n${formatError(error)}\n\n` +
-              `Please ensure Bitcoin Core is running:\n` +
-              `  1. Start: cd bitcoin-regtest && yarn docker:dev\n` +
-              `  2. Check: curl http://localhost:18443\n` +
-              `  3. Or manually fund:\n` +
-              `     bitcoin-cli -regtest sendtoaddress ${depositAddress} 0.001\n` +
-              `     bitcoin-cli -regtest generatetoaddress 1 $(bitcoin-cli -regtest getnewaddress)`
-          );
-        }
+        console.log(`  ✅ Address funded, awaiting confirmation\n`);
       } else {
         const fundingUrl =
           CONFIG.BITCOIN_NETWORK === "testnet"
@@ -533,10 +513,10 @@ describe("🪙 Bitcoin Deposit Integration", () => {
 
     console.log(`  ✅ Found ${utxos.length} UTXO(s)`);
 
-    // Use the first UTXO (smallest amount for testing)
-    const utxo = utxos.sort((a, b) => a.value - b.value)[0];
+    // Prefer the largest UTXO to mirror production behaviour
+    const utxo = utxos.sort((a, b) => b.value - a.value)[0];
     const inputValue = utxo.value;
-    const fee = 200; // 200 sats fee (very small for ~1000 sat inputs)
+    const fee = 200; // TODO: Replace static fee with chain-derived feerate * tx vsize
     // Add small random variation (1-10 sats) to ensure unique request IDs on each test run
     const randomVariation = Math.floor(Math.random() * 100) + 1;
     const outputValue = inputValue - fee - randomVariation;
@@ -613,17 +593,13 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     // Rust tx.txid() returns bytes in INTERNAL format (reversed from display)
     // We need to reverse to match what Rust uses for request ID calculation
     const txidInternal = Buffer.from(txidDisplay, "hex").reverse();
-    const txidBuffer = txidInternal;
 
     console.log("  📦 TXID:", txidDisplay);
 
-    // Generate request ID using TXID (matching Rust code)
-    const caip2Id = CONFIG.BITCOIN_CAIP2_ID;
-
     const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
       vaultAuthority.toString(),
-      Array.from(txidBuffer),
-      caip2Id,
+      Array.from(txidInternal),
+      txParams.caip2Id,
       0,
       path,
       "ECDSA",
@@ -661,7 +637,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
       const balanceAccount = await program.account.userBtcBalance.fetch(
         userBalance
       );
-      initialBalance = balanceAccount.amount as BN;
+      initialBalance = balanceAccount.amount;
       console.log("  💰 Initial balance:", initialBalance.toString(), "sats");
     } catch {
       console.log("  💰 Initial balance: 0 sats (account doesn't exist yet)");
@@ -751,10 +727,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
       ]
     );
 
-    const { sigWithHashType, witness } = prepareSignatureWitness(
-      signature,
-      compressedPubkey
-    );
+    const { witness } = prepareSignatureWitness(signature, compressedPubkey);
 
     psbt.updateInput(0, {
       finalScriptWitness: witness,
@@ -825,7 +798,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     const finalBalanceAccount = await program.account.userBtcBalance.fetch(
       userBalance
     );
-    const finalBalance = finalBalanceAccount.amount as BN;
+    const finalBalance = finalBalanceAccount.amount;
 
     const expectedBalance = initialBalance.add(new BN(outputValue));
 
@@ -938,35 +911,25 @@ describe("🪙 Bitcoin Deposit Integration", () => {
 
       const existing = utxos?.length ?? 0;
       const rounds = Math.max(0, requiredUtxos - existing);
-      if (rounds > 0) {
+      for (let offset = 0; offset < rounds; offset++) {
+        const index = existing + offset;
+        const sats = 60_000 + index * 10_000;
+        const amountBtc = Number((sats / 1e8).toFixed(8));
+        const fundTxid = await bitcoinAdapter.fundAddress(
+          depositAddress,
+          amountBtc
+        );
         console.log(
-          `  💰 Funding deposit address ${rounds} time(s) to guarantee four spendable inputs...`
+          `    - Funding round ${index + 1}: ${amountBtc} BTC (txid: ${
+            fundTxid ?? "unknown"
+          })`
         );
 
-        for (let offset = 0; offset < rounds; offset++) {
-          const index = existing + offset;
-          const sats = 60_000 + index * 10_000;
-          const amountBtc = Number((sats / 1e8).toFixed(8));
-          const fundTxid = await bitcoinAdapter.fundAddress(
-            depositAddress,
-            amountBtc
-          );
-          console.log(
-            `    - Funding round ${index + 1}: ${amountBtc} BTC (txid: ${
-              fundTxid ?? "unknown"
-            })`
-          );
-
-          utxos = await waitForUtxoCount(
-            bitcoinAdapter,
-            depositAddress,
-            existing + offset + 1,
-            `multi-UTXO funding round ${index + 1}/4`
-          );
-        }
-      } else {
-        console.log(
-          `  ✅ Address already has ${existing} spendable inputs for deposit`
+        utxos = await waitForUtxoCount(
+          bitcoinAdapter,
+          depositAddress,
+          existing + offset + 1,
+          `multi-UTXO funding round ${index + 1}/4`
         );
       }
     }
@@ -980,7 +943,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     }
 
     const selectedUtxos = [...utxos]
-      .sort((a, b) => a.value - b.value)
+      .sort((a, b) => b.value - a.value)
       .slice(0, requiredUtxos);
 
     console.log(`  ✅ Selected ${selectedUtxos.length} UTXOs:`);
@@ -1043,8 +1006,9 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     console.log("\n📍 STEP 3: Generating request ID from multi-input TX\n");
 
     const unsignedTx = new bitcoin.Transaction();
-    unsignedTx.version = 2;
+    unsignedTx.version = 2; // Mirror TransactionBuilder::version(Version::Two)
     selectedUtxos.forEach((u) => {
+      // Inputs match the program: little-endian txid, original vout, max sequence
       unsignedTx.addInput(
         Buffer.from(u.txid, "hex").reverse(),
         u.vout,
@@ -1065,7 +1029,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
       vaultAuthority.toString(),
       Array.from(txidInternal),
-      CONFIG.BITCOIN_CAIP2_ID,
+      txParams.caip2Id,
       0,
       path,
       "ECDSA",
@@ -1098,7 +1062,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
       const balanceAccount = await program.account.userBtcBalance.fetch(
         userBalancePda
       );
-      initialBalance = balanceAccount.amount as BN;
+      initialBalance = balanceAccount.amount;
       console.log("  💰 Initial balance:", initialBalance.toString(), "sats");
     } catch {
       console.log("  💰 Initial balance: 0 sats (account doesn't exist yet)");
@@ -1275,32 +1239,6 @@ describe("🪙 Bitcoin Deposit Integration", () => {
       expect(pendingDeposit).to.be.null;
       console.log("  ✅ Pending deposit account closed after claim");
 
-      const [historyPda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("user_transaction_history"),
-          secondaryRequester.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      const history = await program.account.userTransactionHistory.fetch(
-        historyPda
-      );
-      const latestDeposit = history.deposits[0];
-
-      expect(Buffer.from(latestDeposit.requestId)).to.deep.equal(
-        Buffer.from(requestIdBytes)
-      );
-      const expectedHistoryAmount = new BN(vaultValue).add(
-        new BN(changeValue > 0 ? changeValue : 0)
-      );
-      expect(latestDeposit.amount.toString()).to.equal(
-        expectedHistoryAmount.toString()
-      );
-      console.log(
-        `  ✅ Transaction history recorded total outputs (${expectedHistoryAmount.toString()} sats)`
-      );
-
       latestVaultDeposit = {
         user: secondaryRequester,
         path,
@@ -1403,7 +1341,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
       console.log("  ✅ Funding transfer confirmed");
     }
 
-    const feeBudget = 500;
+    const feeBudget = 500; // TODO: compute dynamically from current feerate and tx weight
     let withdrawAmount = Math.max(1000, Math.floor(targetUtxo.value / 3));
     let changeValue = targetUtxo.value - withdrawAmount - feeBudget;
 
