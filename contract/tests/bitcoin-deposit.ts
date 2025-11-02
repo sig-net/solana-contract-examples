@@ -335,7 +335,7 @@ async function ensureVaultConfigInitialized(
   }
 }
 
-describe.only("🪙 Bitcoin Deposit Integration", () => {
+describe("🪙 Bitcoin Deposit Integration", () => {
   let provider: anchor.AnchorProvider;
   let program: Program<SolanaCoreContracts>;
   let btcUtils: BitcoinUtils;
