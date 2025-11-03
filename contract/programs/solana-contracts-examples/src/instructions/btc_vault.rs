@@ -100,7 +100,7 @@ pub fn deposit_btc(
         .build();
 
     // Get the TXID from the transaction (returns [u8; 32] directly)
-    let txid_bytes = tx.txid();
+    let txid_bytes = tx.compute_txid().as_byte_array();
 
     msg!("=== TRANSACTION BUILD DEBUG ===");
     msg!(
@@ -399,7 +399,7 @@ pub fn withdraw_btc(
         .build();
 
     // Get the TXID from the transaction (returns [u8; 32] directly)
-    let txid_bytes = tx.txid();
+    let txid_bytes = tx.compute_txid().as_byte_array();
 
     msg!("=== TRANSACTION BUILD DEBUG ===");
     msg!(

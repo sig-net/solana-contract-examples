@@ -19,7 +19,7 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang          = { version = "0.31.1", features = ["init-if-needed"] }
-signet-rs            = { git = "https://github.com/sig-net/signet.rs", features = ["evm", "bitcoin"], branch = "pre-compiled" }
+signet-rs            = { git = "https://github.com/sig-net/signet.rs", features = ["evm", "bitcoin"], branch = "main" }
 sha3                 = "0.10.8"
 alloy-sol-types      = { version = "0.8.25", default-features = false, features = ["json"] }
 alloy-json-abi       = "0.8"
