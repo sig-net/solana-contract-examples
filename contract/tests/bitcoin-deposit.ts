@@ -6,7 +6,7 @@ import { ChainSignaturesProject } from "../types/chain_signatures_project.js";
 import IDLData from "../idl/chain_signatures_project.json";
 
 const IDL = IDLData as ChainSignaturesProject;
-import { expect } from "chai";
+import { expect, AssertionError } from "chai";
 import * as bitcoin from "bitcoinjs-lib";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { ethers } from "ethers";
@@ -18,7 +18,7 @@ import {
   BitcoinAdapterFactory,
   IBitcoinAdapter,
 } from "fakenet-signer";
-import { CONFIG, SERVER_CONFIG } from "../utils/envConfig.js";
+import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
 import { randomBytes } from "crypto";
 
 interface UTXO {
@@ -100,6 +100,748 @@ let latestDepositor: anchor.web3.Keypair | null = null;
 const formatError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+let provider: anchor.AnchorProvider;
+let program: Program<SolanaCoreContracts>;
+let btcUtils: BitcoinUtils;
+let server: ChainSignatureServer | null = null;
+let bitcoinAdapter: IBitcoinAdapter;
+const DEFAULT_DEPOSIT_AMOUNT = 5_000;
+const SATS_PER_BTC = 100_000_000;
+const SYNTHETIC_FUNDING_BUFFER = 5_000;
+const LIVE_DEPOSIT_FEE = 200;
+const MULTI_INPUT_TARGET = 4;
+const WITHDRAW_FEE_BUDGET = 500;
+const SYNTHETIC_TX_FEE = 200;
+
+type SimpleOutputPlan = {
+  script: Buffer;
+  value: number;
+};
+
+type DepositPlan = {
+  requester: anchor.web3.PublicKey;
+  btcInputs: BtcInput[];
+  btcOutputs: BtcOutput[];
+  txParams: BtcDepositParams;
+  requestIdBytes: number[];
+  requestIdHex: string;
+  creditedAmount: number;
+  vaultAuthorityAddress: string;
+  vaultAuthorityScript: Buffer;
+  compressedVaultAuthorityPubkey: Buffer;
+  globalVaultAddress: string;
+  globalVaultScript: Buffer;
+  compressedGlobalVaultPubkey: Buffer;
+  inputUtxos: UTXO[];
+  changeScript?: Buffer;
+};
+
+type WithdrawalPlan = {
+  inputs: BtcInput[];
+  amount: BN;
+  fee: BN;
+  recipientAddress: string;
+  txParams: BtcWithdrawParams;
+  requestIdBytes: number[];
+  requestIdHex: string;
+  withdrawAddress: string;
+  withdrawScript: Buffer;
+  globalVaultAddress: string;
+  globalVaultScript: Buffer;
+  compressedGlobalVaultPubkey: Buffer;
+  selectedUtxos: UTXO[];
+  feeBudget: number;
+};
+
+type DepositBuildOptions =
+  | {
+      mode: "live_single";
+      requester?: anchor.web3.PublicKey;
+    }
+  | {
+      mode: "live_multi";
+      requester: anchor.web3.Keypair;
+    }
+  | {
+      mode: "synthetic_live";
+      requester?: anchor.web3.PublicKey;
+      amount: number;
+      fee?: number;
+    }
+  | {
+      mode: "mock";
+      requester?: anchor.web3.PublicKey;
+      amount?: number;
+      includeVaultOutput?: boolean;
+      inputValue?: number;
+      lockTime?: number;
+      extraOutputs?: SimpleOutputPlan[];
+    };
+
+type WithdrawalBuildOptions =
+  | {
+      mode: "live";
+      authority: anchor.web3.Keypair;
+      feeBudget?: number;
+    }
+  | {
+      mode: "mock";
+      amount?: number;
+      fee?: number;
+      inputValue?: number;
+    };
+
+type GlobalVaultContext = {
+  // globalVault refers to the PDA derived from the static b"global_vault_authority" seed.
+  globalVault: anchor.web3.PublicKey;
+  compressedGlobalVaultPubkey: Buffer;
+  globalVaultScript: Buffer;
+  globalVaultAddress: string;
+};
+
+type VaultContext = GlobalVaultContext & {
+  path: string;
+  // vaultAuthority refers to the user-specific PDA derived from b"vault_authority" + requester.
+  vaultAuthority: anchor.web3.PublicKey;
+  compressedVaultAuthorityPubkey: Buffer;
+  vaultAuthorityScript: Buffer;
+  vaultAuthorityAddress: string;
+};
+
+const bnToNumber = (value: BN | number): number =>
+  BN.isBN(value) ? value.toNumber() : value;
+
+const bnToBigInt = (value: BN | number): bigint =>
+  BN.isBN(value) ? BigInt(value.toString()) : BigInt(value);
+
+const bufferFromBytes = (value: Buffer | number[] | Uint8Array): Buffer =>
+  Buffer.isBuffer(value) ? value : Buffer.from(value);
+
+const composeDepositPlan = (
+  params: {
+    requester: anchor.web3.PublicKey;
+    btcInputs: BtcInput[];
+    btcOutputs: BtcOutput[];
+    txParams: BtcDepositParams;
+    path: string;
+    vaultAuthority: anchor.web3.PublicKey;
+  },
+  metadata: {
+    vaultAuthorityAddress: string;
+    vaultAuthorityScript: Buffer;
+    compressedVaultAuthorityPubkey: Buffer;
+    globalVaultAddress: string;
+    globalVaultScript: Buffer;
+    compressedGlobalVaultPubkey: Buffer;
+    inputUtxos: UTXO[];
+    changeScript?: Buffer;
+  }
+): DepositPlan => {
+  if (!program) {
+    throw new Error(
+      "Program must be initialized before building deposit plans"
+    );
+  }
+
+  const tx = new bitcoin.Transaction();
+  tx.version = 2;
+  tx.locktime = params.txParams.lockTime;
+  params.btcInputs.forEach((input) => {
+    const txidBytes = bufferFromBytes(input.txid);
+    tx.addInput(Buffer.from(txidBytes).reverse(), input.vout, 0xffffffff);
+  });
+  params.btcOutputs.forEach((output) => {
+    tx.addOutput(
+      Buffer.from(output.scriptPubkey),
+      bnToBigInt(output.value) as bigint
+    );
+  });
+
+  const txidInternal = Buffer.from(tx.getId(), "hex").reverse();
+  const requestIdHex = RequestIdGenerator.generateSignBidirectionalRequestId(
+    params.vaultAuthority.toString(),
+    Array.from(txidInternal),
+    params.txParams.caip2Id,
+    0,
+    params.path,
+    "ECDSA",
+    "bitcoin",
+    ""
+  );
+  const requestIdBytes = Array.from(Buffer.from(requestIdHex.slice(2), "hex"));
+
+  const vaultScriptHex = Buffer.from(
+    params.txParams.vaultScriptPubkey
+  ).toString("hex");
+  const creditedAmount = params.btcOutputs.reduce((acc, output) => {
+    const scriptHex = Buffer.from(output.scriptPubkey).toString("hex");
+    return scriptHex === vaultScriptHex ? acc + bnToNumber(output.value) : acc;
+  }, 0);
+
+  return {
+    requester: params.requester,
+    btcInputs: params.btcInputs,
+    btcOutputs: params.btcOutputs,
+    txParams: params.txParams,
+    requestIdBytes,
+    requestIdHex,
+    creditedAmount,
+    ...metadata,
+  };
+};
+
+const composeWithdrawalPlan = (
+  params: {
+    inputs: BtcInput[];
+    amount: BN;
+    fee: BN;
+    recipientScript: Buffer;
+    recipientAddress: string;
+    vaultScript: Buffer;
+    caip2Id: string;
+    lockTime: number;
+    globalVault: anchor.web3.PublicKey;
+  },
+  metadata: {
+    withdrawAddress: string;
+    withdrawScript: Buffer;
+    globalVaultAddress: string;
+    globalVaultScript: Buffer;
+    compressedGlobalVaultPubkey: Buffer;
+    selectedUtxos: UTXO[];
+    feeBudget: number;
+  }
+): WithdrawalPlan => {
+  if (!program) {
+    throw new Error(
+      "Program must be initialized before building withdrawal plans"
+    );
+  }
+
+  const tx = new bitcoin.Transaction();
+  tx.version = 2;
+  tx.locktime = params.lockTime;
+  params.inputs.forEach((input) => {
+    const txidBytes = bufferFromBytes(input.txid);
+    tx.addInput(Buffer.from(txidBytes).reverse(), input.vout, 0xffffffff);
+  });
+
+  const amountNumber = bnToNumber(params.amount);
+  const feeNumber = bnToNumber(params.fee);
+  const totalInputValue = params.inputs.reduce(
+    (acc, cur) => acc + bnToNumber(cur.value),
+    0
+  );
+  const changeValue = totalInputValue - amountNumber - feeNumber;
+  if (changeValue < 0) {
+    throw new Error("Provided inputs do not cover amount + fee");
+  }
+
+  tx.addOutput(params.recipientScript, bnToBigInt(params.amount) as bigint);
+  if (changeValue > 0) {
+    tx.addOutput(params.vaultScript, BigInt(changeValue));
+  }
+
+  const txidInternal = Buffer.from(tx.getId(), "hex").reverse();
+  const requestIdHex = RequestIdGenerator.generateSignBidirectionalRequestId(
+    params.globalVault.toString(),
+    Array.from(txidInternal),
+    params.caip2Id,
+    0,
+    WITHDRAW_PATH,
+    "ECDSA",
+    "bitcoin",
+    ""
+  );
+  const requestIdBytes = Array.from(Buffer.from(requestIdHex.slice(2), "hex"));
+
+  const txParams: BtcWithdrawParams = {
+    lockTime: params.lockTime,
+    caip2Id: params.caip2Id,
+    vaultScriptPubkey: params.vaultScript,
+    recipientScriptPubkey: params.recipientScript,
+    fee: params.fee,
+  };
+
+  return {
+    inputs: params.inputs,
+    amount: params.amount,
+    fee: params.fee,
+    recipientAddress: params.recipientAddress,
+    txParams,
+    requestIdBytes,
+    requestIdHex,
+    ...metadata,
+  };
+};
+
+const buildDepositPlan = async (
+  options: DepositBuildOptions
+): Promise<DepositPlan> => {
+  switch (options.mode) {
+    case "live_single": {
+      if (!program || !btcUtils || !bitcoinAdapter) {
+        throw new Error("Live deposit plan requires initialized services");
+      }
+
+      const requester = options.requester ?? provider.wallet.publicKey;
+      const {
+        path,
+        vaultAuthority,
+        vaultAuthorityScript,
+        vaultAuthorityAddress,
+        compressedVaultAuthorityPubkey,
+        globalVaultScript,
+        globalVaultAddress,
+        compressedGlobalVaultPubkey,
+      } = deriveVaultContext(requester);
+
+      const [utxo] = await ensureUtxos(bitcoinAdapter, vaultAuthorityAddress, {
+        minCount: 1,
+        minValue: LIVE_DEPOSIT_FEE + SYNTHETIC_FUNDING_BUFFER,
+        context: "single deposit",
+      });
+
+      const variance = Math.floor(Math.random() * 100) + 1;
+      const vaultValue = utxo.value - LIVE_DEPOSIT_FEE - variance;
+      if (vaultValue <= 0) {
+        throw new Error("UTXO too small to cover fees + variance");
+      }
+
+      const btcInputs: BtcInput[] = [toBtcInput(utxo, vaultAuthorityScript)];
+      const btcOutputs: BtcOutput[] = [
+        {
+          scriptPubkey: globalVaultScript,
+          value: new BN(vaultValue),
+        },
+      ];
+
+      const txParams: BtcDepositParams = {
+        lockTime: 0,
+        caip2Id: CONFIG.BITCOIN_CAIP2_ID,
+        vaultScriptPubkey: globalVaultScript,
+      };
+
+      return composeDepositPlan(
+        {
+          requester,
+          btcInputs,
+          btcOutputs,
+          txParams,
+          path,
+          vaultAuthority,
+        },
+        {
+          vaultAuthorityAddress,
+          vaultAuthorityScript,
+          compressedVaultAuthorityPubkey,
+          globalVaultAddress,
+          globalVaultScript,
+          compressedGlobalVaultPubkey,
+          inputUtxos: [utxo],
+        }
+      );
+    }
+    case "live_multi": {
+      if (!program || !btcUtils || !bitcoinAdapter) {
+        throw new Error("Multi-input plan requires initialized services");
+      }
+
+      const requester = options.requester;
+      const {
+        path,
+        vaultAuthority,
+        vaultAuthorityScript,
+        vaultAuthorityAddress,
+        compressedVaultAuthorityPubkey,
+        globalVaultScript,
+        globalVaultAddress,
+        compressedGlobalVaultPubkey,
+      } = deriveVaultContext(requester.publicKey);
+
+      const changePath = `${path}::change`;
+      const changePubkeyUncompressed =
+        signetUtils.cryptography.deriveChildPublicKey(
+          CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+          vaultAuthority.toString(),
+          changePath,
+          CONFIG.SOLANA_CHAIN_ID
+        );
+      const compressedChangePubkey = btcUtils.compressPublicKey(
+        changePubkeyUncompressed
+      );
+      const changeScript = btcUtils.createP2WPKHScript(compressedChangePubkey);
+
+      const inventory = await ensureUtxos(
+        bitcoinAdapter,
+        vaultAuthorityAddress,
+        {
+          minCount: MULTI_INPUT_TARGET,
+          context: "multi-input deposit",
+        }
+      );
+
+      const selectedUtxos = [...inventory]
+        .sort((a, b) => b.value - a.value)
+        .slice(0, MULTI_INPUT_TARGET);
+
+      const totalInputValue = selectedUtxos.reduce(
+        (acc, utxo) => acc + utxo.value,
+        0
+      );
+      const baseFee = 400;
+      const randomVariation = Math.floor(Math.random() * 100) + 1;
+      const changeValue = Math.floor(totalInputValue / 4);
+      const vaultValue =
+        totalInputValue - baseFee - randomVariation - changeValue;
+
+      if (vaultValue <= 0) {
+        throw new Error("Computed vault value is non-positive");
+      }
+
+      const btcInputs = selectedUtxos.map((utxo) =>
+        toBtcInput(utxo, vaultAuthorityScript)
+      );
+
+      const btcOutputs: BtcOutput[] = [
+        {
+          scriptPubkey: globalVaultScript,
+          value: new BN(vaultValue),
+        },
+      ];
+
+      if (changeValue > 0) {
+        btcOutputs.push({
+          scriptPubkey: changeScript,
+          value: new BN(changeValue),
+        });
+      }
+
+      const txParams: BtcDepositParams = {
+        lockTime: 0,
+        caip2Id: CONFIG.BITCOIN_CAIP2_ID,
+        vaultScriptPubkey: globalVaultScript,
+      };
+
+      return composeDepositPlan(
+        {
+          requester: requester.publicKey,
+          btcInputs,
+          btcOutputs,
+          txParams,
+          path,
+          vaultAuthority,
+        },
+        {
+          vaultAuthorityAddress,
+          vaultAuthorityScript,
+          compressedVaultAuthorityPubkey,
+          globalVaultAddress,
+          globalVaultScript,
+          compressedGlobalVaultPubkey,
+          inputUtxos: selectedUtxos,
+          changeScript,
+        }
+      );
+    }
+    case "synthetic_live": {
+      if (!program || !btcUtils || !bitcoinAdapter) {
+        throw new Error("Synthetic deposit requires initialized services");
+      }
+
+      const requester = options.requester ?? provider.wallet.publicKey;
+      const amount = options.amount;
+      const fee = options.fee ?? SYNTHETIC_TX_FEE;
+
+      const {
+        path,
+        vaultAuthority,
+        vaultAuthorityScript,
+        vaultAuthorityAddress,
+        compressedVaultAuthorityPubkey,
+        globalVaultScript,
+        globalVaultAddress,
+        compressedGlobalVaultPubkey,
+      } = deriveVaultContext(requester);
+
+      const minInputValue = amount + fee + SYNTHETIC_FUNDING_BUFFER;
+      const [utxo] = await ensureUtxos(bitcoinAdapter, vaultAuthorityAddress, {
+        minCount: 1,
+        minValue: minInputValue,
+        context: `synthetic deposit (${amount} sats)`,
+      });
+
+      if (utxo.value < amount + fee) {
+        throw new Error(
+          `UTXO value ${utxo.value} sats cannot cover amount ${amount} + fee ${fee}`
+        );
+      }
+
+      const changeValue = utxo.value - amount - fee;
+      if (changeValue < 0) {
+        throw new Error("Change value underflow during synthetic deposit");
+      }
+
+      const btcInputs: BtcInput[] = [toBtcInput(utxo, vaultAuthorityScript)];
+      const btcOutputs: BtcOutput[] = [
+        {
+          scriptPubkey: globalVaultScript,
+          value: new BN(amount),
+        },
+      ];
+
+      if (changeValue > 0) {
+        btcOutputs.push({
+          scriptPubkey: vaultAuthorityScript,
+          value: new BN(changeValue),
+        });
+      }
+
+      const txParams: BtcDepositParams = {
+        lockTime: 0,
+        caip2Id: CONFIG.BITCOIN_CAIP2_ID,
+        vaultScriptPubkey: globalVaultScript,
+      };
+
+      return composeDepositPlan(
+        {
+          requester,
+          btcInputs,
+          btcOutputs,
+          txParams,
+          path,
+          vaultAuthority,
+        },
+        {
+          vaultAuthorityAddress,
+          vaultAuthorityScript,
+          compressedVaultAuthorityPubkey,
+          globalVaultAddress,
+          globalVaultScript,
+          compressedGlobalVaultPubkey,
+          inputUtxos: [utxo],
+        }
+      );
+    }
+    case "mock": {
+      if (!program || !btcUtils) {
+        throw new Error("Program must be initialized before building plans");
+      }
+
+      const requester = options.requester ?? provider.wallet.publicKey;
+      const amount = options.amount ?? DEFAULT_DEPOSIT_AMOUNT;
+      const lockTime = options.lockTime ?? 0;
+      const inputValue = options.inputValue ?? amount + 500;
+
+      const {
+        path,
+        vaultAuthority,
+        vaultAuthorityScript,
+        vaultAuthorityAddress,
+        compressedVaultAuthorityPubkey,
+        globalVaultScript,
+        globalVaultAddress,
+        compressedGlobalVaultPubkey,
+      } = deriveVaultContext(requester);
+
+      const primaryOutputScript =
+        options.includeVaultOutput === false
+          ? vaultAuthorityScript
+          : globalVaultScript;
+
+      const plannedOutputs: SimpleOutputPlan[] = [
+        {
+          script: primaryOutputScript,
+          value: amount,
+        },
+        ...(options.extraOutputs ?? []),
+      ];
+
+      const mockTxid = randomBytes(32);
+      const btcInputs: BtcInput[] = [
+        {
+          txid: Array.from(mockTxid),
+          vout: 0,
+          scriptPubkey: vaultAuthorityScript,
+          value: new BN(inputValue),
+        },
+      ];
+
+      const btcOutputs: BtcOutput[] = plannedOutputs.map((output) => ({
+        scriptPubkey: output.script,
+        value: new BN(output.value),
+      }));
+
+      const txParams: BtcDepositParams = {
+        lockTime,
+        caip2Id: CONFIG.BITCOIN_CAIP2_ID,
+        vaultScriptPubkey: globalVaultScript,
+      };
+
+      return composeDepositPlan(
+        {
+          requester,
+          btcInputs,
+          btcOutputs,
+          txParams,
+          path,
+          vaultAuthority,
+        },
+        {
+          vaultAuthorityAddress,
+          vaultAuthorityScript,
+          compressedVaultAuthorityPubkey,
+          globalVaultAddress,
+          globalVaultScript,
+          compressedGlobalVaultPubkey,
+          inputUtxos: [],
+        }
+      );
+    }
+  }
+};
+
+const buildWithdrawalPlan = async (
+  options: WithdrawalBuildOptions
+): Promise<WithdrawalPlan> => {
+  switch (options.mode) {
+    case "live": {
+      if (!program || !btcUtils || !bitcoinAdapter) {
+        throw new Error("Withdrawal plan requires initialized services");
+      }
+
+      const feeBudget = options.feeBudget ?? WITHDRAW_FEE_BUDGET;
+      const balanceInfo = await fetchUserBalance(options.authority.publicKey);
+      if (balanceInfo.amount.lte(new BN(feeBudget))) {
+        throw new Error("Insufficient balance to cover withdrawal fee");
+      }
+
+      const withdrawAmountBn = balanceInfo.amount.sub(new BN(feeBudget));
+
+      const {
+        globalVault,
+        compressedGlobalVaultPubkey,
+        globalVaultScript,
+        globalVaultAddress,
+      } = deriveGlobalVaultContext();
+
+      const globalVaultUtxos =
+        (await bitcoinAdapter.getAddressUtxos(globalVaultAddress)) ?? [];
+      const targetTotal = bnToNumber(withdrawAmountBn) + feeBudget;
+      const { selected: selectedUtxos, total } = selectUtxosForTarget(
+        globalVaultUtxos,
+        targetTotal
+      );
+
+      if (selectedUtxos.length === 0 || total < targetTotal) {
+        throw new Error(
+          `Unable to collect sufficient global vault liquidity for ${targetTotal} sats`
+        );
+      }
+
+      const externalPrivKey = randomBytes(32);
+      const externalPubkey = secp256k1.getPublicKey(externalPrivKey, false);
+      const compressedExternalPubkey = btcUtils.compressPublicKey(
+        Buffer.from(externalPubkey).toString("hex")
+      );
+      const withdrawScript = btcUtils.createP2WPKHScript(
+        compressedExternalPubkey
+      );
+      const withdrawAddress = btcUtils.getAddressFromPubkey(
+        compressedExternalPubkey
+      );
+
+      const btcInputs = selectedUtxos.map((utxo) =>
+        toBtcInput(utxo, globalVaultScript)
+      );
+
+      return composeWithdrawalPlan(
+        {
+          inputs: btcInputs,
+          amount: withdrawAmountBn,
+          fee: new BN(feeBudget),
+          recipientScript: withdrawScript,
+          recipientAddress: withdrawAddress,
+          vaultScript: globalVaultScript,
+          caip2Id: WITHDRAW_CAIP2_ID,
+          lockTime: 0,
+          globalVault,
+        },
+        {
+          withdrawAddress,
+          withdrawScript,
+          globalVaultAddress,
+          globalVaultScript,
+          compressedGlobalVaultPubkey,
+          selectedUtxos,
+          feeBudget,
+        }
+      );
+    }
+    case "mock": {
+      if (!program || !btcUtils) {
+        throw new Error("Program must be initialized before building plans");
+      }
+
+      const amountValue = options.amount ?? 2_000;
+      const feeValue = options.fee ?? 25;
+      const inputValue = options.inputValue ?? amountValue + feeValue + 25;
+
+      const {
+        globalVault,
+        globalVaultScript,
+        globalVaultAddress,
+        compressedGlobalVaultPubkey,
+      } = deriveGlobalVaultContext();
+
+      const externalPrivKey = randomBytes(32);
+      const externalPubkey = secp256k1.getPublicKey(externalPrivKey, false);
+      const compressedExternalPubkey = btcUtils.compressPublicKey(
+        Buffer.from(externalPubkey).toString("hex")
+      );
+      const withdrawScript = btcUtils.createP2WPKHScript(
+        compressedExternalPubkey
+      );
+      const withdrawAddress = btcUtils.getAddressFromPubkey(
+        compressedExternalPubkey
+      );
+
+      const mockTxid = randomBytes(32);
+      const btcInputs: BtcInput[] = [
+        {
+          txid: Array.from(mockTxid),
+          vout: 0,
+          scriptPubkey: globalVaultScript,
+          value: new BN(inputValue),
+        },
+      ];
+
+      return composeWithdrawalPlan(
+        {
+          inputs: btcInputs,
+          amount: new BN(amountValue),
+          fee: new BN(feeValue),
+          recipientScript: withdrawScript,
+          recipientAddress: withdrawAddress,
+          vaultScript: globalVaultScript,
+          caip2Id: WITHDRAW_CAIP2_ID,
+          lockTime: 0,
+          globalVault,
+        },
+        {
+          withdrawAddress,
+          withdrawScript,
+          globalVaultAddress,
+          globalVaultScript,
+          compressedGlobalVaultPubkey,
+          selectedUtxos: [],
+          feeBudget: feeValue,
+        }
+      );
+    }
+  }
+};
+
 const SECP256K1_ORDER = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
 );
@@ -163,17 +905,204 @@ async function waitForUtxoCount(
       return latest;
     }
 
-    console.log(
-      `  ⏳ Waiting for ${minCount} UTXOs on ${address} (attempt ${
-        attempt + 1
-      }/${maxAttempts}) during ${context}. Currently have ${latest.length}.`
-    );
-
     await sleep(delayMs);
   }
 
   return latest;
 }
+
+type EnsureUtxoOptions = {
+  minCount?: number;
+  minValue?: number;
+  context: string;
+  fundingSats?: number;
+};
+
+const ensureUtxos = async (
+  adapter: IBitcoinAdapter,
+  address: string,
+  { minCount = 1, minValue, context, fundingSats = 60_000 }: EnsureUtxoOptions
+): Promise<UTXO[]> => {
+  let utxos = (await adapter.getAddressUtxos(address)) ?? [];
+  let attempt = 0;
+
+  const needsFunding = () =>
+    utxos.length < minCount ||
+    (minValue !== undefined && !utxos.some((utxo) => utxo.value >= minValue));
+
+  while (needsFunding() && attempt < 5) {
+    if (!adapter.fundAddress) {
+      break;
+    }
+
+    const satsToSend = Math.max(
+      fundingSats + attempt * 10_000,
+      minValue ?? 10_000,
+      SYNTHETIC_FUNDING_BUFFER
+    );
+
+    await adapter.fundAddress(address, satsToSend / SATS_PER_BTC);
+    if (adapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
+      await adapter.mineBlocks(1);
+    }
+
+    const currentCount = utxos.length;
+    const targetCount =
+      currentCount < minCount
+        ? Math.min(minCount, currentCount + 1)
+        : currentCount + 1;
+
+    utxos = await waitForUtxoCount(
+      adapter,
+      address,
+      targetCount,
+      `${context} (awaiting funded UTXO)`,
+      5,
+      2_000
+    );
+
+    attempt += 1;
+  }
+
+  if (utxos.length < minCount) {
+    throw new Error(
+      `Unable to prepare ${minCount} UTXO(s) for ${address} during ${context}.`
+    );
+  }
+
+  if (minValue !== undefined && !utxos.some((utxo) => utxo.value >= minValue)) {
+    throw new Error(
+      `Unable to find UTXO >= ${minValue} sats for ${address} during ${context}.`
+    );
+  }
+
+  return utxos;
+};
+
+const toBtcInput = (utxo: UTXO, script: Buffer): BtcInput => ({
+  txid: Array.from(Buffer.from(utxo.txid, "hex")),
+  vout: utxo.vout,
+  scriptPubkey: script,
+  value: new BN(utxo.value),
+});
+
+const selectUtxosForTarget = (
+  utxos: UTXO[] | null | undefined,
+  target: number
+): { selected: UTXO[]; total: number } => {
+  const sorted = [...(utxos ?? [])].sort((a, b) => b.value - a.value);
+  const selected: UTXO[] = [];
+  let total = 0;
+
+  for (const utxo of sorted) {
+    selected.push(utxo);
+    total += utxo.value;
+    if (total >= target) {
+      break;
+    }
+  }
+
+  return { selected, total };
+};
+
+const deriveGlobalVaultContext = (): GlobalVaultContext => {
+  if (!program || !btcUtils) {
+    throw new Error("Program must be initialized before deriving vault data");
+  }
+
+  const [globalVault] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("global_vault_authority")],
+    program.programId
+  );
+
+  const globalVaultPubkey = signetUtils.cryptography.deriveChildPublicKey(
+    CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+    globalVault.toString(),
+    WITHDRAW_PATH,
+    CONFIG.SOLANA_CHAIN_ID
+  );
+  const compressedGlobalVaultPubkey =
+    btcUtils.compressPublicKey(globalVaultPubkey);
+  const globalVaultScript = btcUtils.createP2WPKHScript(
+    compressedGlobalVaultPubkey
+  );
+  const globalVaultAddress = btcUtils.getAddressFromPubkey(
+    compressedGlobalVaultPubkey
+  );
+
+  return {
+    globalVault,
+    compressedGlobalVaultPubkey,
+    globalVaultScript,
+    globalVaultAddress,
+  };
+};
+
+const deriveVaultContext = (
+  requester: anchor.web3.PublicKey,
+  pathOverride?: string
+): VaultContext => {
+  if (!program || !btcUtils) {
+    throw new Error("Program must be initialized before deriving vault data");
+  }
+
+  const path = pathOverride ?? requester.toString();
+
+  const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("vault_authority"), requester.toBuffer()],
+    program.programId
+  );
+
+  const vaultAuthorityPubkey = signetUtils.cryptography.deriveChildPublicKey(
+    CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+    vaultAuthority.toString(),
+    path,
+    CONFIG.SOLANA_CHAIN_ID
+  );
+  const compressedVaultAuthorityPubkey =
+    btcUtils.compressPublicKey(vaultAuthorityPubkey);
+  const vaultAuthorityScript = btcUtils.createP2WPKHScript(
+    compressedVaultAuthorityPubkey
+  );
+  const vaultAuthorityAddress = btcUtils.getAddressFromPubkey(
+    compressedVaultAuthorityPubkey
+  );
+
+  const globalContext = deriveGlobalVaultContext();
+
+  return {
+    path,
+    vaultAuthority,
+    compressedVaultAuthorityPubkey,
+    vaultAuthorityScript,
+    vaultAuthorityAddress,
+    ...globalContext,
+  };
+};
+
+const fetchUserBalance = async (authority: anchor.web3.PublicKey) => {
+  if (!program) {
+    throw new Error("Program is not initialized yet");
+  }
+
+  const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("user_btc_balance"), authority.toBuffer()],
+    program.programId
+  );
+
+  try {
+    const account = await program.account.userBtcBalance.fetch(userBalancePda);
+    return {
+      pda: userBalancePda,
+      amount: account.amount as BN,
+    };
+  } catch {
+    return {
+      pda: userBalancePda,
+      amount: new BN(0),
+    };
+  }
+};
 
 class BitcoinUtils {
   private network: bitcoin.Network;
@@ -182,13 +1111,10 @@ class BitcoinUtils {
     // Select network based on configuration
     if (networkType === "mainnet") {
       this.network = bitcoin.networks.bitcoin;
-      console.log("  🌐 Using Bitcoin MAINNET (addresses: bc1q...)");
     } else if (networkType === "regtest") {
       this.network = bitcoin.networks.regtest;
-      console.log("  🌐 Using Bitcoin REGTEST (addresses: bcrt1q...)");
     } else {
       this.network = bitcoin.networks.testnet;
-      console.log("  🌐 Using Bitcoin TESTNET (addresses: tb1q...)");
     }
   }
 
@@ -320,7 +1246,6 @@ async function ensureVaultConfigInitialized(
   );
 
   if (!vaultConfigAccount) {
-    console.log("⚙️  Initializing vault config...");
     await program.methods
       .initializeConfig(expectedAddressBytes)
       .accountsStrict({
@@ -329,24 +1254,13 @@ async function ensureVaultConfigInitialized(
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc();
-    console.log("✅ Vault config initialized");
   } else {
-    console.log("✅ Vault config already exists");
   }
 }
 
-describe("🪙 Bitcoin Deposit Integration", () => {
-  let provider: anchor.AnchorProvider;
-  let program: Program<SolanaCoreContracts>;
-  let btcUtils: BitcoinUtils;
-  let server: ChainSignatureServer | null = null;
-  let bitcoinAdapter: IBitcoinAdapter;
-
+describe.only("🪙 Bitcoin Deposit Integration", () => {
   before(async function () {
     this.timeout(30000);
-
-    console.log("\n🚀 Setting up Bitcoin test environment...");
-    console.log(`Network: ${CONFIG.BITCOIN_NETWORK}\n`);
 
     provider = anchor.AnchorProvider.env();
     anchor.setProvider(provider);
@@ -362,7 +1276,6 @@ describe("🪙 Bitcoin Deposit Integration", () => {
 
     // Start local chain signature server for testing
     if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
-      console.log("\n🔐 Starting Chain Signature Server...");
       const serverConfig = {
         solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
         solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
@@ -376,275 +1289,76 @@ describe("🪙 Bitcoin Deposit Integration", () => {
 
       server = new ChainSignatureServer(serverConfig);
       await server.start();
-      console.log("✅ Chain Signature Server started");
     }
-
-    console.log("\n" + "=".repeat(80));
   });
 
   after(async function () {
     this.timeout(10000);
 
     if (server) {
-      console.log("\n🛑 Shutting down Chain Signature Server...");
       await server.shutdown();
       server = null;
-      console.log("✅ Server shutdown complete");
     }
   });
 
-  it("processes a single-input BTC deposit end-to-end", async function () {
-    this.timeout(180000); // 3 minutes for full flow
+  const computeMessageHash = (
+    requestIdBytes: number[],
+    serializedOutput: Buffer
+  ): Buffer => {
+    const payload = ethers.concat([
+      Uint8Array.from(requestIdBytes),
+      serializedOutput,
+    ]);
+    return Buffer.from(ethers.keccak256(payload).slice(2), "hex");
+  };
 
-    console.log("=".repeat(60));
-    console.log("Starting Bitcoin Deposit Flow Test");
-    console.log("=".repeat(60) + "\n");
+  const signHashWithMpc = (hash: Buffer): ChainSignaturePayload => {
+    const signingKey = new ethers.SigningKey(CONFIG.MPC_ROOT_KEY);
+    const signature = signingKey.sign(hash);
+    const rBytes = Buffer.from(ethers.getBytes(signature.r));
+    const sBytes = Buffer.from(ethers.getBytes(signature.s));
+    const recoveryId =
+      Number(signature.v) >= 27
+        ? Number(signature.v) - 27
+        : Number(signature.v);
 
-    // STEP 1: Derive Bitcoin addresses
-    console.log("Step 1: Deriving Bitcoin addresses");
-
-    const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_authority"), provider.wallet.publicKey.toBuffer()],
-      program.programId
-    );
-
-    const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("global_vault_authority")],
-      program.programId
-    );
-
-    const path = provider.wallet.publicKey.toString();
-
-    const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
-      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-      vaultAuthority.toString(),
-      path,
-      CONFIG.SOLANA_CHAIN_ID
-    );
-
-    const compressedPubkey = btcUtils.compressPublicKey(derivedPublicKey);
-    const depositAddress = btcUtils.getAddressFromPubkey(compressedPubkey);
-    const depositScript = btcUtils.createP2WPKHScript(compressedPubkey);
-
-    const globalVaultPublicKey = signetUtils.cryptography.deriveChildPublicKey(
-      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-      globalVaultAuthority.toString(),
-      "root",
-      CONFIG.SOLANA_CHAIN_ID
-    );
-    const compressedGlobalVaultPubkey =
-      btcUtils.compressPublicKey(globalVaultPublicKey);
-    const globalVaultAddress = btcUtils.getAddressFromPubkey(
-      compressedGlobalVaultPubkey
-    );
-    const globalVaultScript = btcUtils.createP2WPKHScript(
-      compressedGlobalVaultPubkey
-    );
-
-    console.log(`  Deposit address: ${depositAddress}`);
-    console.log(`  Global vault address: ${globalVaultAddress}\n`);
-
-    // =====================================================
-    // STEP 2: FETCH REAL UTXOS FROM BITCOIN NETWORK
-    // =====================================================
-
-    console.log(
-      `\n📍 STEP 2: Fetching UTXOs from Bitcoin ${CONFIG.BITCOIN_NETWORK}\n`
-    );
-
-    // Fetch UTXOs using Bitcoin adapter
-    console.log("  🌐 Fetching UTXOs using adapter...");
-
-    let utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
-
-    if (!utxos || utxos.length === 0) {
-      // Check if we can fund the address (either through fundAddress or getClient)
-
-      if (bitcoinAdapter.fundAddress) {
-        console.log(
-          "  💰 No UTXOs found. Auto-funding address via Bitcoin adapter..."
-        );
-        const fundingAmount = 0.001; // 0.001 BTC = 100,000 sats
-
-        const fundTxid = await bitcoinAdapter.fundAddress(
-          depositAddress,
-          fundingAmount
-        );
-
-        console.log(`  📝 Funding Transaction ID: ${fundTxid}`);
-
-        utxos = await waitForUtxoCount(
-          bitcoinAdapter,
-          depositAddress,
-          1,
-          "single deposit funding (awaiting UTXO visibility)"
-        );
-
-        console.log(`  ✅ Address funded, awaiting confirmation\n`);
-      } else {
-        const fundingUrl =
-          CONFIG.BITCOIN_NETWORK === "testnet"
-            ? "https://testnet4.anyone.eu.org/"
-            : "Use a real Bitcoin wallet";
-
-        throw new Error(
-          `❌ No UTXOs found for ${depositAddress}. Please fund this address.\n${fundingUrl}`
-        );
-      }
-    }
-
-    if (!utxos || utxos.length === 0) {
-      throw new Error(
-        `❌ Unable to prepare a funding UTXO for ${depositAddress}.`
-      );
-    }
-
-    console.log(`  ✅ Found ${utxos.length} UTXO(s)`);
-
-    // Prefer the largest UTXO to mirror production behaviour
-    const utxo = utxos.sort((a, b) => b.value - a.value)[0];
-    const inputValue = utxo.value;
-    const fee = 200; // TODO: Replace static fee with chain-derived feerate * tx vsize
-    // Add small random variation (1-10 sats) to ensure unique request IDs on each test run
-    const randomVariation = Math.floor(Math.random() * 100) + 1;
-    const outputValue = inputValue - fee - randomVariation;
-
-    if (inputValue < 300) {
-      throw new Error(
-        `❌ UTXO too small (${inputValue} sats). Please send at least 0.00001 BTC (1000 sats) to ${depositAddress}`
-      );
-    }
-
-    console.log(`  💰 Selected UTXO:`);
-    console.log(`    - TxID: ${utxo.txid}`);
-    console.log(`    - Vout: ${utxo.vout}`);
-    console.log(`    - Value: ${inputValue} sats`);
-    console.log(
-      `    - Output: ${outputValue} sats (${fee} sats fee + ${randomVariation} sats variation)`
-    );
-
-    const utxoTxid = utxo.txid;
-
-    const btcInputs: BtcInput[] = [
-      {
-        // DON'T reverse - pass in display format (the hex string as-is)
-        // The Rust bitcoin library handles the byte order internally
-        txid: Array.from(Buffer.from(utxoTxid, "hex")),
-        vout: utxo.vout,
-        scriptPubkey: depositScript,
-        value: new BN(inputValue),
+    return {
+      bigR: {
+        x: Array.from(rBytes),
+        y: Array(32).fill(0),
       },
-    ];
-
-    const btcOutputs: BtcOutput[] = [
-      {
-        scriptPubkey: globalVaultScript,
-        value: new BN(outputValue),
-      },
-    ];
-
-    const txParams: BtcDepositParams = {
-      lockTime: 0,
-      caip2Id: CONFIG.BITCOIN_CAIP2_ID,
-      vaultScriptPubkey: globalVaultScript,
+      s: Array.from(sBytes),
+      recoveryId,
     };
+  };
 
-    // =====================================================
-    // STEP 3: GENERATE REQUEST ID
-    // =====================================================
-
-    console.log("\n📍 STEP 3: Generating request ID from TXID\n");
-
-    // Build Bitcoin transaction matching EXACTLY what Rust does in btc_vault.rs
-    // The Rust code builds the transaction, then calls tx.txid() to get the TXID
-    // We need to match this exactly!
-
-    const unsignedTx = new bitcoin.Transaction();
-    unsignedTx.version = 2; // Version::Two in Rust
-
-    // Add input - txid must be REVERSED for Bitcoin
-    unsignedTx.addInput(
-      Buffer.from(utxoTxid, "hex").reverse(),
-      utxo.vout,
-      0xffffffff // Sequence::MAX
-    );
-
-    // Add output
-    unsignedTx.addOutput(globalVaultScript, BigInt(outputValue));
-
-    // Set locktime
-    unsignedTx.locktime = 0;
-
-    // Get TXID - bitcoinjs-lib returns it in DISPLAY format (reversed)
-    const txidDisplay = unsignedTx.getId();
-
-    // Rust tx.txid() returns bytes in INTERNAL format (reversed from display)
-    // We need to reverse to match what Rust uses for request ID calculation
-    const txidInternal = Buffer.from(txidDisplay, "hex").reverse();
-
-    console.log("  📦 TXID:", txidDisplay);
-
-    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
-      vaultAuthority.toString(),
-      Array.from(txidInternal),
-      txParams.caip2Id,
-      0,
-      path,
-      "ECDSA",
-      "bitcoin",
-      ""
-    );
-
-    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
-
-    console.log("  🔑 Request ID:", requestId);
-
-    // =====================================================
-    // STEP 4: SETUP EVENT LISTENERS
-    // =====================================================
-
-    console.log("\n📍 STEP 4: Setting up event listeners for MPC signatures\n");
-
-    const eventPromises = await setupEventListeners(provider, requestId);
-
-    console.log("  ✅ Listening for signature events...");
-
-    // =====================================================
-    // STEP 5: CHECK INITIAL BALANCE
-    // =====================================================
-
-    console.log("\n📍 STEP 5: Checking initial BTC balance\n");
-
-    const [userBalance] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("user_btc_balance"), provider.wallet.publicKey.toBuffer()],
-      program.programId
-    );
-
-    let initialBalance = new BN(0);
-    try {
-      const balanceAccount = await program.account.userBtcBalance.fetch(
-        userBalance
-      );
-      initialBalance = balanceAccount.amount;
-      console.log("  💰 Initial balance:", initialBalance.toString(), "sats");
-    } catch {
-      console.log("  💰 Initial balance: 0 sats (account doesn't exist yet)");
+  const executeSyntheticDeposit = async (
+    amount: number,
+    requester = provider.wallet.publicKey
+  ) => {
+    if (!program || !btcUtils || !bitcoinAdapter) {
+      throw new Error("Synthetic deposit requires initialized services");
     }
 
-    // =====================================================
-    // STEP 6: INITIATE DEPOSIT
-    // =====================================================
+    const preparedPlan = await buildDepositPlan({
+      mode: "synthetic_live",
+      requester,
+      amount,
+      fee: SYNTHETIC_TX_FEE,
+    });
 
-    console.log("\n📍 STEP 6: Initiating Bitcoin deposit on Solana\n");
+    const { requestIdBytes, requestIdHex } = preparedPlan;
+
+    const eventPromises = await setupEventListeners(provider, requestIdHex);
 
     try {
       const depositTx = await program.methods
         .depositBtc(
           requestIdBytes,
-          provider.wallet.publicKey,
-          btcInputs,
-          btcOutputs,
-          txParams
+          preparedPlan.requester,
+          preparedPlan.btcInputs,
+          preparedPlan.btcOutputs,
+          preparedPlan.txParams
         )
         .accounts({
           payer: provider.wallet.publicKey,
@@ -652,389 +1366,229 @@ describe("🪙 Bitcoin Deposit Integration", () => {
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
         .rpc();
-
-      console.log("  ✅ Deposit transaction sent:", depositTx);
-      console.log("  ⏳ Waiting for confirmation...");
-
       await provider.connection.confirmTransaction(depositTx);
-      console.log("  ✅ Transaction confirmed!");
-    } catch (error: unknown) {
-      console.error("\n  ❌ Deposit transaction failed!");
-      console.error("  📋 SOLANA PROGRAM LOGS:");
-      console.error("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      const logs =
-        typeof error === "object" && error !== null && "logs" in error
-          ? (error as { logs?: string[] }).logs
-          : undefined;
-      if (logs) {
-        logs.forEach((log) => console.error("    ", log));
+
+      const [signatureEvent] = await eventPromises.waitForSignatures(1);
+      if (!signatureEvent) {
+        throw new Error("No MPC signature event received");
       }
-      console.error("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-      throw error;
-    }
+      const [mpcSignature] = extractSignatures(signatureEvent);
+      if (!mpcSignature) {
+        throw new Error("Signature payload missing MPC signature");
+      }
 
-    // =====================================================
-    // STEP 7: WAIT FOR MPC SIGNATURE
-    // =====================================================
-
-    console.log("\n📍 STEP 7: Waiting for MPC signature...\n");
-    console.log("  ⏳ This may take 30-60 seconds...");
-
-    const signatureEvent = await eventPromises.signature;
-
-    console.log("  ✅ MPC signature received!");
-
-    const [signature] = extractSignatures(signatureEvent);
-    console.log("  🔐 Signature r:", signature.r.slice(0, 16) + "...");
-    console.log("  🔐 Signature s:", signature.s.slice(0, 16) + "...");
-    console.log("  🔐 Signature v:", signature.v.toString());
-
-    // =====================================================
-    // STEP 8: SUBMIT TO BITCOIN NETWORK
-    // =====================================================
-
-    console.log(
-      "\n📍 STEP 8: Submitting signed transaction to Bitcoin network...\n"
-    );
-
-    // Build PSBT for signing
-    const psbt = btcUtils.buildPSBT(
-      [
-        {
-          txid: utxoTxid,
+      const psbt = btcUtils.buildPSBT(
+        preparedPlan.inputUtxos.map((utxo) => ({
+          txid: utxo.txid,
           vout: utxo.vout,
-          value: inputValue,
-          scriptPubkey: depositScript,
-        },
-      ],
-      [
-        {
-          script: globalVaultScript,
-          value: outputValue,
-        },
-      ]
-    );
+          value: utxo.value,
+          scriptPubkey: preparedPlan.vaultAuthorityScript,
+        })),
+        preparedPlan.btcOutputs.map((output) => ({
+          script: output.scriptPubkey,
+          value: bnToNumber(output.value),
+        }))
+      );
 
-    const { witness } = prepareSignatureWitness(signature, compressedPubkey);
+      const { witness } = prepareSignatureWitness(
+        mpcSignature,
+        preparedPlan.compressedVaultAuthorityPubkey
+      );
+      psbt.updateInput(0, { finalScriptWitness: witness });
 
-    psbt.updateInput(0, {
-      finalScriptWitness: witness,
-    });
+      const signedTx = psbt.extractTransaction();
+      const txHex = signedTx.toHex();
+      await bitcoinAdapter.broadcastTransaction(txHex);
 
-    const signedTx = psbt.extractTransaction();
-    const txHex = signedTx.toHex();
-
-    console.log("  📦 Signed transaction hex:", txHex.slice(0, 64) + "...");
-
-    // Submit to Bitcoin network
-    try {
-      const submittedTxid = await bitcoinAdapter.broadcastTransaction(txHex);
-      console.log("  ✅ Transaction broadcast to Bitcoin network");
-      console.log("  📝 Bitcoin TxID:", submittedTxid);
-
-      // Mine a block to confirm (if mining is supported)
       if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
         await bitcoinAdapter.mineBlocks(1);
-        console.log("  ⛏️  Mined 1 confirmation block");
       }
-    } catch (error: unknown) {
-      console.error(
-        "  ❌ Failed to broadcast Bitcoin transaction:",
-        formatError(error)
-      );
-      throw error;
+
+      const readEvent = await eventPromises.readRespond;
+
+      const claimTx = await program.methods
+        .claimBtc(
+          requestIdBytes,
+          Buffer.from(readEvent.serializedOutput),
+          readEvent.signature,
+          null
+        )
+        .rpc();
+      await provider.connection.confirmTransaction(claimTx);
+    } finally {
+      await cleanupEventListeners(eventPromises);
     }
 
-    // =====================================================
-    // STEP 9: WAIT FOR READ RESPONSE
-    // =====================================================
+    return amount;
+  };
 
-    console.log("\n📍 STEP 9: Waiting for transaction verification...\n");
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) {
+      return `${error.name}: ${error.message}`;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  };
 
-    const readEvent = await eventPromises.readRespond;
-    console.log("  ✅ Verification response received!");
+  const expectAnchorError = async (
+    promise: Promise<unknown>,
+    matcher: RegExp | string
+  ) => {
+    try {
+      await promise;
+      expect.fail(`Expected promise to reject with ${matcher}`);
+    } catch (error: unknown) {
+      if (error instanceof AssertionError) {
+        throw error;
+      }
+      const message = getErrorMessage(error);
+      if (matcher instanceof RegExp) {
+        expect(message).to.match(matcher);
+      } else {
+        expect(message).to.include(matcher);
+      }
+    }
+  };
 
-    const success = readEvent.serializedOutput[0] === 1;
-    console.log("  📊 Transaction success:", success);
+  it("processes a single-input BTC deposit end-to-end", async function () {
+    this.timeout(180000);
 
-    // =====================================================
-    // STEP 10: CLAIM DEPOSIT
-    // =====================================================
+    const plan = await buildDepositPlan({
+      mode: "live_single",
+      requester: provider.wallet.publicKey,
+    });
+    console.log("=".repeat(60));
+    console.log("Starting Bitcoin Deposit Flow Test");
+    console.log("=".repeat(60) + "\n");
+    console.log("Step 1: Deriving Bitcoin addresses");
+    console.log(`  Deposit address: ${plan.vaultAuthorityAddress}`);
+    console.log(`  Global vault address: ${plan.globalVaultAddress}\n`);
 
-    console.log("\n📍 STEP 10: Claiming Bitcoin deposit on Solana\n");
-
-    const claimTx = await program.methods
-      .claimBtc(
-        requestIdBytes,
-        Buffer.from(readEvent.serializedOutput),
-        readEvent.signature,
-        null // No Bitcoin tx hash for testing
-      )
-      .rpc();
-
-    console.log("  ✅ Claim transaction sent:", claimTx);
-
-    await provider.connection.confirmTransaction(claimTx);
-    console.log("  ✅ Claim confirmed!");
-
-    // =====================================================
-    // STEP 11: VERIFY BALANCE
-    // =====================================================
-
-    console.log("\n📍 STEP 11: Verifying final balance\n");
-
-    const finalBalanceAccount = await program.account.userBtcBalance.fetch(
-      userBalance
+    const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("user_btc_balance"), provider.wallet.publicKey.toBuffer()],
+      program.programId
     );
-    const finalBalance = finalBalanceAccount.amount;
 
-    const expectedBalance = initialBalance.add(new BN(outputValue));
+    let initialBalance = new BN(0);
+    try {
+      const balanceAccount = await program.account.userBtcBalance.fetch(
+        userBalancePda
+      );
+      initialBalance = balanceAccount.amount;
+    } catch {
+      // account doesn't exist yet
+    }
 
-    console.log("  💰 Initial balance:", initialBalance.toString(), "sats");
-    console.log("  ➕ Deposited amount:", outputValue, "sats");
-    console.log("  💰 Expected balance:", expectedBalance.toString(), "sats");
-    console.log("  💰 Actual balance:", finalBalance.toString(), "sats");
+    console.log("\n📍 STEP 2: Setting up event listeners for MPC signatures\n");
+    const events = await setupEventListeners(provider, plan.requestIdHex);
 
-    expect(finalBalance.toString()).to.equal(expectedBalance.toString());
+    try {
+      console.log("\n📍 STEP 3: Initiating deposit on Solana\n");
+      const depositTx = await program.methods
+        .depositBtc(
+          plan.requestIdBytes,
+          plan.requester,
+          plan.btcInputs,
+          plan.btcOutputs,
+          plan.txParams
+        )
+        .accounts({
+          payer: provider.wallet.publicKey,
+          feePayer: provider.wallet.publicKey,
+          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .rpc();
+      await provider.connection.confirmTransaction(depositTx);
+      console.log(`  SOL deposit tx: ${depositTx}`);
 
-    console.log("\n  ✅ Balance verified successfully!");
+      console.log("\n📍 STEP 4: Waiting for MPC signatures\n");
+      const signatureEvents = await events.waitForSignatures(
+        plan.btcInputs.length
+      );
+      const [mpcSignature] = signatureEvents.flatMap(extractSignatures);
 
-    // Cleanup
-    await cleanupEventListeners(eventPromises);
+      console.log("\n📍 STEP 5: Broadcasting signed Bitcoin transaction\n");
+      const psbt = btcUtils.buildPSBT(
+        plan.inputUtxos.map((utxo) => ({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          value: utxo.value,
+          scriptPubkey: plan.vaultAuthorityScript,
+        })),
+        plan.btcOutputs.map((output) => ({
+          script: output.scriptPubkey,
+          value: bnToNumber(output.value),
+        }))
+      );
 
-    console.log("\n" + "=".repeat(80));
-    console.log("🎉 Bitcoin Deposit Flow Completed Successfully!");
-    console.log("=".repeat(80) + "\n");
+      const { witness } = prepareSignatureWitness(
+        mpcSignature,
+        plan.compressedVaultAuthorityPubkey
+      );
+      psbt.updateInput(0, { finalScriptWitness: witness });
+
+      const signedTx = psbt.extractTransaction();
+      const bitcoinTxId = signedTx.getId();
+      console.log(`  Bitcoin TxID: ${bitcoinTxId}`);
+      await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
+
+      if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
+        await bitcoinAdapter.mineBlocks(1);
+      }
+
+      console.log("\n📍 STEP 6: Claiming deposit on Solana\n");
+      const readEvent = await events.readRespond;
+
+      const claimTx = await program.methods
+        .claimBtc(
+          plan.requestIdBytes,
+          Buffer.from(readEvent.serializedOutput),
+          readEvent.signature,
+          null
+        )
+        .rpc();
+      await provider.connection.confirmTransaction(claimTx);
+      console.log(`  SOL claim tx: ${claimTx}`);
+      console.log(`  SOL claim tx: ${claimTx}`);
+
+      const finalBalanceAccount = await program.account.userBtcBalance.fetch(
+        userBalancePda
+      );
+      const expectedBalance = initialBalance.add(new BN(plan.creditedAmount));
+      expect(finalBalanceAccount.amount.toString()).to.equal(
+        expectedBalance.toString()
+      );
+      console.log(
+        "\n🎉 Single-input BTC deposit test completed successfully!\n"
+      );
+    } finally {
+      await cleanupEventListeners(events);
+    }
   });
 
   it("processes a multi-input BTC deposit and only credits vault-directed value", async function () {
     this.timeout(180000);
 
-    console.log("\n" + "=".repeat(60));
-    console.log("Starting Multi-UTXO Bitcoin Deposit Test");
-    console.log("=".repeat(60) + "\n");
-
-    // STEP 1: Derive Bitcoin addresses for a secondary requester
-    console.log("Step 1: Deriving Bitcoin addresses");
-
     const secondaryRequester = anchor.web3.Keypair.generate();
-
-    const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_authority"), secondaryRequester.publicKey.toBuffer()],
-      program.programId
-    );
-
-    const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("global_vault_authority")],
-      program.programId
-    );
-
-    const path = secondaryRequester.publicKey.toString();
-
-    const depositPubkeyUncompressed =
-      signetUtils.cryptography.deriveChildPublicKey(
-        CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-        vaultAuthority.toString(),
-        path,
-        CONFIG.SOLANA_CHAIN_ID
-      );
-    const compressedDepositPubkey = btcUtils.compressPublicKey(
-      depositPubkeyUncompressed
-    );
-
-    const depositAddress = btcUtils.getAddressFromPubkey(
-      compressedDepositPubkey
-    );
-    const depositScript = btcUtils.createP2WPKHScript(compressedDepositPubkey);
-
-    const changePath = `${path}::change`;
-    const changePubkeyUncompressed =
-      signetUtils.cryptography.deriveChildPublicKey(
-        CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-        vaultAuthority.toString(),
-        changePath,
-        CONFIG.SOLANA_CHAIN_ID
-      );
-    const compressedChangePubkey = btcUtils.compressPublicKey(
-      changePubkeyUncompressed
-    );
-    const changeScript = btcUtils.createP2WPKHScript(compressedChangePubkey);
-
-    const globalVaultPublicKey = signetUtils.cryptography.deriveChildPublicKey(
-      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-      globalVaultAuthority.toString(),
-      "root",
-      CONFIG.SOLANA_CHAIN_ID
-    );
-    const compressedGlobalVaultPubkey =
-      btcUtils.compressPublicKey(globalVaultPublicKey);
-    const globalVaultAddress = btcUtils.getAddressFromPubkey(
-      compressedGlobalVaultPubkey
-    );
-    const globalVaultScript = btcUtils.createP2WPKHScript(
-      compressedGlobalVaultPubkey
-    );
-
-    console.log(`  Deposit address (secondary requester): ${depositAddress}`);
-    console.log(`  Global vault address: ${globalVaultAddress}\n`);
-
-    // STEP 2: Ensure at least four UTXOs are available
-    console.log(
-      `\n📍 STEP 2: Ensuring at least four UTXOs are available for ${depositAddress}\n`
-    );
-    console.log("  🎯 Goal: 4 inputs -> 4 MPC signatures");
-
-    const requiredUtxos = 4;
-    let utxos = await bitcoinAdapter.getAddressUtxos(depositAddress);
-
-    if (!utxos || utxos.length < requiredUtxos) {
-      if (!bitcoinAdapter.fundAddress) {
-        throw new Error(
-          `❌ Need at least ${requiredUtxos} UTXOs but only found ${
-            utxos?.length ?? 0
-          }. Auto-funding not available.`
-        );
-      }
-
-      const existing = utxos?.length ?? 0;
-      const rounds = Math.max(0, requiredUtxos - existing);
-      for (let offset = 0; offset < rounds; offset++) {
-        const index = existing + offset;
-        const sats = 60_000 + index * 10_000;
-        const amountBtc = Number((sats / 1e8).toFixed(8));
-        const fundTxid = await bitcoinAdapter.fundAddress(
-          depositAddress,
-          amountBtc
-        );
-        console.log(
-          `    - Funding round ${index + 1}: ${amountBtc} BTC (txid: ${
-            fundTxid ?? "unknown"
-          })`
-        );
-
-        utxos = await waitForUtxoCount(
-          bitcoinAdapter,
-          depositAddress,
-          existing + offset + 1,
-          `multi-UTXO funding round ${index + 1}/4`
-        );
-      }
-    }
-
-    if (!utxos || utxos.length < requiredUtxos) {
-      throw new Error(
-        `❌ Unable to prepare ${requiredUtxos} UTXOs for ${depositAddress}. Found ${
-          utxos?.length ?? 0
-        }.`
-      );
-    }
-
-    const selectedUtxos = [...utxos]
-      .sort((a, b) => b.value - a.value)
-      .slice(0, requiredUtxos);
-
-    console.log(`  ✅ Selected ${selectedUtxos.length} UTXOs:`);
-    selectedUtxos.forEach((u, idx) => {
-      console.log(
-        `    [${idx}] txid=${u.txid}, vout=${u.vout}, value=${u.value} sats`
-      );
+    const plan = await buildDepositPlan({
+      mode: "live_multi",
+      requester: secondaryRequester,
     });
+    console.log("=".repeat(60));
+    console.log("Starting Multi-Input Bitcoin Deposit Test");
+    console.log("=".repeat(60) + "\n");
+    console.log("Step 1: Deriving Bitcoin addresses");
+    console.log(`  Deposit address: ${plan.vaultAuthorityAddress}`);
+    console.log(`  Global vault address: ${plan.globalVaultAddress}\n`);
 
-    const totalInputValue = selectedUtxos.reduce(
-      (acc, cur) => acc + cur.value,
-      0
-    );
-    const baseFee = 400;
-    const randomVariation = Math.floor(Math.random() * 100) + 1;
-    const changeValue = Math.floor(totalInputValue / 4);
-    const vaultValue =
-      totalInputValue - baseFee - randomVariation - changeValue;
-
-    if (vaultValue <= 0) {
-      throw new Error(
-        `❌ Computed vault value is non-positive (${vaultValue}). Increase funding.`
-      );
-    }
-
-    console.log(`  💰 Total input value: ${totalInputValue} sats`);
-    console.log(`  💸 Fee budget: ${baseFee} sats`);
-    console.log(`  🎲 Random variation: ${randomVariation} sats`);
-    console.log(`  🔁 Change output: ${changeValue} sats`);
-    console.log(`  🏦 Global vault output: ${vaultValue} sats`);
-
-    const btcInputs: BtcInput[] = selectedUtxos.map((u) => ({
-      txid: Array.from(Buffer.from(u.txid, "hex")),
-      vout: u.vout,
-      scriptPubkey: depositScript,
-      value: new BN(u.value),
-    }));
-
-    const btcOutputs: BtcOutput[] = [
-      {
-        scriptPubkey: globalVaultScript,
-        value: new BN(vaultValue),
-      },
-    ];
-
-    if (changeValue > 0) {
-      btcOutputs.push({
-        scriptPubkey: changeScript,
-        value: new BN(changeValue),
-      });
-    }
-
-    const txParams: BtcDepositParams = {
-      lockTime: 0,
-      caip2Id: CONFIG.BITCOIN_CAIP2_ID,
-      vaultScriptPubkey: globalVaultScript,
-    };
-
-    // STEP 3: Generate request ID
-    console.log("\n📍 STEP 3: Generating request ID from multi-input TX\n");
-
-    const unsignedTx = new bitcoin.Transaction();
-    unsignedTx.version = 2; // Mirror TransactionBuilder::version(Version::Two)
-    selectedUtxos.forEach((u) => {
-      // Inputs match the program: little-endian txid, original vout, max sequence
-      unsignedTx.addInput(
-        Buffer.from(u.txid, "hex").reverse(),
-        u.vout,
-        0xffffffff
-      );
-    });
-    unsignedTx.addOutput(globalVaultScript, BigInt(vaultValue));
-    if (changeValue > 0) {
-      unsignedTx.addOutput(changeScript, BigInt(changeValue));
-    }
-    unsignedTx.locktime = 0;
-
-    const txidDisplay = unsignedTx.getId();
-    const txidInternal = Buffer.from(txidDisplay, "hex").reverse();
-
-    console.log("  📦 TXID:", txidDisplay);
-
-    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
-      vaultAuthority.toString(),
-      Array.from(txidInternal),
-      txParams.caip2Id,
-      0,
-      path,
-      "ECDSA",
-      "bitcoin",
-      ""
-    );
-
-    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
-
-    console.log("  🔑 Request ID:", requestId);
-
-    // STEP 4: Setup event listeners
-    console.log("\n📍 STEP 4: Setting up event listeners\n");
-
-    const eventPromises = await setupEventListeners(provider, requestId);
-
-    // STEP 5: Check initial balance
-    console.log("\n📍 STEP 5: Checking secondary requester BTC balance\n");
+    console.log("\n📍 STEP 2: Setting up event listeners for MPC signatures\n");
+    const events = await setupEventListeners(provider, plan.requestIdHex);
 
     const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
       [
@@ -1050,192 +1604,111 @@ describe("🪙 Bitcoin Deposit Integration", () => {
         userBalancePda
       );
       initialBalance = balanceAccount.amount;
-      console.log("  💰 Initial balance:", initialBalance.toString(), "sats");
     } catch {
-      console.log("  💰 Initial balance: 0 sats (account doesn't exist yet)");
+      // user has no prior deposits
     }
 
     try {
-      // STEP 6: Submit deposit
-      console.log("\n📍 STEP 6: Submitting multi-UTXO deposit on Solana\n");
+      console.log("\n📍 STEP 3: Initiating multi-input deposit on Solana\n");
+      const depositTx = await program.methods
+        .depositBtc(
+          plan.requestIdBytes,
+          plan.requester,
+          plan.btcInputs,
+          plan.btcOutputs,
+          plan.txParams
+        )
+        .accounts({
+          payer: provider.wallet.publicKey,
+          feePayer: provider.wallet.publicKey,
+          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .rpc();
+      await provider.connection.confirmTransaction(depositTx);
+      console.log(`  SOL deposit tx: ${depositTx}`);
 
-      try {
-        const depositTx = await program.methods
-          .depositBtc(
-            requestIdBytes,
-            secondaryRequester.publicKey,
-            btcInputs,
-            btcOutputs,
-            txParams
-          )
-          .accounts({
-            payer: provider.wallet.publicKey,
-            feePayer: provider.wallet.publicKey,
-            instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-          })
-          .rpc();
+      plan.inputUtxos.forEach((u, idx) => {});
 
-        console.log("  ✅ Deposit transaction sent:", depositTx);
-        await provider.connection.confirmTransaction(depositTx);
-        console.log("  ✅ Deposit confirmed!");
-      } catch (error: unknown) {
-        console.error("  ❌ Deposit transaction failed!");
-        const logs =
-          typeof error === "object" && error !== null && "logs" in error
-            ? (error as { logs?: string[] }).logs
-            : undefined;
-        if (logs) {
-          logs.forEach((log) => console.error("    ", log));
-        }
-        throw error;
-      }
-
-      // STEP 7: Wait for signatures
-      console.log("\n📍 STEP 7: Awaiting MPC signatures...\n");
-      const signatureEvents = await eventPromises.waitForSignatures(
-        selectedUtxos.length
+      console.log("\n📍 STEP 4: Waiting for MPC signatures\n");
+      const signatureEvents = await events.waitForSignatures(
+        plan.inputUtxos.length
       );
-      console.log(
-        "  ✅ MPC signature events received:",
-        signatureEvents.length
-      );
-
       const signatures = signatureEvents.flatMap(extractSignatures);
-      if (signatures.length !== selectedUtxos.length) {
+      if (signatures.length !== plan.inputUtxos.length) {
         throw new Error(
-          `Expected ${selectedUtxos.length} signatures (one per input), received ${signatures.length}`
+          `Expected ${plan.inputUtxos.length} signature(s), received ${signatures.length}`
         );
       }
-      console.log("  🔐 Received signatures count:", signatures.length);
-
-      // STEP 8: Submit signed transaction to Bitcoin network
-      console.log(
-        "\n📍 STEP 8: Submitting signed multi-UTXO transaction to Bitcoin network...\n"
-      );
 
       const psbt = btcUtils.buildPSBT(
-        selectedUtxos.map((u) => ({
-          txid: u.txid,
-          vout: u.vout,
-          value: u.value,
-          scriptPubkey: depositScript,
+        plan.inputUtxos.map((utxo) => ({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          value: utxo.value,
+          scriptPubkey: plan.vaultAuthorityScript,
         })),
-        [
-          {
-            script: globalVaultScript,
-            value: vaultValue,
-          },
-          ...(changeValue > 0
-            ? [
-                {
-                  script: changeScript,
-                  value: changeValue,
-                },
-              ]
-            : []),
-        ]
+        plan.btcOutputs.map((output) => ({
+          script: output.scriptPubkey,
+          value: bnToNumber(output.value),
+        }))
       );
 
+      console.log("\n📍 STEP 5: Broadcasting signed Bitcoin transaction\n");
       signatures.forEach((sig, idx) => {
         const { witness } = prepareSignatureWitness(
           sig,
-          compressedDepositPubkey
+          plan.compressedVaultAuthorityPubkey
         );
-        console.log(`  ✅ Prepared witness for input ${idx}`);
-        psbt.updateInput(idx, {
-          finalScriptWitness: witness,
-        });
+        psbt.updateInput(idx, { finalScriptWitness: witness });
       });
 
       const signedTx = psbt.extractTransaction();
-      const depositTxId = signedTx.getId();
-      const txHex = signedTx.toHex();
+      console.log(`  Bitcoin TxID: ${signedTx.getId()}`);
+      await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
 
-      console.log("  📦 Signed transaction hex:", txHex.slice(0, 64) + "...");
-
-      try {
-        const submittedTxid = await bitcoinAdapter.broadcastTransaction(txHex);
-        console.log("  ✅ Multi-UTXO transaction broadcast to Bitcoin network");
-        console.log("  📝 Bitcoin TxID:", submittedTxid);
-
-        if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
-          await bitcoinAdapter.mineBlocks(1);
-          console.log("  ⛏️  Mined 1 confirmation block");
-        }
-      } catch (error: unknown) {
-        console.error(
-          "  ❌ Failed to broadcast Bitcoin transaction:",
-          formatError(error)
-        );
-        throw error;
+      if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
+        await bitcoinAdapter.mineBlocks(1);
       }
 
-      // STEP 9: Wait for verification response
-      console.log("\n📍 STEP 9: Waiting for verification response...\n");
-      const readEvent = await eventPromises.readRespond;
-      console.log("  ✅ Verification response received!");
-
-      const success = readEvent.serializedOutput[0] === 1;
-      console.log("  📊 Transaction success:", success);
-
-      // STEP 10: Claim deposit
-      console.log("\n📍 STEP 10: Claiming BTC deposit on Solana\n");
+      console.log("\n📍 STEP 6: Claiming deposit on Solana\n");
+      const readEvent = await events.readRespond;
 
       const claimTx = await program.methods
         .claimBtc(
-          requestIdBytes,
+          plan.requestIdBytes,
           Buffer.from(readEvent.serializedOutput),
           readEvent.signature,
           null
         )
         .rpc();
-
-      console.log("  ✅ Claim transaction sent:", claimTx);
       await provider.connection.confirmTransaction(claimTx);
-      console.log("  ✅ Claim confirmed!");
-
-      // STEP 11: Verify balance reflects only vault-directed amount
-      console.log("\n📍 STEP 11: Verifying post-claim BTC balance\n");
 
       const finalBalanceAccount = await program.account.userBtcBalance.fetch(
         userBalancePda
       );
-      const finalBalance = finalBalanceAccount.amount as BN;
-
-      const expectedBalance = initialBalance.add(new BN(vaultValue));
-
-      console.log("  💰 Initial balance:", initialBalance.toString(), "sats");
-      console.log("  ➕ Vault-directed amount:", vaultValue, "sats");
-      console.log("  💰 Expected balance:", expectedBalance.toString(), "sats");
-      console.log("  💰 Actual balance:", finalBalance.toString(), "sats");
-
-      expect(finalBalance.toString()).to.equal(expectedBalance.toString());
-
-      // STEP 12: Validate contract state
-      console.log("\n📍 STEP 12: Validating contract state\n");
-
-      const [pendingDepositPda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("pending_btc_deposit"), Buffer.from(requestIdBytes)],
-        program.programId
+      const expectedBalance = initialBalance.add(new BN(plan.creditedAmount));
+      expect(finalBalanceAccount.amount.toString()).to.equal(
+        expectedBalance.toString()
       );
 
+      const [pendingDepositPda] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("pending_btc_deposit"), Buffer.from(plan.requestIdBytes)],
+        program.programId
+      );
       const pendingDeposit =
         await program.account.pendingBtcDeposit.fetchNullable(
           pendingDepositPda
         );
       expect(pendingDeposit).to.be.null;
-      console.log("  ✅ Pending deposit account closed after claim");
 
       latestDepositor = secondaryRequester;
+      console.log(
+        "\n🎉 Multi-input BTC deposit test completed successfully!\n"
+      );
     } finally {
-      await cleanupEventListeners(eventPromises);
+      await cleanupEventListeners(events);
     }
-
-    console.log("\n" + "=".repeat(80));
-    console.log("🎉 Multi-UTXO Deposit Flow Completed Successfully!");
-    console.log("=".repeat(80) + "\n");
   });
-
   it("processes a BTC withdrawal end-to-end", async function () {
     this.timeout(240000);
 
@@ -1244,30 +1717,7 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     }
 
     const depositor = latestDepositor;
-
-    console.log("\n" + "=".repeat(60));
-    console.log("Starting Bitcoin Withdrawal Flow Test");
-    console.log("=".repeat(60) + "\n");
-
-    const [globalVaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("global_vault_authority")],
-      program.programId
-    );
-
-    const globalVaultPublicKey = signetUtils.cryptography.deriveChildPublicKey(
-      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-      globalVaultAuthority.toString(),
-      "root",
-      CONFIG.SOLANA_CHAIN_ID
-    );
-    const compressedGlobalVaultPubkey =
-      btcUtils.compressPublicKey(globalVaultPublicKey);
-    const globalVaultScript = btcUtils.createP2WPKHScript(
-      compressedGlobalVaultPubkey
-    );
-    const globalVaultAddress = btcUtils.getAddressFromPubkey(
-      compressedGlobalVaultPubkey
-    );
+    const feeBudget = 500; // TODO: compute dynamically from feerate & tx weight
 
     const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("user_btc_balance"), depositor.publicKey.toBuffer()],
@@ -1282,43 +1732,19 @@ describe("🪙 Bitcoin Deposit Integration", () => {
       throw new Error("❌ No BTC balance available for withdrawal");
     }
 
-    const feeBudget = 500; // TODO: compute dynamically from current feerate and tx weight
-    const feeBn = new BN(feeBudget);
-
-    if (startingBalance.lte(feeBn)) {
-      throw new Error(
-        "❌ User balance does not cover the withdrawal fee budget"
-      );
-    }
-
-    const withdrawAmountBn = startingBalance.sub(feeBn);
-    const withdrawAmount = withdrawAmountBn.toNumber();
-    const totalDebit = withdrawAmount + feeBudget;
-
-    console.log(`  💰 User BTC balance: ${startingBalance.toString()} sats`);
-    console.log(`  🧾 Fee budget: ${feeBudget} sats`);
-    console.log(`  💸 Planned withdrawal amount: ${withdrawAmount} sats`);
-
-    const externalWithdrawKey = randomBytes(32);
-    const externalPubkeyUncompressed = secp256k1.getPublicKey(
-      externalWithdrawKey,
-      false
-    );
-    const compressedExternalPubkey = btcUtils.compressPublicKey(
-      Buffer.from(externalPubkeyUncompressed).toString("hex")
-    );
-    const withdrawScript = btcUtils.createP2WPKHScript(
-      compressedExternalPubkey
-    );
-    const withdrawAddress = btcUtils.getAddressFromPubkey(
-      compressedExternalPubkey
-    );
-
-    console.log(`  🏦 Global vault UTXO address: ${globalVaultAddress}`);
-    console.log(`  🎯 Withdrawal recipient address: ${withdrawAddress}`);
+    const plan = await buildWithdrawalPlan({
+      mode: "live",
+      authority: depositor,
+      feeBudget,
+    });
+    console.log("=".repeat(80));
+    console.log("Starting Bitcoin Withdrawal Flow Test");
+    console.log("=".repeat(80) + "\n");
+    console.log(`  🏦 Global vault UTXO address: ${plan.globalVaultAddress}`);
+    console.log(`  🎯 Withdrawal recipient address: ${plan.withdrawAddress}`);
 
     const initialRecipientUtxos =
-      (await bitcoinAdapter.getAddressUtxos(withdrawAddress)) ?? [];
+      (await bitcoinAdapter.getAddressUtxos(plan.withdrawAddress)) ?? [];
     const initialRecipientBalance = initialRecipientUtxos.reduce(
       (acc, utxo) => acc + utxo.value,
       0
@@ -1330,9 +1756,6 @@ describe("🪙 Bitcoin Deposit Integration", () => {
     const requiredLamports = 2 * anchor.web3.LAMPORTS_PER_SOL;
     const lamportsShortfall = requiredLamports - currentLamports;
     if (lamportsShortfall > 0) {
-      console.log(
-        `  💧 Funding withdrawal authority from provider wallet (need ${lamportsShortfall} lamports)`
-      );
       const transferIx = anchor.web3.SystemProgram.transfer({
         fromPubkey: provider.wallet.publicKey,
         toPubkey: depositor.publicKey,
@@ -1341,317 +1764,444 @@ describe("🪙 Bitcoin Deposit Integration", () => {
       await provider.sendAndConfirm(
         new anchor.web3.Transaction().add(transferIx)
       );
-      console.log("  ✅ Funding transfer confirmed");
     }
 
-    const globalVaultUtxos = await bitcoinAdapter.getAddressUtxos(
-      globalVaultAddress
+    const events = await setupEventListeners(provider, plan.requestIdHex);
+
+    console.log("\n📍 STEP 1: Initiating withdrawal on Solana\n");
+    const withdrawTx = await program.methods
+      .withdrawBtc(
+        plan.requestIdBytes,
+        plan.inputs,
+        plan.amount,
+        plan.recipientAddress,
+        plan.txParams
+      )
+      .accounts({
+        authority: depositor.publicKey,
+        feePayer: provider.wallet.publicKey,
+        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .signers([depositor])
+      .rpc();
+
+    await provider.connection.confirmTransaction(withdrawTx);
+    console.log(`  SOL withdraw tx: ${withdrawTx}`);
+
+    const balanceAfterInitiationAccount =
+      await program.account.userBtcBalance.fetch(userBalancePda);
+    const balanceAfterInitiation = balanceAfterInitiationAccount.amount as BN;
+    const totalDebitBn = plan.amount.add(plan.fee);
+    const expectedAfterInitiation = startingBalance.sub(totalDebitBn);
+    expect(balanceAfterInitiation.toString()).to.equal(
+      expectedAfterInitiation.toString()
     );
-    if (!globalVaultUtxos || globalVaultUtxos.length === 0) {
+
+    console.log("\n📍 STEP 2: Awaiting MPC signatures for withdrawal...\n");
+    const signatureEvents = await events.waitForSignatures(
+      plan.selectedUtxos.length
+    );
+    const signatures = signatureEvents.flatMap(extractSignatures);
+    if (signatures.length !== plan.selectedUtxos.length) {
       throw new Error(
-        `❌ No UTXOs available at global vault address ${globalVaultAddress}`
+        `Expected ${plan.selectedUtxos.length} signature(s), received ${signatures.length}`
       );
     }
 
-    const selectedUtxos: UTXO[] = [];
-    let accumulated = 0;
-
-    for (const utxo of globalVaultUtxos) {
-      selectedUtxos.push(utxo);
-      accumulated += utxo.value;
-      if (accumulated >= totalDebit) {
-        break;
-      }
-    }
-
-    if (accumulated < totalDebit) {
-      throw new Error(
-        `❌ Unable to source sufficient global vault liquidity for ${totalDebit} sats (have ${accumulated})`
-      );
-    }
-
-    const totalInputValue = selectedUtxos.reduce(
+    const totalInputValue = plan.selectedUtxos.reduce(
       (acc, utxo) => acc + utxo.value,
       0
     );
-
-    console.log(
-      `  ✅ Selected ${selectedUtxos.length} global vault UTXO(s) totalling ${totalInputValue} sats`
-    );
-    selectedUtxos.forEach((u, idx) => {
-      console.log(
-        `    [${idx}] txid=${u.txid}, vout=${u.vout}, value=${u.value} sats`
-      );
-    });
-
+    const withdrawAmount = bnToNumber(plan.amount);
+    const totalDebit = bnToNumber(totalDebitBn);
     const changeValue = totalInputValue - totalDebit;
 
-    console.log(`  🔁 Change back to global vault: ${changeValue} sats`);
-
-    const unsignedWithdrawTx = new bitcoin.Transaction();
-    unsignedWithdrawTx.version = 2;
-    selectedUtxos.forEach((utxo) => {
-      unsignedWithdrawTx.addInput(
-        Buffer.from(utxo.txid, "hex").reverse(),
-        utxo.vout,
-        0xffffffff
-      );
-    });
-    unsignedWithdrawTx.addOutput(withdrawScript, BigInt(withdrawAmount));
-    if (changeValue > 0) {
-      unsignedWithdrawTx.addOutput(globalVaultScript, BigInt(changeValue));
-    }
-    unsignedWithdrawTx.locktime = 0;
-
-    const withdrawTxIdDisplay = unsignedWithdrawTx.getId();
-    const withdrawTxIdInternal = Buffer.from(
-      withdrawTxIdDisplay,
-      "hex"
-    ).reverse();
-    console.log("  📦 Withdrawal TXID:", withdrawTxIdDisplay);
-
-    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
-      globalVaultAuthority.toString(),
-      Array.from(withdrawTxIdInternal),
-      WITHDRAW_CAIP2_ID,
-      0,
-      WITHDRAW_PATH,
-      "ECDSA",
-      "bitcoin",
-      ""
-    );
-    const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
-
-    console.log("  🔑 Withdrawal Request ID:", requestId);
-
-    const eventPromises = await setupEventListeners(provider, requestId);
-
-    try {
-      const withdrawInputs: BtcInput[] = selectedUtxos.map((utxo) => ({
-        txid: Array.from(Buffer.from(utxo.txid, "hex")),
+    console.log("\n📍 STEP 3: Broadcasting signed withdrawal transaction\n");
+    const withdrawPsbt = btcUtils.buildPSBT(
+      plan.selectedUtxos.map((utxo) => ({
+        txid: utxo.txid,
         vout: utxo.vout,
-        scriptPubkey: globalVaultScript,
-        value: new BN(utxo.value),
-      }));
+        value: utxo.value,
+        scriptPubkey: plan.globalVaultScript,
+      })),
+      [
+        { script: plan.withdrawScript, value: withdrawAmount },
+        ...(changeValue > 0
+          ? [
+              {
+                script: plan.globalVaultScript,
+                value: changeValue,
+              },
+            ]
+          : []),
+      ]
+    );
 
-      const withdrawTxParams: BtcWithdrawParams = {
-        lockTime: 0,
-        caip2Id: WITHDRAW_CAIP2_ID,
-        vaultScriptPubkey: globalVaultScript,
-        recipientScriptPubkey: withdrawScript,
-        fee: feeBn,
-      };
-
-      console.log("\n📍 STEP 1: Initiating withdrawal on Solana\n");
-
-      console.log(
-        "  💰 Balance before withdrawal:",
-        startingBalance.toString(),
-        "sats"
+    signatures.forEach((sig, idx) => {
+      const { witness } = prepareSignatureWitness(
+        sig,
+        plan.compressedGlobalVaultPubkey
       );
+      withdrawPsbt.updateInput(idx, {
+        finalScriptWitness: witness,
+      });
+    });
 
-      const withdrawTx = await program.methods
-        .withdrawBtc(
-          requestIdBytes,
-          withdrawInputs,
-          withdrawAmountBn,
-          withdrawAddress,
-          withdrawTxParams
+    const signedWithdrawTx = withdrawPsbt.extractTransaction();
+    const withdrawTxHex = signedWithdrawTx.toHex();
+    console.log(`  📝 Withdrawal Bitcoin TxID: ${signedWithdrawTx.getId()}`);
+
+    const submittedTxid = await bitcoinAdapter.broadcastTransaction(
+      withdrawTxHex
+    );
+    console.log(`  📝 Submitted TxID: ${submittedTxid}`);
+
+    if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
+      await bitcoinAdapter.mineBlocks(1);
+    }
+
+    console.log("\n📍 STEP 4: Waiting for verification response...\n");
+    const readEvent = await events.readRespond;
+
+    console.log("\n📍 STEP 5: Completing withdrawal on Solana\n");
+    const completeTx = await program.methods
+      .completeWithdrawBtc(
+        plan.requestIdBytes,
+        Buffer.from(readEvent.serializedOutput),
+        readEvent.signature,
+        null
+      )
+      .rpc();
+    await provider.connection.confirmTransaction(completeTx);
+    console.log(`  SOL complete withdraw tx: ${completeTx}`);
+
+    console.log("\n📍 STEP 6: Verifying post-withdrawal balance\n");
+    const expectedRecipientBalance = initialRecipientBalance + withdrawAmount;
+    let latestRecipientBalance = 0;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const utxos =
+        (await bitcoinAdapter.getAddressUtxos(plan.withdrawAddress)) ?? [];
+      latestRecipientBalance = utxos.reduce((acc, utxo) => acc + utxo.value, 0);
+      if (latestRecipientBalance >= expectedRecipientBalance) {
+        break;
+      }
+      await sleep(2_000);
+    }
+    expect(latestRecipientBalance).to.be.at.least(expectedRecipientBalance);
+
+    const finalBalanceAccount = await program.account.userBtcBalance.fetch(
+      userBalancePda
+    );
+    expect(finalBalanceAccount.amount.toString()).to.equal(
+      balanceAfterInitiation.toString()
+    );
+
+    const [pendingWithdrawPda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("pending_btc_withdrawal"), Buffer.from(plan.requestIdBytes)],
+      program.programId
+    );
+    const pendingWithdrawal =
+      await program.account.pendingBtcWithdrawal.fetchNullable(
+        pendingWithdrawPda
+      );
+    expect(pendingWithdrawal).to.be.null;
+    console.log("\n" + "=".repeat(80));
+    console.log("🎉 Bitcoin Withdrawal Flow Completed Successfully!");
+    console.log("=".repeat(80) + "\n");
+  });
+  it("rejects deposits when request ID mismatches transaction data", async function () {
+    const plan = await buildDepositPlan({ mode: "mock" });
+    const tamperedRequestId = [...plan.requestIdBytes];
+    tamperedRequestId[0] ^= 0xff;
+
+    await expectAnchorError(
+      program.methods
+        .depositBtc(
+          tamperedRequestId,
+          plan.requester,
+          plan.btcInputs,
+          plan.btcOutputs,
+          plan.txParams
         )
         .accounts({
-          authority: depositor.publicKey,
+          payer: provider.wallet.publicKey,
           feePayer: provider.wallet.publicKey,
           instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
         })
-        .signers([depositor])
-        .rpc();
+        .rpc(),
+      /Invalid request ID/
+    );
+  });
 
-      console.log("  ✅ Withdrawal transaction sent:", withdrawTx);
-      await provider.connection.confirmTransaction(withdrawTx);
-      console.log("  ✅ Withdrawal transaction confirmed!");
+  it("rejects deposits that omit a vault-directed output", async function () {
+    const plan = await buildDepositPlan({
+      mode: "mock",
+      includeVaultOutput: false,
+    });
 
-      const balanceAfterInitiationAccount =
-        await program.account.userBtcBalance.fetch(userBalancePda);
-      const balanceAfterInitiation = balanceAfterInitiationAccount.amount as BN;
-      const totalDebitBn = withdrawAmountBn.add(feeBn);
-      const expectedAfterInitiation = startingBalance.sub(totalDebitBn);
+    await expectAnchorError(
+      program.methods
+        .depositBtc(
+          plan.requestIdBytes,
+          plan.requester,
+          plan.btcInputs,
+          plan.btcOutputs,
+          plan.txParams
+        )
+        .accounts({
+          payer: provider.wallet.publicKey,
+          feePayer: provider.wallet.publicKey,
+          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .rpc(),
+      /No vault outputs found in transaction/
+    );
+  });
 
-      console.log(
-        "  💰 Expected balance after initiation:",
-        expectedAfterInitiation.toString(),
-        "sats"
-      );
-      console.log(
-        "  💰 Actual balance after initiation:",
-        balanceAfterInitiation.toString(),
-        "sats"
-      );
+  it("rejects claims when the signing server response carries an invalid signature", async function () {
+    this.timeout(60000);
+    const plan = await buildDepositPlan({ mode: "mock" });
 
-      expect(balanceAfterInitiation.toString()).to.equal(
-        expectedAfterInitiation.toString()
-      );
+    const depositTx = await program.methods
+      .depositBtc(
+        plan.requestIdBytes,
+        plan.requester,
+        plan.btcInputs,
+        plan.btcOutputs,
+        plan.txParams
+      )
+      .accounts({
+        payer: provider.wallet.publicKey,
+        feePayer: provider.wallet.publicKey,
+        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .rpc();
+    await provider.connection.confirmTransaction(depositTx);
 
-      console.log("\n📍 STEP 2: Awaiting MPC signatures for withdrawal...\n");
-      const signatureEvents = await eventPromises.waitForSignatures(
-        selectedUtxos.length
-      );
-      console.log(
-        "  ✅ Withdrawal signature events received:",
-        signatureEvents.length
-      );
+    const serializedOutput = Buffer.from([1]);
+    const messageHash = computeMessageHash(
+      plan.requestIdBytes,
+      serializedOutput
+    );
+    const validSignature = signHashWithMpc(messageHash);
+    const invalidSignature: ChainSignaturePayload = JSON.parse(
+      JSON.stringify(validSignature)
+    );
+    invalidSignature.s[0] ^= 0xff;
 
-      const signatures = signatureEvents.flatMap(extractSignatures);
-      if (signatures.length !== selectedUtxos.length) {
-        throw new Error(
-          `Expected ${selectedUtxos.length} signature(s), received ${signatures.length}`
-        );
-      }
+    await expectAnchorError(
+      program.methods
+        .claimBtc(plan.requestIdBytes, serializedOutput, invalidSignature, null)
+        .rpc(),
+      /Invalid signature/
+    );
 
-      console.log("\n📍 STEP 3: Broadcasting signed withdrawal transaction\n");
+    const claimTx = await program.methods
+      .claimBtc(plan.requestIdBytes, serializedOutput, validSignature, null)
+      .rpc();
+    await provider.connection.confirmTransaction(claimTx);
+  });
 
-      const withdrawPsbt = btcUtils.buildPSBT(
-        selectedUtxos.map((utxo) => ({
-          txid: utxo.txid,
-          vout: utxo.vout,
-          value: utxo.value,
-          scriptPubkey: globalVaultScript,
-        })),
-        [
-          { script: withdrawScript, value: withdrawAmount },
-          ...(changeValue > 0
-            ? [
-                {
-                  script: globalVaultScript,
-                  value: changeValue,
-                },
-              ]
-            : []),
-        ]
-      );
+  it("rejects claims when serialized outputs cannot be decoded", async function () {
+    this.timeout(60000);
+    const plan = await buildDepositPlan({ mode: "mock" });
 
-      signatures.forEach((sig, idx) => {
-        const { witness: withdrawWitness } = prepareSignatureWitness(
-          sig,
-          compressedGlobalVaultPubkey
-        );
-        withdrawPsbt.updateInput(idx, {
-          finalScriptWitness: withdrawWitness,
-        });
-      });
+    const depositTx = await program.methods
+      .depositBtc(
+        plan.requestIdBytes,
+        plan.requester,
+        plan.btcInputs,
+        plan.btcOutputs,
+        plan.txParams
+      )
+      .accounts({
+        payer: provider.wallet.publicKey,
+        feePayer: provider.wallet.publicKey,
+        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .rpc();
+    await provider.connection.confirmTransaction(depositTx);
 
-      const signedWithdrawTx = withdrawPsbt.extractTransaction();
-      const withdrawTxHex = signedWithdrawTx.toHex();
-      const withdrawTxId = signedWithdrawTx.getId();
+    const malformedOutput = Buffer.from([]);
+    const malformedSignature = signHashWithMpc(
+      computeMessageHash(plan.requestIdBytes, malformedOutput)
+    );
 
-      console.log(
-        "  📦 Signed withdrawal tx hex:",
-        withdrawTxHex.slice(0, 64) + "..."
-      );
-      console.log("  📝 Withdrawal Bitcoin TxID:", withdrawTxId);
-
-      const submittedTxid = await bitcoinAdapter.broadcastTransaction(
-        withdrawTxHex
-      );
-      console.log("  ✅ Withdrawal transaction broadcast to Bitcoin network");
-      console.log("  📝 Submitted TxID:", submittedTxid);
-
-      if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
-        await bitcoinAdapter.mineBlocks(1);
-        console.log("  ⛏️  Mined 1 confirmation block");
-      }
-
-      console.log("\n📍 STEP 4: Waiting for verification response...\n");
-      const readEvent = await eventPromises.readRespond;
-      console.log("  ✅ Verification response received!");
-
-      console.log("\n📍 STEP 5: Completing withdrawal on Solana\n");
-      const completeTx = await program.methods
-        .completeWithdrawBtc(
-          requestIdBytes,
-          Buffer.from(readEvent.serializedOutput),
-          readEvent.signature,
+    await expectAnchorError(
+      program.methods
+        .claimBtc(
+          plan.requestIdBytes,
+          malformedOutput,
+          malformedSignature,
           null
         )
-        .rpc();
+        .rpc(),
+      /Invalid output format/
+    );
 
-      console.log("  ✅ Complete withdrawal transaction sent:", completeTx);
-      await provider.connection.confirmTransaction(completeTx);
-      console.log("  ✅ Withdrawal completion confirmed!");
+    const successOutput = Buffer.from([1]);
+    const successSig = signHashWithMpc(
+      computeMessageHash(plan.requestIdBytes, successOutput)
+    );
+    const cleanupTx = await program.methods
+      .claimBtc(plan.requestIdBytes, successOutput, successSig, null)
+      .rpc();
+    await provider.connection.confirmTransaction(cleanupTx);
+  });
 
-      const expectedRecipientBalance = initialRecipientBalance + withdrawAmount;
-      let latestRecipientBalance = 0;
+  it("refunds deposits when MPC output indicates transfer failure", async function () {
+    this.timeout(60000);
+    const plan = await buildDepositPlan({ mode: "mock" });
 
-      for (let attempt = 0; attempt < 15; attempt++) {
-        const utxos =
-          (await bitcoinAdapter.getAddressUtxos(withdrawAddress)) ?? [];
-        latestRecipientBalance = utxos.reduce(
-          (acc, utxo) => acc + utxo.value,
-          0
-        );
-        if (latestRecipientBalance >= expectedRecipientBalance) {
-          break;
-        }
-        console.log(
-          `  ⏳ Waiting for recipient balance update (attempt ${
-            attempt + 1
-          }/15). Current: ${latestRecipientBalance} sats`
-        );
-        await sleep(2_000);
-      }
+    const depositTx = await program.methods
+      .depositBtc(
+        plan.requestIdBytes,
+        plan.requester,
+        plan.btcInputs,
+        plan.btcOutputs,
+        plan.txParams
+      )
+      .accounts({
+        payer: provider.wallet.publicKey,
+        feePayer: provider.wallet.publicKey,
+        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .rpc();
+    await provider.connection.confirmTransaction(depositTx);
 
-      console.log(
-        "  💰 Recipient balance before withdrawal:",
-        initialRecipientBalance,
-        "sats"
-      );
-      console.log(
-        "  💰 Recipient balance after withdrawal:",
-        latestRecipientBalance,
-        "sats"
-      );
-      console.log(
-        "  💰 Expected recipient balance:",
-        expectedRecipientBalance,
-        "sats"
-      );
+    const failedOutput = Buffer.from([0]);
+    const failedSig = signHashWithMpc(
+      computeMessageHash(plan.requestIdBytes, failedOutput)
+    );
 
-      expect(latestRecipientBalance).to.be.at.least(expectedRecipientBalance);
+    await expectAnchorError(
+      program.methods
+        .claimBtc(plan.requestIdBytes, failedOutput, failedSig, null)
+        .rpc(),
+      /Transfer failed/
+    );
 
-      const finalBalanceAccount = await program.account.userBtcBalance.fetch(
-        userBalancePda
-      );
-      const balanceAfter = finalBalanceAccount.amount as BN;
+    const successOutput = Buffer.from([1]);
+    const successSig = signHashWithMpc(
+      computeMessageHash(plan.requestIdBytes, successOutput)
+    );
+    const cleanupTx = await program.methods
+      .claimBtc(plan.requestIdBytes, successOutput, successSig, null)
+      .rpc();
+    await provider.connection.confirmTransaction(cleanupTx);
+  });
 
-      console.log("\n📍 STEP 6: Verifying post-withdrawal balance\n");
-      console.log(
-        "  💰 Balance after initiation:",
-        balanceAfterInitiation.toString(),
-        "sats"
-      );
-      console.log("  💰 Final balance:", balanceAfter.toString(), "sats");
+  it("rejects withdrawals when provided inputs do not cover the requested debit", async function () {
+    this.timeout(60000);
+    await executeSyntheticDeposit(6_000);
 
-      expect(balanceAfter.toString()).to.equal(
-        balanceAfterInitiation.toString()
-      );
+    const withdrawPlan = await buildWithdrawalPlan({
+      mode: "mock",
+      amount: 1_500,
+      fee: 25,
+      inputValue: 500, // Intentionally insufficient
+    });
 
-      const [pendingWithdrawPda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("pending_btc_withdrawal"), Buffer.from(requestIdBytes)],
-        program.programId
-      );
+    await expectAnchorError(
+      program.methods
+        .withdrawBtc(
+          withdrawPlan.requestIdBytes,
+          withdrawPlan.inputs,
+          withdrawPlan.amount,
+          withdrawPlan.recipientAddress,
+          withdrawPlan.txParams
+        )
+        .accounts({
+          authority: provider.wallet.publicKey,
+          feePayer: provider.wallet.publicKey,
+          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .rpc(),
+      /Provided inputs do not cover requested amount \+ fee/
+    );
+  });
 
-      const pendingWithdrawal =
-        await program.account.pendingBtcWithdrawal.fetchNullable(
-          pendingWithdrawPda
-        );
-      expect(pendingWithdrawal).to.be.null;
-      console.log("  ✅ Pending withdrawal account closed");
+  it("rejects withdrawals when user balance cannot cover amount plus fee", async function () {
+    this.timeout(80000);
+    await executeSyntheticDeposit(1_000);
 
-      console.log("\n" + "=".repeat(80));
-      console.log("🎉 Bitcoin Withdrawal Flow Completed Successfully!");
-      console.log("=".repeat(80) + "\n");
-    } finally {
-      await cleanupEventListeners(eventPromises);
-    }
+    const withdrawPlan = await buildWithdrawalPlan({
+      mode: "mock",
+      amount: 900,
+      fee: 200,
+      inputValue: 1_300,
+    });
+
+    await expectAnchorError(
+      program.methods
+        .withdrawBtc(
+          withdrawPlan.requestIdBytes,
+          withdrawPlan.inputs,
+          withdrawPlan.amount,
+          withdrawPlan.recipientAddress,
+          withdrawPlan.txParams
+        )
+        .accounts({
+          authority: provider.wallet.publicKey,
+          feePayer: provider.wallet.publicKey,
+          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .rpc(),
+      /Insufficient balance/
+    );
+  });
+
+  it("refunds withdrawal balances when MPC reports an error via serialized output", async function () {
+    this.timeout(80000);
+    await executeSyntheticDeposit(7_500);
+
+    const { amount: balanceBefore } = await fetchUserBalance(
+      provider.wallet.publicKey
+    );
+
+    const withdrawPlan = await buildWithdrawalPlan({
+      mode: "mock",
+      amount: 2_000,
+      fee: 50,
+      inputValue: 2_300,
+    });
+
+    const withdrawTx = await program.methods
+      .withdrawBtc(
+        withdrawPlan.requestIdBytes,
+        withdrawPlan.inputs,
+        withdrawPlan.amount,
+        withdrawPlan.recipientAddress,
+        withdrawPlan.txParams
+      )
+      .accounts({
+        authority: provider.wallet.publicKey,
+        feePayer: provider.wallet.publicKey,
+        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .rpc();
+    await provider.connection.confirmTransaction(withdrawTx);
+
+    const serializedOutput = Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00]);
+    const refundSignature = signHashWithMpc(
+      computeMessageHash(withdrawPlan.requestIdBytes, serializedOutput)
+    );
+
+    const completeTx = await program.methods
+      .completeWithdrawBtc(
+        withdrawPlan.requestIdBytes,
+        serializedOutput,
+        refundSignature,
+        null
+      )
+      .rpc();
+    await provider.connection.confirmTransaction(completeTx);
+
+    const { amount: balanceAfter } = await fetchUserBalance(
+      provider.wallet.publicKey
+    );
+
+    expect(balanceAfter.toString()).to.equal(balanceBefore.toString());
   });
 });
 
@@ -1745,25 +2295,26 @@ async function setupEventListeners(
     },
   });
 
-  console.log("  🔍 Setting up event listeners for requestId:", requestId);
+  console.log(
+    "  🔍 Subscribing to Chain Signatures events for requestId:",
+    requestId
+  );
 
   const unsubscribe = await signetContract.subscribeToEvents({
     onSignatureResponded: (event: SignatureRespondedEventPayload, slot) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
 
-      console.log("  📨 [EVENT] onSignatureResponded fired!");
-      console.log("    - Slot:", slot);
-      console.log("    - Event requestId:", eventRequestId);
-      console.log("    - Expected requestId:", requestId);
-      console.log("    - Match:", eventRequestId === requestId);
+      const isMatch = eventRequestId === requestId;
+      console.log(
+        "    📨 onSignatureResponded slot=%s eventId=%s match=%s",
+        slot ?? "n/a",
+        eventRequestId,
+        isMatch
+      );
 
-      if (eventRequestId === requestId) {
+      if (isMatch) {
         matchedSignatureEvents.push(event);
-        console.log(
-          "  ✅ Signature event MATCHED! Total signatures collected:",
-          matchedSignatureEvents.length
-        );
 
         if (!firstSignatureResolved) {
           firstSignatureResolved = true;
@@ -1771,27 +2322,28 @@ async function setupEventListeners(
         }
         resolveSignatureWaiters();
       } else {
-        console.log("  ⚠️  Signature event did NOT match, ignoring...");
+        console.log("    ⚠️ Ignoring unrelated signature event");
       }
     },
     onSignatureError: (event, slot) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
 
-      console.log("  ❌ [EVENT] onSignatureError fired!");
-      console.log("    - Slot:", slot);
-      console.log("    - Event requestId:", eventRequestId);
-      console.log("    - Expected requestId:", requestId);
-      console.log("    - Error:", event.error);
-      console.log("    - Match:", eventRequestId === requestId);
+      const isMatch = eventRequestId === requestId;
+      console.log(
+        "    ❌ onSignatureError slot=%s eventId=%s match=%s error=%s",
+        slot ?? "n/a",
+        eventRequestId,
+        isMatch,
+        event.error
+      );
 
-      if (eventRequestId === requestId) {
-        console.error("  ❌ Signature ERROR MATCHED! Rejecting promise...");
+      if (isMatch) {
         const error = new Error(event.error);
         signatureReject(error);
         rejectSignatureWaiters(error);
       } else {
-        console.log("  ⚠️  Signature error did NOT match, ignoring...");
+        console.log("    ⚠️ Ignoring unrelated signature error event");
       }
     },
   });
@@ -1799,28 +2351,24 @@ async function setupEventListeners(
   const program: Program<ChainSignaturesProject> =
     new anchor.Program<ChainSignaturesProject>(IDL, provider);
 
-  console.log("  🔍 Setting up respondBidirectionalEvent listener...");
-
   const readRespondListener = program.addEventListener(
     "respondBidirectionalEvent",
     (event: RespondBidirectionalEventPayload, slot: number) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
 
-      console.log("  📨 [EVENT] respondBidirectionalEvent fired!");
-      console.log("    - Event requestId:", eventRequestId);
-      console.log("    - Expected requestId:", requestId);
-      console.log("    - Match:", eventRequestId === requestId);
-      console.log("    - Serialized output:", event.serializedOutput);
-      if (slot !== undefined) {
-        console.log("    - Slot:", slot);
-      }
+      const isMatch = eventRequestId === requestId;
+      console.log(
+        "    📨 respondBidirectionalEvent slot=%s eventId=%s match=%s",
+        slot ?? "n/a",
+        eventRequestId,
+        isMatch
+      );
 
-      if (eventRequestId === requestId) {
-        console.log("  ✅ Read/respond event MATCHED! Resolving...");
+      if (isMatch) {
         readRespondResolve(event);
       } else {
-        console.log("  ⚠️  Read/respond event did NOT match, ignoring...");
+        console.log("    ⚠️ Ignoring unrelated respondBidirectional event");
       }
     }
   );

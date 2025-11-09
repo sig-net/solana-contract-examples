@@ -1,11 +1,9 @@
 import { config } from "dotenv";
 import { z } from "zod";
 import path from "path";
-import { fileURLToPath } from "url";
 import { secp256k1 } from "@noble/curves/secp256k1";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-config({ path: path.resolve(__dirname, "../.env") });
+config({ path: path.resolve(process.cwd(), ".env") });
 
 const deriveBasePublicKey = (privateKey: string): string => {
   const publicKeyBytes = secp256k1.getPublicKey(privateKey.slice(2), false);
