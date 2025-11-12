@@ -26,9 +26,8 @@ alloy-json-abi       = "0.8"
 alloy-primitives     = { version = "0.8.25", default-features = false }
 serde_json           = { version = "1.0",    default-features = false, features = ["alloc"] }
 hex                  = "0.4"
-chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", branch = "mock-signer-package-2", features = ["cpi"] }
+chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", features = ["cpi"] }
 base64ct             = { workspace = true }
 ruint                = { workspace = true }
-mpc-node = { git = "https://github.com/sig-net/mpc", branch = "xiangyi/derive_user_addr_public" }
-mpc-crypto = { git = "https://github.com/sig-net/mpc", branch = "xiangyi/derive_user_addr_public" }
+mpc-address-derivation-utils = { git = "https://github.com/sig-net/mpc", branch = "xiangyi/refactor_derive_user_addres" }
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

@@ -213,8 +213,11 @@ pub fn claim_erc20(
 
     // Verify the signature
     let requester = ctx.accounts.requester.key();
-    let epsilon =
-        mpc_crypto::kdf::derive_epsilon_sol(0, &requester.to_string(), HARDCODED_RESPONSE_KEY);
+    let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
+        0,
+        &requester.to_string(),
+        HARDCODED_RESPONSE_KEY,
+    );
 
     // Convert MPC root signer public key to AffinePoint
     let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
@@ -224,7 +227,7 @@ pub fn claim_erc20(
         .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
 
     let expected_address_obj =
-        mpc_node::sign_bidirectional::derive_user_address(affine_point, epsilon);
+        mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
     let expected_address = format!("0x{}", hex::encode(expected_address_obj));
 
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
@@ -454,7 +457,7 @@ pub fn complete_withdraw_erc20(
         .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
 
     let expected_address_obj =
-        mpc_node::sign_bidirectional::derive_user_address(affine_point, epsilon);
+        mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
     let expected_address = format!("0x{}", hex::encode(expected_address_obj));
 
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
