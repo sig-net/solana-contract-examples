@@ -6,7 +6,6 @@ use anchor_lang::solana_program::secp256k1_recover::secp256k1_recover;
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use chain_signatures::cpi::accounts::SignBidirectional;
 use chain_signatures::cpi::sign_bidirectional;
-use k256::{AffinePoint, EncodedPoint};
 
 use signet_rs::{TransactionBuilder, TxBuilder, EVM};
 
@@ -15,7 +14,6 @@ use crate::state::vault::{EvmTransactionParams, IERC20};
 use crate::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
 
 const HARDCODED_ROOT_PATH: &str = "root";
-const HARDCODED_RESPONSE_KEY: &str = "solana response key";
 
 #[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct NonFunctionCallResult {
@@ -205,6 +203,7 @@ pub fn claim_erc20(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     ethereum_tx_hash: Option<[u8; 32]>,
+    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
 
@@ -212,23 +211,23 @@ pub fn claim_erc20(
     let message_hash = hash_message(&request_id, &serialized_output);
 
     // Verify the signature
-    let requester = ctx.accounts.requester.key();
-    let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
-        0,
-        &requester.to_string(),
-        HARDCODED_RESPONSE_KEY,
-    );
+    // let requester = ctx.accounts.requester.key();
+    // let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
+    //     0,
+    //     &requester.to_string(),
+    //     HARDCODED_RESPONSE_KEY,
+    // );
 
-    // Convert MPC root signer public key to AffinePoint
-    let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
-    let encoded_point = EncodedPoint::from_bytes(&pubkey_bytes)
-        .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
-    let affine_point = AffinePoint::try_from(&encoded_point)
-        .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
+    // // Convert MPC root signer public key to AffinePoint
+    // let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
+    // let encoded_point = EncodedPoint::from_bytes(&pubkey_bytes)
+    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
+    // let affine_point = AffinePoint::try_from(&encoded_point)
+    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
 
-    let expected_address_obj =
-        mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
-    let expected_address = format!("0x{}", hex::encode(expected_address_obj));
+    // let expected_address_obj =
+    //     mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
+    let expected_address = format!("0x{}", hex::encode(expected_address));
 
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
 
@@ -440,28 +439,29 @@ pub fn complete_withdraw_erc20(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     ethereum_tx_hash: Option<[u8; 32]>,
+    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
 
     let message_hash = hash_message(&request_id, &serialized_output);
     // Verify the signature
-    let requester = ctx.accounts.requester.key();
-    let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
-        0,
-        &requester.to_string(),
-        HARDCODED_RESPONSE_KEY,
-    );
+    // let requester = ctx.accounts.requester.key();
+    // let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
+    //     0,
+    //     &requester.to_string(),
+    //     HARDCODED_RESPONSE_KEY,
+    // );
 
-    // Convert MPC root signer public key to AffinePoint
-    let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
-    let encoded_point = EncodedPoint::from_bytes(&pubkey_bytes)
-        .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
-    let affine_point = AffinePoint::try_from(&encoded_point)
-        .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
+    // // Convert MPC root signer public key to AffinePoint
+    // let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
+    // let encoded_point = EncodedPoint::from_bytes(&pubkey_bytes)
+    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
+    // let affine_point = AffinePoint::try_from(&encoded_point)
+    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
 
-    let expected_address_obj =
-        mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
-    let expected_address = format!("0x{}", hex::encode(expected_address_obj));
+    // let expected_address_obj =
+    //     mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
+    let expected_address = format!("0x{}", hex::encode(expected_address));
 
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
 

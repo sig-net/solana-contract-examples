@@ -145,6 +145,9 @@ async function ensureVaultConfigInitialized(
   const rootSignerAddress = ethers.computeAddress(
     `0x${CONFIG.BASE_PUBLIC_KEY}`
   );
+
+  console.log(" 🔑 Root signer address:", rootSignerAddress);
+
   const expectedAddressBytes = Array.from(
     Buffer.from(rootSignerAddress.slice(2), "hex")
   );
@@ -158,14 +161,19 @@ async function ensureVaultConfigInitialized(
   )) as VaultConfigAccount | null;
 
   if (!vaultConfigAccount) {
-    await program.methods
-      .initializeConfig(expectedAddressBytes)
+    console.log("  🔑 Initializing config...");
+    const result = await program.methods
+      .initializeConfig(
+        Array.from(Buffer.from(rootSignerAddress.slice(2), "hex"))
+      )
       .accountsStrict({
         payer: provider.wallet.publicKey,
         config: vaultConfigPda,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc();
+
+    console.log("  ✅ Initialize config:", result);
     return;
   }
 
@@ -266,6 +274,20 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
+    const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+      globalVaultAuthority.toString(),
+      "solana response key",
+      CONFIG.SOLANA_CHAIN_ID
+    );
+    const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
+
+    console.log("  🔑 MPC Respond address:", mpcRespondAddress);
+
+    const mpcRespondAddressBytes = Array.from(
+      Buffer.from(mpcRespondAddress.slice(2), "hex")
+    );
+
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
     console.log(
       "  🔑 Chain Signatures Program ID:",
@@ -291,8 +313,18 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       program.programId
     );
 
+    const rootSignerAddress = ethers.computeAddress(
+      `0x${CONFIG.BASE_PUBLIC_KEY}`
+    );
+
+    console.log(" 🔑 Root signer address:", rootSignerAddress);
+
+    const rootSignerAddressBytes = Array.from(
+      Buffer.from(rootSignerAddress.slice(2), "hex")
+    );
+
     let result = await program.methods
-      .updateConfig(rootPublicKeyUncompressed as any)
+      .updateConfig(rootSignerAddressBytes)
       .accountsStrict({
         config: configPda,
       })
@@ -431,7 +463,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         requestIdBytes,
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
-        null
+        null,
+        mpcRespondAddressBytes
       )
       .accounts({
         userBalance: accounts.userBalance,
@@ -509,6 +542,20 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.SOLANA_CHAIN_ID
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
+
+    const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+      globalVaultAuthority.toString(),
+      "solana response key",
+      CONFIG.SOLANA_CHAIN_ID
+    );
+    const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
+
+    console.log("  🔑 MPC Respond address:", mpcRespondAddress);
+
+    const mpcRespondAddressBytes = Array.from(
+      Buffer.from(mpcRespondAddress.slice(2), "hex")
+    );
 
     const recipientAddress = CONFIG.WITHDRAWAL_RECIPIENT_ADDRESS;
     const recipientAddressBytes = Array.from(
@@ -705,7 +752,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         requestIdBytes,
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
-        null
+        null,
+        mpcRespondAddressBytes
       )
       .accounts({
         userBalance,
@@ -804,6 +852,18 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.SOLANA_CHAIN_ID
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
+
+    const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+      globalVaultAuthority.toString(),
+      "solana response key",
+      CONFIG.SOLANA_CHAIN_ID
+    );
+    const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
+
+    const mpcRespondAddressBytes = Array.from(
+      Buffer.from(mpcRespondAddress.slice(2), "hex")
+    );
 
     // Get current nonce for MPC signer
     const ethprovider = ethUtils.getProvider();
@@ -973,7 +1033,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         requestIdBytes,
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
-        null
+        null,
+        mpcRespondAddressBytes
       )
       .accounts({
         userBalance,
@@ -1021,10 +1082,11 @@ async function setupEventListeners(
     readRespondResolve = resolve;
   });
 
-  const rootPublicKeyUncompressed = secp256k1.getPublicKey(
-    CONFIG.MPC_ROOT_KEY.slice(2),
-    false
+  const rootPublicKeyUncompressed = Array.from(
+    Buffer.from(CONFIG.BASE_PUBLIC_KEY.slice(2), "hex")
   );
+
+  console.log(" 🔑 Root public key:", rootPublicKeyUncompressed);
 
   // Remove the 04 prefix and convert to base58
   // signet.js expects: secp256k1:{base58_of_uncompressed_key_without_04}
@@ -1045,6 +1107,9 @@ async function setupEventListeners(
     onSignatureResponded: (event, slot) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
+
+      console.log("  🔑 Event request ID:", eventRequestId);
+      console.log("  🔑 Request ID:", requestId);
 
       if (eventRequestId === requestId) {
         console.log("  ✅ Signature received (slot:", slot, ")");
@@ -1086,6 +1151,8 @@ async function setupEventListeners(
     (event: any) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
+      console.log("  🔑 Event request ID:", eventRequestId);
+      console.log("  🔑 Request ID:", requestId);
       if (eventRequestId === requestId) {
         console.log("  ✅ Respond bidirectional event received!");
         readRespondResolve(event);

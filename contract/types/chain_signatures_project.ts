@@ -5,10 +5,10 @@
  * IDL can be found at `target/idl/chain_signatures_project.json`.
  */
 export type ChainSignaturesProject = {
-  address: "H5tHfpYoEnarrrzcV7sWBcZhiKMvL2aRpUYvb1ydWkwS";
+  address: "4QuCXDxpYjD8XnQivRVQcfhFGyS68TBEeek926KfD48Y";
   metadata: {
     name: "chainSignatures";
-    version: "0.1.3";
+    version: "0.4.0";
     spec: "0.1.0";
     description: "Chain signatures program for cross-chain signing on Solana";
     repository: "https://github.com/sig-net/signet-solana-program";

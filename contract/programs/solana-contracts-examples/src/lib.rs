@@ -10,7 +10,7 @@ use ::chain_signatures::Signature;
 pub use constants::*;
 pub use state::*;
 
-declare_id!("rqHSrDmbKyH17Dm9cRtnC4hCGPG2DXbSXfVG4pteitA");
+declare_id!("BJWqq4qsyo628Gv3wLpNnPdEn9HH74LFjFjjm8p6HZ6f");
 
 #[program]
 pub mod solana_core_contracts {
@@ -18,19 +18,19 @@ pub mod solana_core_contracts {
 
     pub fn initialize_config(
         ctx: Context<InitializeConfig>,
-        mpc_root_signer_pubkey: [u8; 65],
+        mpc_root_signer_address: [u8; 20],
     ) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        config.mpc_root_signer_pubkey = mpc_root_signer_pubkey;
+        config.mpc_root_signer_address = mpc_root_signer_address;
         Ok(())
     }
 
     pub fn update_config(
         ctx: Context<UpdateConfig>,
-        mpc_root_signer_pubkey: [u8; 65],
+        mpc_root_signer_address: [u8; 20],
     ) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        config.mpc_root_signer_pubkey = mpc_root_signer_pubkey;
+        config.mpc_root_signer_address = mpc_root_signer_address;
         Ok(())
     }
 
@@ -60,6 +60,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
+        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::erc20_vault::claim_erc20(
             ctx,
@@ -67,6 +68,7 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             ethereum_tx_hash,
+            expected_address,
         )
     }
 
@@ -94,6 +96,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
+        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::erc20_vault::complete_withdraw_erc20(
             ctx,
@@ -101,6 +104,7 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             ethereum_tx_hash,
+            expected_address,
         )
     }
 }
@@ -243,13 +247,6 @@ pub struct ClaimErc20<'info> {
         bump
     )]
     pub transaction_history: Account<'info, UserTransactionHistory>,
-    #[account(
-        mut,
-        seeds = [b"vault_authority"],
-        bump
-    )]
-    /// CHECK: This is a PDA that will be used as a signer
-    pub requester: AccountInfo<'info>,
 }
 
 // Add the contexts:
@@ -377,11 +374,4 @@ pub struct CompleteWithdrawErc20<'info> {
         bump
     )]
     pub transaction_history: Account<'info, UserTransactionHistory>,
-    #[account(
-        mut,
-        seeds = [b"global_vault_authority"],
-        bump
-    )]
-    /// CHECK: This is a PDA that will be used as a signer
-    pub requester: AccountInfo<'info>,
 }

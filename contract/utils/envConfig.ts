@@ -33,10 +33,7 @@ const envSchema = z
         "Must be a valid URL"
       ),
     SOLANA_PRIVATE_KEY: z.string(),
-    DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: z
-      .string()
-      .optional()
-      .default("false"),
+    DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: z.string().optional().default("true"),
   })
   .superRefine((data, ctx) => {
     if (!data.MPC_ROOT_KEY && !data.BASE_PUBLIC_KEY) {
@@ -99,15 +96,15 @@ export const CONFIG = {
     ENV_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER === "true",
   MPC_ROOT_KEY: ENV_CONFIG.MPC_ROOT_KEY,
   // Get tokens here: https://swap.cow.fi/#/11155111/swap/ETH/0xbe72E441BF55620febc26715db68d3494213D8Cb
-  USDC_ADDRESS_SEPOLIA: "0xbe72E441BF55620febc26715db68d3494213D8Cb",
+  USDC_ADDRESS_SEPOLIA: "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
   WITHDRAWAL_RECIPIENT_ADDRESS: "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f",
   SEPOLIA_CHAIN_ID: 11155111,
   ETHEREUM_CAIP2_ID: "eip155:11155111",
   EPSILON_DERIVATION_PREFIX: "sig.network v1.0.0 epsilon derivation",
   SOLANA_CHAIN_ID: "0x800001f5",
   WAIT_FOR_FUNDING_MS: 5000,
-  TRANSFER_AMOUNT: "0.01",
-  DECIMALS: 18,
+  TRANSFER_AMOUNT: "1",
+  DECIMALS: 6,
   GAS_BUFFER_PERCENT: 20,
 } as const;
 
