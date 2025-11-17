@@ -29,5 +29,5 @@ hex                  = "0.4"
 chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", features = ["cpi"] }
 base64ct             = { workspace = true }
 ruint                = { workspace = true }
-mpc-address-derivation-utils = { git = "https://github.com/sig-net/mpc", branch = "xiangyi/refactor_derive_user_addres" }
+mpc-address-derivation-utils = { git = "https://github.com/sig-net/mpc", rev = "fc1bdc06e7fc67b4fe2c45ab90bb8a9bd05a808f" }
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

@@ -446,8 +446,11 @@ pub fn complete_withdraw_erc20(
     let message_hash = hash_message(&request_id, &serialized_output);
     // Verify the signature
     let requester = ctx.accounts.requester.key();
-    let epsilon =
-        mpc_crypto::kdf::derive_epsilon_sol(0, &requester.to_string(), HARDCODED_RESPONSE_KEY);
+    let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
+        0,
+        &requester.to_string(),
+        HARDCODED_RESPONSE_KEY,
+    );
 
     // Convert MPC root signer public key to AffinePoint
     let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
