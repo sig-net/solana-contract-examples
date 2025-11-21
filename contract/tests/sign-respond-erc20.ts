@@ -276,7 +276,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-      globalVaultAuthority.toString(),
+      vaultAuthority.toString(),
       "solana response key",
       CONFIG.SOLANA_CHAIN_ID
     );
@@ -373,6 +373,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       provider,
       requestId,
       derivedAddress,
+      mpcRespondAddress,
       rlpEncodedTx
     );
 
@@ -653,6 +654,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       provider,
       requestId,
       signerAddress,
+      mpcRespondAddress,
       rlpEncodedTx
     );
 
@@ -940,6 +942,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       provider,
       requestId,
       signerAddress,
+      mpcRespondAddress,
       rlpEncodedTx
     );
 
@@ -1069,6 +1072,7 @@ async function setupEventListeners(
   provider: anchor.AnchorProvider,
   requestId: string,
   derivedAddress: string,
+  mpcRespondAddress: string,
   rlpEncodedTx: string
 ) {
   let signatureResolve: (value: any) => void;
@@ -1107,10 +1111,6 @@ async function setupEventListeners(
     onSignatureResponded: (event, slot) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
-
-      console.log("  🔑 Event request ID:", eventRequestId);
-      console.log("  🔑 Request ID:", requestId);
-
       if (eventRequestId === requestId) {
         console.log("  ✅ Signature received (slot:", slot, ")");
 
@@ -1151,11 +1151,25 @@ async function setupEventListeners(
     (event: any) => {
       const eventRequestId =
         "0x" + Buffer.from(event.requestId).toString("hex");
-      console.log("  🔑 Event request ID:", eventRequestId);
-      console.log("  🔑 Request ID:", requestId);
       if (eventRequestId === requestId) {
         console.log("  ✅ Respond bidirectional event received!");
-        readRespondResolve(event);
+        // Verify signature
+        const signature = event.signature;
+        const r = "0x" + Buffer.from(signature.bigR.x).toString("hex");
+        const s = "0x" + Buffer.from(signature.s).toString("hex");
+        const v = BigInt(signature.recoveryId + 27);
+
+        const txHash = ethers.keccak256(rlpEncodedTx);
+        const recoveredAddress = ethers.recoverAddress(txHash, { r, s, v });
+
+        if (
+          recoveredAddress.toLowerCase() !== mpcRespondAddress.toLowerCase()
+        ) {
+          console.error("❌ Signature verification failed!");
+          console.error("  Expected:", mpcRespondAddress);
+          console.error("  Recovered:", recoveredAddress);
+          throw new Error("Signature does not match mpcRespondAddress");
+        }
       }
     }
   );

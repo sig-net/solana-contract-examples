@@ -211,22 +211,6 @@ pub fn claim_erc20(
     let message_hash = hash_message(&request_id, &serialized_output);
 
     // Verify the signature
-    // let requester = ctx.accounts.requester.key();
-    // let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
-    //     0,
-    //     &requester.to_string(),
-    //     HARDCODED_RESPONSE_KEY,
-    // );
-
-    // // Convert MPC root signer public key to AffinePoint
-    // let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
-    // let encoded_point = EncodedPoint::from_bytes(&pubkey_bytes)
-    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
-    // let affine_point = AffinePoint::try_from(&encoded_point)
-    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
-
-    // let expected_address_obj =
-    //     mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
     let expected_address = format!("0x{}", hex::encode(expected_address));
 
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
@@ -445,22 +429,6 @@ pub fn complete_withdraw_erc20(
 
     let message_hash = hash_message(&request_id, &serialized_output);
     // Verify the signature
-    // let requester = ctx.accounts.requester.key();
-    // let epsilon = mpc_address_derivation_utils::derive_epsilon_sol(
-    //     0,
-    //     &requester.to_string(),
-    //     HARDCODED_RESPONSE_KEY,
-    // );
-
-    // // Convert MPC root signer public key to AffinePoint
-    // let pubkey_bytes = ctx.accounts.config.mpc_root_signer_pubkey;
-    // let encoded_point = EncodedPoint::from_bytes(&pubkey_bytes)
-    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
-    // let affine_point = AffinePoint::try_from(&encoded_point)
-    //     .map_err(|_| crate::error::ErrorCode::InvalidSignature)?;
-
-    // let expected_address_obj =
-    //     mpc_address_derivation_utils::derive_user_address(affine_point, epsilon);
     let expected_address = format!("0x{}", hex::encode(expected_address));
 
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;

@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/chain_signatures_project.json`.
  */
 export type ChainSignaturesProject = {
-  address: "4QuCXDxpYjD8XnQivRVQcfhFGyS68TBEeek926KfD48Y";
+  address: "H5tHfpYoEnarrrzcV7sWBcZhiKMvL2aRpUYvb1ydWkwS";
   metadata: {
     name: "chainSignatures";
     version: "0.4.0";
@@ -94,14 +94,8 @@ export type ChainSignaturesProject = {
         }
       ];
       args: [
-        {
-          name: "signatureDeposit";
-          type: "u64";
-        },
-        {
-          name: "chainId";
-          type: "string";
-        }
+        { name: "signatureDeposit"; type: "u64" },
+        { name: "chainId"; type: "string" }
       ];
     },
     {
@@ -111,10 +105,7 @@ export type ChainSignaturesProject = {
       ];
       discriminator: [72, 65, 227, 97, 42, 255, 147, 12];
       accounts: [
-        {
-          name: "responder";
-          signer: true;
-        },
+        { name: "responder"; signer: true },
         {
           name: "eventAuthority";
           pda: {
@@ -144,28 +135,16 @@ export type ChainSignaturesProject = {
             ];
           };
         },
-        {
-          name: "program";
-        }
+        { name: "program" }
       ];
       args: [
         {
           name: "requestIds";
-          type: {
-            vec: {
-              array: ["u8", 32];
-            };
-          };
+          type: { vec: { array: ["u8", 32] } };
         },
         {
           name: "signatures";
-          type: {
-            vec: {
-              defined: {
-                name: "signature";
-              };
-            };
-          };
+          type: { vec: { defined: { name: "signature" } } };
         }
       ];
     },
@@ -175,31 +154,11 @@ export type ChainSignaturesProject = {
         "* @dev Function to finalize bidirectional flow\n     * @param request_id The ID of the signature request to respond to\n     * @param serialized_output output of the previously executed transaction\n     * @param signature ECDSA signature of the serialized output and request_id (keccak256(request_id.concat(serialized_output)))"
       ];
       discriminator: [138, 0, 45, 246, 236, 211, 109, 81];
-      accounts: [
-        {
-          name: "responder";
-          signer: true;
-        }
-      ];
+      accounts: [{ name: "responder"; signer: true }];
       args: [
-        {
-          name: "requestId";
-          type: {
-            array: ["u8", 32];
-          };
-        },
-        {
-          name: "serializedOutput";
-          type: "bytes";
-        },
-        {
-          name: "signature";
-          type: {
-            defined: {
-              name: "signature";
-            };
-          };
-        }
+        { name: "requestId"; type: { array: ["u8", 32] } },
+        { name: "serializedOutput"; type: "bytes" },
+        { name: "signature"; type: { defined: { name: "signature" } } }
       ];
     },
     {
@@ -208,22 +167,11 @@ export type ChainSignaturesProject = {
         "* @dev Function to emit signature generation errors.\n     * @param errors The array of signature generation errors."
       ];
       discriminator: [3, 170, 41, 132, 72, 184, 252, 69];
-      accounts: [
-        {
-          name: "responder";
-          signer: true;
-        }
-      ];
+      accounts: [{ name: "responder"; signer: true }];
       args: [
         {
           name: "errors";
-          type: {
-            vec: {
-              defined: {
-                name: "errorResponse";
-              };
-            };
-          };
+          type: { vec: { defined: { name: "errorResponse" } } };
         }
       ];
     },
@@ -260,21 +208,9 @@ export type ChainSignaturesProject = {
             ];
           };
         },
-        {
-          name: "requester";
-          writable: true;
-          signer: true;
-        },
-        {
-          name: "feePayer";
-          writable: true;
-          signer: true;
-          optional: true;
-        },
-        {
-          name: "systemProgram";
-          address: "11111111111111111111111111111111";
-        },
+        { name: "requester"; writable: true; signer: true },
+        { name: "feePayer"; writable: true; signer: true; optional: true },
+        { name: "systemProgram"; address: "11111111111111111111111111111111" },
         {
           name: "eventAuthority";
           pda: {
@@ -304,37 +240,15 @@ export type ChainSignaturesProject = {
             ];
           };
         },
-        {
-          name: "program";
-        }
+        { name: "program" }
       ];
       args: [
-        {
-          name: "payload";
-          type: {
-            array: ["u8", 32];
-          };
-        },
-        {
-          name: "keyVersion";
-          type: "u32";
-        },
-        {
-          name: "path";
-          type: "string";
-        },
-        {
-          name: "algo";
-          type: "string";
-        },
-        {
-          name: "dest";
-          type: "string";
-        },
-        {
-          name: "params";
-          type: "string";
-        }
+        { name: "payload"; type: { array: ["u8", 32] } },
+        { name: "keyVersion"; type: "u32" },
+        { name: "path"; type: "string" },
+        { name: "algo"; type: "string" },
+        { name: "dest"; type: "string" },
+        { name: "params"; type: "string" }
       ];
     },
     {
@@ -370,25 +284,10 @@ export type ChainSignaturesProject = {
             ];
           };
         },
-        {
-          name: "requester";
-          writable: true;
-          signer: true;
-        },
-        {
-          name: "feePayer";
-          writable: true;
-          signer: true;
-          optional: true;
-        },
-        {
-          name: "systemProgram";
-          address: "11111111111111111111111111111111";
-        },
-        {
-          name: "instructions";
-          optional: true;
-        },
+        { name: "requester"; writable: true; signer: true },
+        { name: "feePayer"; writable: true; signer: true; optional: true },
+        { name: "systemProgram"; address: "11111111111111111111111111111111" },
+        { name: "instructions"; optional: true },
         {
           name: "eventAuthority";
           pda: {
@@ -418,51 +317,19 @@ export type ChainSignaturesProject = {
             ];
           };
         },
-        {
-          name: "program";
-        }
+        { name: "program" }
       ];
       args: [
-        {
-          name: "serializedTransaction";
-          type: "bytes";
-        },
-        {
-          name: "caip2Id";
-          type: "string";
-        },
-        {
-          name: "keyVersion";
-          type: "u32";
-        },
-        {
-          name: "path";
-          type: "string";
-        },
-        {
-          name: "algo";
-          type: "string";
-        },
-        {
-          name: "dest";
-          type: "string";
-        },
-        {
-          name: "params";
-          type: "string";
-        },
-        {
-          name: "programId";
-          type: "pubkey";
-        },
-        {
-          name: "outputDeserializationSchema";
-          type: "bytes";
-        },
-        {
-          name: "respondSerializationSchema";
-          type: "bytes";
-        }
+        { name: "serializedTransaction"; type: "bytes" },
+        { name: "caip2Id"; type: "string" },
+        { name: "keyVersion"; type: "u32" },
+        { name: "path"; type: "string" },
+        { name: "algo"; type: "string" },
+        { name: "dest"; type: "string" },
+        { name: "params"; type: "string" },
+        { name: "programId"; type: "pubkey" },
+        { name: "outputDeserializationSchema"; type: "bytes" },
+        { name: "respondSerializationSchema"; type: "bytes" }
       ];
     },
     {
@@ -504,17 +371,9 @@ export type ChainSignaturesProject = {
           signer: true;
           relations: ["programState"];
         },
-        {
-          name: "systemProgram";
-          address: "11111111111111111111111111111111";
-        }
+        { name: "systemProgram"; address: "11111111111111111111111111111111" }
       ];
-      args: [
-        {
-          name: "newDeposit";
-          type: "u64";
-        }
-      ];
+      args: [{ name: "newDeposit"; type: "u64" }];
     },
     {
       name: "withdrawFunds";
@@ -560,17 +419,9 @@ export type ChainSignaturesProject = {
           docs: ["function by checking it is not the zero address."];
           writable: true;
         },
-        {
-          name: "systemProgram";
-          address: "11111111111111111111111111111111";
-        }
+        { name: "systemProgram"; address: "11111111111111111111111111111111" }
       ];
-      args: [
-        {
-          name: "amount";
-          type: "u64";
-        }
-      ];
+      args: [{ name: "amount"; type: "u64" }];
     }
   ];
   accounts: [
@@ -620,26 +471,14 @@ export type ChainSignaturesProject = {
       name: "invalidInputLength";
       msg: "Arrays must have the same length";
     },
-    {
-      code: 6002;
-      name: "unauthorized";
-      msg: "Unauthorized access";
-    },
+    { code: 6002; name: "unauthorized"; msg: "Unauthorized access" },
     {
       code: 6003;
       name: "insufficientFunds";
       msg: "Insufficient funds for withdrawal";
     },
-    {
-      code: 6004;
-      name: "invalidRecipient";
-      msg: "Invalid recipient address";
-    },
-    {
-      code: 6005;
-      name: "invalidTransaction";
-      msg: "Invalid transaction data";
-    },
+    { code: 6004; name: "invalidRecipient"; msg: "Invalid recipient address" },
+    { code: 6005; name: "invalidTransaction"; msg: "Invalid transaction data" },
     {
       code: 6006;
       name: "missingInstructionSysvar";
@@ -652,18 +491,8 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "x";
-            type: {
-              array: ["u8", 32];
-            };
-          },
-          {
-            name: "y";
-            type: {
-              array: ["u8", 32];
-            };
-          }
+          { name: "x"; type: { array: ["u8", 32] } },
+          { name: "y"; type: { array: ["u8", 32] } }
         ];
       };
     },
@@ -675,14 +504,8 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "oldDeposit";
-            type: "u64";
-          },
-          {
-            name: "newDeposit";
-            type: "u64";
-          }
+          { name: "oldDeposit"; type: "u64" },
+          { name: "newDeposit"; type: "u64" }
         ];
       };
     },
@@ -691,16 +514,8 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "requestId";
-            type: {
-              array: ["u8", 32];
-            };
-          },
-          {
-            name: "errorMessage";
-            type: "string";
-          }
+          { name: "requestId"; type: { array: ["u8", 32] } },
+          { name: "errorMessage"; type: "string" }
         ];
       };
     },
@@ -712,14 +527,8 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "amount";
-            type: "u64";
-          },
-          {
-            name: "recipient";
-            type: "pubkey";
-          }
+          { name: "amount"; type: "u64" },
+          { name: "recipient"; type: "pubkey" }
         ];
       };
     },
@@ -728,18 +537,9 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "admin";
-            type: "pubkey";
-          },
-          {
-            name: "signatureDeposit";
-            type: "u64";
-          },
-          {
-            name: "chainId";
-            type: "string";
-          }
+          { name: "admin"; type: "pubkey" },
+          { name: "signatureDeposit"; type: "u64" },
+          { name: "chainId"; type: "string" }
         ];
       };
     },
@@ -751,28 +551,10 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "requestId";
-            type: {
-              array: ["u8", 32];
-            };
-          },
-          {
-            name: "responder";
-            type: "pubkey";
-          },
-          {
-            name: "serializedOutput";
-            type: "bytes";
-          },
-          {
-            name: "signature";
-            type: {
-              defined: {
-                name: "signature";
-              };
-            };
-          }
+          { name: "requestId"; type: { array: ["u8", 32] } },
+          { name: "responder"; type: "pubkey" },
+          { name: "serializedOutput"; type: "bytes" },
+          { name: "signature"; type: { defined: { name: "signature" } } }
         ];
       };
     },
@@ -784,54 +566,18 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "sender";
-            type: "pubkey";
-          },
-          {
-            name: "serializedTransaction";
-            type: "bytes";
-          },
-          {
-            name: "caip2Id";
-            type: "string";
-          },
-          {
-            name: "keyVersion";
-            type: "u32";
-          },
-          {
-            name: "deposit";
-            type: "u64";
-          },
-          {
-            name: "path";
-            type: "string";
-          },
-          {
-            name: "algo";
-            type: "string";
-          },
-          {
-            name: "dest";
-            type: "string";
-          },
-          {
-            name: "params";
-            type: "string";
-          },
-          {
-            name: "programId";
-            type: "pubkey";
-          },
-          {
-            name: "outputDeserializationSchema";
-            type: "bytes";
-          },
-          {
-            name: "respondSerializationSchema";
-            type: "bytes";
-          }
+          { name: "sender"; type: "pubkey" },
+          { name: "serializedTransaction"; type: "bytes" },
+          { name: "caip2Id"; type: "string" },
+          { name: "keyVersion"; type: "u32" },
+          { name: "deposit"; type: "u64" },
+          { name: "path"; type: "string" },
+          { name: "algo"; type: "string" },
+          { name: "dest"; type: "string" },
+          { name: "params"; type: "string" },
+          { name: "programId"; type: "pubkey" },
+          { name: "outputDeserializationSchema"; type: "bytes" },
+          { name: "respondSerializationSchema"; type: "bytes" }
         ];
       };
     },
@@ -840,24 +586,9 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "bigR";
-            type: {
-              defined: {
-                name: "affinePoint";
-              };
-            };
-          },
-          {
-            name: "s";
-            type: {
-              array: ["u8", 32];
-            };
-          },
-          {
-            name: "recoveryId";
-            type: "u8";
-          }
+          { name: "bigR"; type: { defined: { name: "affinePoint" } } },
+          { name: "s"; type: { array: ["u8", 32] } },
+          { name: "recoveryId"; type: "u8" }
         ];
       };
     },
@@ -869,20 +600,9 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "requestId";
-            type: {
-              array: ["u8", 32];
-            };
-          },
-          {
-            name: "responder";
-            type: "pubkey";
-          },
-          {
-            name: "error";
-            type: "string";
-          }
+          { name: "requestId"; type: { array: ["u8", 32] } },
+          { name: "responder"; type: "pubkey" },
+          { name: "error"; type: "string" }
         ];
       };
     },
@@ -894,50 +614,16 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "sender";
-            type: "pubkey";
-          },
-          {
-            name: "payload";
-            type: {
-              array: ["u8", 32];
-            };
-          },
-          {
-            name: "keyVersion";
-            type: "u32";
-          },
-          {
-            name: "deposit";
-            type: "u64";
-          },
-          {
-            name: "chainId";
-            type: "string";
-          },
-          {
-            name: "path";
-            type: "string";
-          },
-          {
-            name: "algo";
-            type: "string";
-          },
-          {
-            name: "dest";
-            type: "string";
-          },
-          {
-            name: "params";
-            type: "string";
-          },
-          {
-            name: "feePayer";
-            type: {
-              option: "pubkey";
-            };
-          }
+          { name: "sender"; type: "pubkey" },
+          { name: "payload"; type: { array: ["u8", 32] } },
+          { name: "keyVersion"; type: "u32" },
+          { name: "deposit"; type: "u64" },
+          { name: "chainId"; type: "string" },
+          { name: "path"; type: "string" },
+          { name: "algo"; type: "string" },
+          { name: "dest"; type: "string" },
+          { name: "params"; type: "string" },
+          { name: "feePayer"; type: { option: "pubkey" } }
         ];
       };
     },
@@ -949,24 +635,9 @@ export type ChainSignaturesProject = {
       type: {
         kind: "struct";
         fields: [
-          {
-            name: "requestId";
-            type: {
-              array: ["u8", 32];
-            };
-          },
-          {
-            name: "responder";
-            type: "pubkey";
-          },
-          {
-            name: "signature";
-            type: {
-              defined: {
-                name: "signature";
-              };
-            };
-          }
+          { name: "requestId"; type: { array: ["u8", 32] } },
+          { name: "responder"; type: "pubkey" },
+          { name: "signature"; type: { defined: { name: "signature" } } }
         ];
       };
     }
