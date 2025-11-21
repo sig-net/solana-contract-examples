@@ -1154,21 +1154,29 @@ async function setupEventListeners(
       if (eventRequestId === requestId) {
         console.log("  ✅ Respond bidirectional event received!");
         // Verify signature
+        // Recover address from signature
+        const msgHash = hash_message(
+          eventRequestId as any,
+          event.serializedOutput
+        );
+        console.log(" 🔏 Message hash:", msgHash);
         const signature = event.signature;
         const r = "0x" + Buffer.from(signature.bigR.x).toString("hex");
         const s = "0x" + Buffer.from(signature.s).toString("hex");
         const v = BigInt(signature.recoveryId + 27);
+        // Recover address from signature
+        const recoveredAddress = ethers.recoverAddress(msgHash, { r, s, v });
 
-        const txHash = ethers.keccak256(rlpEncodedTx);
-        const recoveredAddress = ethers.recoverAddress(txHash, { r, s, v });
-
+        // Verify it matches the derived address
         if (
           recoveredAddress.toLowerCase() !== mpcRespondAddress.toLowerCase()
         ) {
-          console.error("❌ Signature verification failed!");
+          console.error("❌ read respond signature verification failed!");
           console.error("  Expected:", mpcRespondAddress);
           console.error("  Recovered:", recoveredAddress);
-          throw new Error("Signature does not match mpcRespondAddress");
+          throw new Error(
+            "read respond signature does not match mpc respond address"
+          );
         }
       }
     }
@@ -1252,4 +1260,8 @@ async function cleanupEventListeners(eventPromises: any) {
       eventPromises.readRespondListener
     );
   }
+}
+
+function hash_message(request_id: Uint8Array, serialized_output: Uint8Array) {
+  return ethers.keccak256(ethers.concat([request_id, serialized_output])); // 0x-prefixed hex
 }
