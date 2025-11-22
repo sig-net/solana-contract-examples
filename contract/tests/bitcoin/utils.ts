@@ -233,7 +233,7 @@ export type WithdrawalPlan = {
 type DepositBuildOptions =
   | {
       mode: "live_single";
-      requester?: anchor.web3.PublicKey;
+      requester: anchor.web3.PublicKey;
       amount: number;
       fee: number;
     }
@@ -527,13 +527,13 @@ export const buildDepositPlan = async (
   const { provider, bitcoinAdapter } = requireContext();
 
   // Notes on requester selection:
-  // - live_single defaults to provider.wallet (unless overridden) and always takes explicit amount/fee.
+  // - live_single always takes an explicit requester and amount/fee.
   // - live_multi requires an explicit requester Keypair so tests can exercise
   //   the “requester != fee payer” flow (multi-input happy path).
   // - mock paths accept optional requester overrides for failure-path coverage.
   switch (options.mode) {
     case "live_single": {
-      const requester = options.requester ?? provider.wallet.publicKey;
+      const requester = options.requester;
       const { path, vaultAuthority, globalVault } =
         deriveVaultContext(requester);
       const { amount, fee } = options;
@@ -1626,6 +1626,9 @@ export const buildSignatureMap = (
   signatureEvents: SignatureRespondedEventPayload[],
   expectedRequestIds: string[]
 ): SignatureMap => {
+  // TODO: map by requestId from the event (not arrival order) to avoid
+  // misalignment if signatures arrive out-of-order; current logic assumes
+  // signatureEvents aligns with expectedRequestIds by index.
   const map: SignatureMap = new Map();
   const expectedLower = expectedRequestIds.map((id) => id.toLowerCase());
   const signatures = signatureEvents.flatMap(extractSignatures);

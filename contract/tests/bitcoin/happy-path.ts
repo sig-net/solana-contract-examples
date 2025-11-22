@@ -143,10 +143,6 @@ describe("BTC Happy Path", () => {
     const { provider, program, btcUtils, bitcoinAdapter } =
       getBitcoinTestContext();
 
-    // Use a dedicated requester (separate from the fee payer) to exercise the
-    // path where vault authority is derived from a non-provider keypair.
-    // This keeps coverage for “requester != fee payer” and prevents overlap
-    // with the single-input test that uses the provider wallet.
     const secondaryRequester = anchor.web3.Keypair.generate();
     const plan = await buildDepositPlan({
       mode: "live_multi",
