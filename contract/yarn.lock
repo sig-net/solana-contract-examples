@@ -1374,10 +1374,10 @@ eyes@^0.1.8:
   resolved "https://registry.yarnpkg.com/eyes/-/eyes-0.1.8.tgz#62cf120234c683785d902348a800ef3e0cc20bc0"
   integrity sha512-GipyPsXO1anza0AOZdy69Im7hGFCNB7Y/NGjDlZGJ3GJJLtwNSb2vrzYrTYJRrRloVx7pl+bhUaTB8yiccPvFQ==
 
-fakenet-signer@^1.3.0:
-  version "1.3.0"
-  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.3.0.tgz#3ae226effd7be583d9f40ae427951b0522b9977f"
-  integrity sha512-IpLHQYFovuh2ZRh/87fmjnIZw2oA9LCJWnapleYYoWYk1axizOKTvaehw3wRzFa4JncmbkErtcqHxCorPHxp/g==
+fakenet-signer@^1.3.2:
+  version "1.3.2"
+  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.3.2.tgz#8f3db9198b0d4c39ad0829d24e007119d08ac2fa"
+  integrity sha512-M03u8kfWsh+E5QdwEfJFw0PIJstr9lJukBskM7j8T+L1/IkpYPFJPUGPvVwBpg9VgS2rnlCWxwy2EOz4N0rTKQ==
   dependencies:
     "@coral-xyz/anchor" "^0.31.0"
     "@solana/web3.js" "^1.98.0"
@@ -1388,8 +1388,6 @@ fakenet-signer@^1.3.0:
     dotenv "^17.2.3"
     ecpair "^2.1.0"
     ethers "^6.13.5"
-    picocolors "^1.1.1"
-    pino "^10.0.0"
     tiny-secp256k1 "^2.2.3"
     tsx "^4.19.2"
     zod "^4.1.11"
@@ -2119,11 +2117,6 @@ performance-now@^2.1.0:
   resolved "https://registry.yarnpkg.com/performance-now/-/performance-now-2.1.0.tgz#6309f4e0e5fa913ec1c69307ae364b4b377c9e7b"
   integrity sha512-7EAHlyLHI56VEIdK57uwHdHKIaAGbnXPiw0yWbarQZOKaKpvUIgW0jWRVLiatnM+XXlSwsanIBH/hzGMJulMow==
 
-picocolors@^1.1.1:
-  version "1.1.1"
-  resolved "https://registry.yarnpkg.com/picocolors/-/picocolors-1.1.1.tgz#3d321af3eab939b083c8f929a1d12cda81c26b6b"
-  integrity sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==
-
 picomatch@^2.0.4, picomatch@^2.2.1:
   version "2.3.1"
   resolved "https://registry.yarnpkg.com/picomatch/-/picomatch-2.3.1.tgz#3ba3833733646d9d3e4995946c1365a67fb07a42"
@@ -2141,7 +2134,7 @@ pino-std-serializers@^7.0.0:
   resolved "https://registry.yarnpkg.com/pino-std-serializers/-/pino-std-serializers-7.0.0.tgz#7c625038b13718dbbd84ab446bd673dc52259e3b"
   integrity sha512-e906FRY0+tV27iq4juKzSYPbUj2do2X2JX4EzSca1631EB2QJQUqGbDuERal7LCtOpxl6x3+nvo9NPZcmjkiFA==
 
-pino@^10.0.0, pino@^10.1.0:
+pino@^10.1.0:
   version "10.1.0"
   resolved "https://registry.yarnpkg.com/pino/-/pino-10.1.0.tgz#eb2a8a5b509fe4c75643ccec30461ea24766003a"
   integrity sha512-0zZC2ygfdqvqK8zJIr1e+wT1T/L+LF6qvqvbzEQ6tiMAoTqEVK9a1K3YRu8HEUvGEvNqZyPJTtb2sNIoTkB83w==

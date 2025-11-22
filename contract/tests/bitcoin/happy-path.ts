@@ -22,27 +22,27 @@ import {
 
 describe("BTC Happy Path", () => {
   before(async function () {
-    this.timeout(120000);
     await setupBitcoinTestContext();
   });
 
   after(async function () {
-    this.timeout(10000);
     await teardownBitcoinTestContext();
   });
 
   it("processes a single-input BTC deposit end-to-end", async function () {
-    this.timeout(45000);
     const { provider, program, btcUtils, bitcoinAdapter } =
       getBitcoinTestContext();
 
+    const singleRequester = anchor.web3.Keypair.generate();
     const plan = await buildDepositPlan({
       mode: "live_single",
-      requester: provider.wallet.publicKey,
+      requester: singleRequester.publicKey,
+      amount: 5_000,
+      fee: 200,
     });
 
     const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("user_btc_balance"), provider.wallet.publicKey.toBuffer()],
+      [Buffer.from("user_btc_balance"), singleRequester.publicKey.toBuffer()],
       program.programId
     );
 
@@ -140,10 +140,13 @@ describe("BTC Happy Path", () => {
   });
 
   it("processes a multi-input BTC deposit and only credits vault-directed value", async function () {
-    this.timeout(180000);
     const { provider, program, btcUtils, bitcoinAdapter } =
       getBitcoinTestContext();
 
+    // Use a dedicated requester (separate from the fee payer) to exercise the
+    // path where vault authority is derived from a non-provider keypair.
+    // This keeps coverage for “requester != fee payer” and prevents overlap
+    // with the single-input test that uses the provider wallet.
     const secondaryRequester = anchor.web3.Keypair.generate();
     const plan = await buildDepositPlan({
       mode: "live_multi",
@@ -265,7 +268,6 @@ describe("BTC Happy Path", () => {
   });
 
   it("processes a BTC withdrawal end-to-end", async function () {
-    this.timeout(240000);
     const { provider, program, btcUtils, bitcoinAdapter } =
       getBitcoinTestContext();
 

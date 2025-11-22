@@ -17,12 +17,10 @@ import {
 
 describe.only("BTC Sad Path", () => {
   before(async function () {
-    this.timeout(120000);
     await setupBitcoinTestContext();
   });
 
   after(async function () {
-    this.timeout(10000);
     await teardownBitcoinTestContext();
   });
 
@@ -78,7 +76,6 @@ describe.only("BTC Sad Path", () => {
   });
 
   it("rejects claims when the signing server response carries an invalid signature", async function () {
-    this.timeout(60000);
     const { provider, program } = getBitcoinTestContext();
     const plan = await buildDepositPlan({ mode: "mock" });
 
@@ -133,7 +130,6 @@ describe.only("BTC Sad Path", () => {
   });
 
   it("rejects claims when serialized outputs cannot be decoded", async function () {
-    this.timeout(60000);
     const { provider, program } = getBitcoinTestContext();
     const plan = await buildDepositPlan({ mode: "mock" });
 
@@ -172,7 +168,6 @@ describe.only("BTC Sad Path", () => {
   });
 
   it("refunds deposits when MPC output indicates transfer failure", async function () {
-    this.timeout(60000);
     const { provider, program } = getBitcoinTestContext();
     const plan = await buildDepositPlan({ mode: "mock" });
 
@@ -206,7 +201,6 @@ describe.only("BTC Sad Path", () => {
   });
 
   it("rejects withdrawals when provided inputs do not cover the requested debit", async function () {
-    this.timeout(60000);
     const { provider, program } = getBitcoinTestContext();
     const authority = await createFundedAuthority();
     await executeSyntheticDeposit(6_000, authority.publicKey);
@@ -250,7 +244,6 @@ describe.only("BTC Sad Path", () => {
   });
 
   it("rejects withdrawals when user balance cannot cover amount plus fee", async function () {
-    this.timeout(80000);
     const { provider, program } = getBitcoinTestContext();
     const authority = await createFundedAuthority();
     await executeSyntheticDeposit(1_000, authority.publicKey);
@@ -283,7 +276,6 @@ describe.only("BTC Sad Path", () => {
   });
 
   it("refunds withdrawal balances when MPC reports an error via serialized output", async function () {
-    this.timeout(80000);
     const { provider, program } = getBitcoinTestContext();
     await executeSyntheticDeposit(7_500);
 
