@@ -99,8 +99,9 @@ pub fn deposit_btc(
         .lock_time(lock_time)
         .build();
 
-    // Get the TXID from the transaction (returns [u8; 32] directly)
-    let txid_bytes = tx.compute_txid().as_byte_array();
+    // Get the TXID in explorer order for deterministic request IDs
+    let mut txid_explorer_reversed_bytes = tx.compute_txid().as_byte_array();
+    txid_explorer_reversed_bytes.reverse(); // Revert to get explorer format
 
     msg!("=== TRANSACTION BUILD DEBUG ===");
     msg!(
@@ -108,7 +109,10 @@ pub fn deposit_btc(
         tx.input.len(),
         tx.output.len()
     );
-    msg!("Transaction TXID: {}", hex::encode(&txid_bytes));
+    msg!(
+        "Transaction TXID (explorer order): {}",
+        hex::encode(&txid_explorer_reversed_bytes)
+    );
 
     // Generate PSBT for MPC signing (includes metadata for signing)
     let mut psbt = Psbt::from_unsigned_tx(tx);
@@ -128,7 +132,10 @@ pub fn deposit_btc(
     // Use CAIP-2 ID from transaction params (network-specific genesis block hash)
     msg!("=== REQUEST ID CALCULATION DEBUG ===");
     msg!("Sender (requester): {}", ctx.accounts.requester_pda.key());
-    msg!("TXID (computed): {}", hex::encode(&txid_bytes));
+    msg!(
+        "TXID (explorer order): {}",
+        hex::encode(&txid_explorer_reversed_bytes)
+    );
     msg!("PSBT length: {} bytes", psbt_bytes.len());
     msg!("CAIP-2 ID: {}", caip2_id);
     msg!("Path: {}", path);
@@ -136,7 +143,7 @@ pub fn deposit_btc(
     // Generate request ID using TXID (deterministic!)
     let computed_request_id = generate_sign_bidirectional_request_id(
         &ctx.accounts.requester_pda.key(),
-        &txid_bytes,
+        &txid_explorer_reversed_bytes,
         &caip2_id,
         0,
         &path,
@@ -398,8 +405,9 @@ pub fn withdraw_btc(
         .lock_time(lock_time)
         .build();
 
-    // Get the TXID from the transaction (returns [u8; 32] directly)
-    let txid_bytes = tx.compute_txid().as_byte_array();
+    // Get the TXID in explorer order for deterministic request IDs
+    let mut txid_explorer_reversed_bytes = tx.compute_txid().as_byte_array();
+    txid_explorer_reversed_bytes.reverse(); // Revert to get explorer format
 
     msg!("=== TRANSACTION BUILD DEBUG ===");
     msg!(
@@ -407,7 +415,10 @@ pub fn withdraw_btc(
         tx.input.len(),
         tx.output.len()
     );
-    msg!("Transaction TXID: {}", hex::encode(&txid_bytes));
+    msg!(
+        "Transaction TXID (explorer order): {}",
+        hex::encode(&txid_explorer_reversed_bytes)
+    );
 
     // Generate PSBT for MPC signing (includes metadata for signing)
     let mut psbt = Psbt::from_unsigned_tx(tx);
@@ -426,7 +437,10 @@ pub fn withdraw_btc(
 
     msg!("=== REQUEST ID CALCULATION DEBUG ===");
     msg!("Sender (requester): {}", ctx.accounts.requester.key());
-    msg!("TXID (computed): {}", hex::encode(&txid_bytes));
+    msg!(
+        "TXID (explorer order): {}",
+        hex::encode(&txid_explorer_reversed_bytes)
+    );
     msg!("PSBT length: {} bytes", psbt_bytes.len());
     msg!("CAIP-2 ID: {}", caip2_id);
     msg!("Path: {}", path);
@@ -434,7 +448,7 @@ pub fn withdraw_btc(
     // Generate request ID using TXID (deterministic!)
     let computed_request_id = generate_sign_bidirectional_request_id(
         &ctx.accounts.requester.key(),
-        &txid_bytes,
+        &txid_explorer_reversed_bytes,
         &caip2_id,
         0,
         &path,

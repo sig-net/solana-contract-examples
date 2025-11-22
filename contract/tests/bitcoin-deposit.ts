@@ -124,7 +124,7 @@ type DepositPlan = {
   btcOutputs: BtcOutput[];
   txParams: BtcDepositParams;
   path: string;
-  txidBeHex: string;
+  txidExplorerHex: string;
   respondRequestIdHex: string;
   respondRequestIdBytes: number[];
   vaultAuthorityPubkey: anchor.web3.PublicKey;
@@ -147,7 +147,7 @@ type WithdrawalPlan = {
   fee: BN;
   recipientAddress: string;
   txParams: BtcWithdrawParams;
-  txidBeHex: string;
+  txidExplorerHex: string;
   respondRequestIdHex: string;
   respondRequestIdBytes: number[];
   globalVaultPubkey: anchor.web3.PublicKey;
@@ -266,13 +266,12 @@ const composeDepositPlan = (
     );
   });
 
-  const txidBeHex = tx.getId();
-  const txidBytes = Buffer.from(txidBeHex, "hex");
-  const txidInternal = Buffer.from(txidBeHex, "hex").reverse();
-  // Program seed + signature verification (on-chain) still use the internal ordering
+  const txidExplorerHex = tx.getId();
+  const txidBytes = Buffer.from(txidExplorerHex, "hex");
+  // Aggregated request IDs must use explorer-order txids (no byte reversal)
   const requestIdHex = RequestIdGenerator.generateSignBidirectionalRequestId(
     params.vaultAuthority.toString(),
-    Array.from(txidInternal),
+    Array.from(txidBytes),
     params.txParams.caip2Id,
     0,
     params.path,
@@ -281,7 +280,7 @@ const composeDepositPlan = (
     ""
   );
   const requestIdBytes = Array.from(Buffer.from(requestIdHex.slice(2), "hex"));
-  // Respond/broadcast aggregate request id (uses txid BE per server docs)
+  // Respond/broadcast aggregate request id (uses explorer-order txid)
   const respondRequestIdHex =
     RequestIdGenerator.generateSignBidirectionalRequestId(
       params.vaultAuthority.toString(),
@@ -297,7 +296,7 @@ const composeDepositPlan = (
     Buffer.from(respondRequestIdHex.slice(2), "hex")
   );
   console.log(
-    "[derive] deposit respondRequestIdHex (tx hash BE):",
+    "[derive] deposit respondRequestIdHex (tx hash explorer-order):",
     respondRequestIdHex
   );
 
@@ -315,7 +314,7 @@ const composeDepositPlan = (
     btcOutputs: params.btcOutputs,
     txParams: params.txParams,
     path: params.path,
-    txidBeHex,
+    txidExplorerHex,
     respondRequestIdHex,
     respondRequestIdBytes,
     vaultAuthorityPubkey: params.vaultAuthority,
@@ -378,11 +377,12 @@ const composeWithdrawalPlan = (
     tx.addOutput(params.vaultScript, BigInt(changeValue));
   }
 
-  const txidBeHex = tx.getId();
-  const txidBytes = Buffer.from(txidBeHex, "hex");
+  const txidExplorerHex = tx.getId();
+  const txidBytes = Buffer.from(txidExplorerHex, "hex");
+  // Aggregated request IDs must use explorer-order txids (no byte reversal)
   const requestIdHex = RequestIdGenerator.generateSignBidirectionalRequestId(
     params.globalVault.toString(),
-    Array.from(Buffer.from(txidBeHex, "hex").reverse()),
+    Array.from(txidBytes),
     params.caip2Id,
     0,
     WITHDRAW_PATH,
@@ -391,7 +391,7 @@ const composeWithdrawalPlan = (
     ""
   );
   const requestIdBytes = Array.from(Buffer.from(requestIdHex.slice(2), "hex"));
-  // Respond/broadcast aggregate request id (uses txid BE per server docs)
+  // Respond/broadcast aggregate request id (uses explorer-order txid)
   const respondRequestIdHex =
     RequestIdGenerator.generateSignBidirectionalRequestId(
       params.globalVault.toString(),
@@ -421,7 +421,7 @@ const composeWithdrawalPlan = (
     fee: params.fee,
     recipientAddress: params.recipientAddress,
     txParams,
-    txidBeHex,
+    txidExplorerHex,
     respondRequestIdHex,
     respondRequestIdBytes,
     globalVaultPubkey: params.globalVault,
@@ -433,7 +433,7 @@ const composeWithdrawalPlan = (
 
 type RequestIdComputationParams = {
   sender: string;
-  txidBeHex: string;
+  txidExplorerHex: string;
   inputCount: number;
   caip2Id: string;
   path: string;
@@ -445,7 +445,7 @@ type RequestIdComputationParams = {
 
 const computePerInputRequestIds = ({
   sender,
-  txidBeHex,
+  txidExplorerHex,
   inputCount,
   caip2Id,
   path,
@@ -454,7 +454,7 @@ const computePerInputRequestIds = ({
   dest = "bitcoin",
   params = "",
 }: RequestIdComputationParams): string[] => {
-  const txidBytes = Buffer.from(txidBeHex, "hex");
+  const txidBytes = Buffer.from(txidExplorerHex, "hex");
   const ids: string[] = [];
 
   for (let i = 0; i < inputCount; i++) {
@@ -482,7 +482,7 @@ const computePerInputRequestIds = ({
 const computeDepositSignatureRequestIds = (plan: DepositPlan): string[] =>
   computePerInputRequestIds({
     sender: plan.vaultAuthorityPubkey.toString(),
-    txidBeHex: plan.txidBeHex,
+    txidExplorerHex: plan.txidExplorerHex,
     inputCount: plan.btcInputs.length,
     caip2Id: plan.txParams.caip2Id,
     path: plan.path,
@@ -491,7 +491,7 @@ const computeDepositSignatureRequestIds = (plan: DepositPlan): string[] =>
 const computeWithdrawalSignatureRequestIds = (plan: WithdrawalPlan): string[] =>
   computePerInputRequestIds({
     sender: plan.globalVaultPubkey.toString(),
-    txidBeHex: plan.txidBeHex,
+    txidExplorerHex: plan.txidExplorerHex,
     inputCount: plan.inputs.length,
     caip2Id: plan.txParams.caip2Id,
     path: WITHDRAW_PATH,
