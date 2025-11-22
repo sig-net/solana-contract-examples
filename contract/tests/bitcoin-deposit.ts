@@ -125,6 +125,11 @@ type BtcTarget = {
   compressedPubkey: Buffer;
 };
 
+type BtcDestination = {
+  address: string;
+  script: Buffer;
+};
+
 type DepositPlan = {
   requester: anchor.web3.PublicKey;
   btcInputs: BtcInput[];
@@ -133,7 +138,7 @@ type DepositPlan = {
   path: string;
   txidExplorerHex: string;
   requestIdHex: `0x${string}`;
-  creditedAmount: number;
+  creditedAmount: BN;
   vaultAuthority: BtcTarget;
   globalVault: BtcTarget;
   changeScript?: Buffer;
@@ -143,12 +148,10 @@ type WithdrawalPlan = {
   inputs: BtcInput[];
   amount: BN;
   fee: BN;
-  recipientAddress: string;
+  recipient: BtcDestination;
   txParams: BtcWithdrawParams;
   txidExplorerHex: string;
   requestIdHex: `0x${string}`;
-  withdrawAddress: string;
-  withdrawScript: Buffer;
   globalVault: BtcTarget;
   selectedUtxos: UTXO[];
   feeBudget: number;
@@ -211,10 +214,7 @@ type VaultContext = GlobalVaultContext & {
   vaultAuthority: BtcTarget;
 };
 
-const bnToNumber = (value: BN | number): number =>
-  BN.isBN(value) ? value.toNumber() : value;
-
-const bnToBigInt = (value: BN | number): bigint =>
+const bnToBigInt = (value: BN | number | bigint): bigint =>
   BN.isBN(value) ? BigInt(value.toString()) : BigInt(value);
 
 const bufferFromBytes = (value: Buffer | number[] | Uint8Array): Buffer =>
@@ -227,21 +227,16 @@ const requestIdToBytes = (hexId: `0x${string}`): number[] =>
 const planRequestIdBytes = (plan: { requestIdHex: string }): number[] =>
   requestIdToBytes(plan.requestIdHex as `0x${string}`);
 
-const composeDepositPlan = (
-  params: {
-    requester: anchor.web3.PublicKey;
-    btcInputs: BtcInput[];
-    btcOutputs: BtcOutput[];
-    txParams: BtcDepositParams;
-    path: string;
-    vaultAuthority: BtcTarget;
-  },
-  metadata: {
-    vaultAuthority: BtcTarget;
-    globalVault: BtcTarget;
-    changeScript?: Buffer;
-  }
-): DepositPlan => {
+const composeDepositPlan = (params: {
+  requester: anchor.web3.PublicKey;
+  btcInputs: BtcInput[];
+  btcOutputs: BtcOutput[];
+  txParams: BtcDepositParams;
+  path: string;
+  vaultAuthority: BtcTarget;
+  globalVault: BtcTarget;
+  changeScript?: Buffer;
+}): DepositPlan => {
   if (!program) {
     throw new Error(
       "Program must be initialized before building deposit plans"
@@ -280,8 +275,8 @@ const composeDepositPlan = (
   ).toString("hex");
   const creditedAmount = params.btcOutputs.reduce((acc, output) => {
     const scriptHex = Buffer.from(output.scriptPubkey).toString("hex");
-    return scriptHex === vaultScriptHex ? acc + bnToNumber(output.value) : acc;
-  }, 0);
+    return scriptHex === vaultScriptHex ? acc.add(output.value) : acc;
+  }, new BN(0));
 
   return {
     requester: params.requester,
@@ -293,8 +288,8 @@ const composeDepositPlan = (
     requestIdHex,
     creditedAmount,
     vaultAuthority: params.vaultAuthority,
-    globalVault: metadata.globalVault,
-    changeScript: metadata.changeScript,
+    globalVault: params.globalVault,
+    changeScript: params.changeScript,
   };
 };
 
@@ -303,16 +298,13 @@ const composeWithdrawalPlan = (
     inputs: BtcInput[];
     amount: BN;
     fee: BN;
-    recipientScript: Buffer;
-    recipientAddress: string;
+    recipient: BtcDestination;
     vaultScript: Buffer;
     caip2Id: string;
     lockTime: number;
     globalVault: BtcTarget;
   },
   metadata: {
-    withdrawAddress: string;
-    withdrawScript: Buffer;
     globalVault: BtcTarget;
     selectedUtxos: UTXO[];
     feeBudget: number;
@@ -332,20 +324,18 @@ const composeWithdrawalPlan = (
     tx.addInput(Buffer.from(txidBytes).reverse(), input.vout, 0xffffffff);
   });
 
-  const amountNumber = bnToNumber(params.amount);
-  const feeNumber = bnToNumber(params.fee);
   const totalInputValue = params.inputs.reduce(
-    (acc, cur) => acc + bnToNumber(cur.value),
-    0
+    (acc, cur) => acc.add(cur.value),
+    new BN(0)
   );
-  const changeValue = totalInputValue - amountNumber - feeNumber;
-  if (changeValue < 0) {
+  const changeValue = totalInputValue.sub(params.amount).sub(params.fee);
+  if (changeValue.isNeg()) {
     throw new Error("Provided inputs do not cover amount + fee");
   }
 
-  tx.addOutput(params.recipientScript, bnToBigInt(params.amount) as bigint);
-  if (changeValue > 0) {
-    tx.addOutput(params.vaultScript, BigInt(changeValue));
+  tx.addOutput(params.recipient.script, bnToBigInt(params.amount) as bigint);
+  if (changeValue.gt(new BN(0))) {
+    tx.addOutput(params.vaultScript, bnToBigInt(changeValue) as bigint);
   }
 
   const txidExplorerHex = tx.getId();
@@ -366,7 +356,7 @@ const composeWithdrawalPlan = (
     lockTime: params.lockTime,
     caip2Id: params.caip2Id,
     vaultScriptPubkey: params.vaultScript,
-    recipientScriptPubkey: params.recipientScript,
+    recipientScriptPubkey: params.recipient.script,
     fee: params.fee,
   };
 
@@ -374,7 +364,7 @@ const composeWithdrawalPlan = (
     inputs: params.inputs,
     amount: params.amount,
     fee: params.fee,
-    recipientAddress: params.recipientAddress,
+    recipient: params.recipient,
     txParams,
     txidExplorerHex,
     requestIdHex,
@@ -430,23 +420,26 @@ const computePerInputRequestIds = ({
   return ids;
 };
 
-const computeDepositSignatureRequestIds = (plan: DepositPlan): string[] =>
-  computePerInputRequestIds({
-    sender: plan.vaultAuthority.pda.toString(),
-    txidExplorerHex: plan.txidExplorerHex,
-    inputCount: plan.btcInputs.length,
-    caip2Id: plan.txParams.caip2Id,
-    path: plan.path,
-  });
+function computeSignatureRequestIds(plan: DepositPlan): string[];
+function computeSignatureRequestIds(plan: WithdrawalPlan): string[];
+function computeSignatureRequestIds(
+  plan: DepositPlan | WithdrawalPlan
+): string[] {
+  const isDeposit = "vaultAuthority" in plan;
+  const sender = isDeposit
+    ? plan.vaultAuthority.pda.toString()
+    : plan.globalVault.pda.toString();
+  const path = isDeposit ? plan.path : WITHDRAW_PATH;
+  const inputCount = isDeposit ? plan.btcInputs.length : plan.inputs.length;
 
-const computeWithdrawalSignatureRequestIds = (plan: WithdrawalPlan): string[] =>
-  computePerInputRequestIds({
-    sender: plan.globalVault.pda.toString(),
+  return computePerInputRequestIds({
+    sender,
     txidExplorerHex: plan.txidExplorerHex,
-    inputCount: plan.inputs.length,
+    inputCount,
     caip2Id: plan.txParams.caip2Id,
-    path: WITHDRAW_PATH,
+    path,
   });
+}
 
 const buildDepositPlan = async (
   options: DepositBuildOptions
@@ -487,20 +480,15 @@ const buildDepositPlan = async (
         vaultScriptPubkey: globalVault.script,
       };
 
-      return composeDepositPlan(
-        {
-          requester,
-          btcInputs,
-          btcOutputs,
-          txParams,
-          path,
-          vaultAuthority,
-        },
-        {
-          vaultAuthority,
-          globalVault,
-        }
-      );
+      return composeDepositPlan({
+        requester,
+        btcInputs,
+        btcOutputs,
+        txParams,
+        path,
+        vaultAuthority,
+        globalVault,
+      });
     }
     case "live_multi": {
       if (!program || !btcUtils || !bitcoinAdapter) {
@@ -512,18 +500,7 @@ const buildDepositPlan = async (
         requester.publicKey
       );
 
-      const changePath = `${path}::change`;
-      const changePubkeyUncompressed =
-        signetUtils.cryptography.deriveChildPublicKey(
-          CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-          vaultAuthority.pda.toString(),
-          changePath,
-          CONFIG.SOLANA_CHAIN_ID
-        );
-      const compressedChangePubkey = btcUtils.compressPublicKey(
-        changePubkeyUncompressed
-      );
-      const changeScript = btcUtils.createP2WPKHScript(compressedChangePubkey);
+      const changeScript = deriveChangeScript(vaultAuthority, path);
 
       const inventory = await ensureUtxos(
         bitcoinAdapter,
@@ -576,21 +553,16 @@ const buildDepositPlan = async (
         vaultScriptPubkey: globalVault.script,
       };
 
-      return composeDepositPlan(
-        {
-          requester: requester.publicKey,
-          btcInputs,
-          btcOutputs,
-          txParams,
-          path,
-          vaultAuthority,
-        },
-        {
-          vaultAuthority,
-          globalVault,
-          changeScript,
-        }
-      );
+      return composeDepositPlan({
+        requester: requester.publicKey,
+        btcInputs,
+        btcOutputs,
+        txParams,
+        path,
+        vaultAuthority,
+        globalVault,
+        changeScript,
+      });
     }
     case "synthetic_live": {
       if (!program || !btcUtils || !bitcoinAdapter) {
@@ -643,20 +615,15 @@ const buildDepositPlan = async (
         vaultScriptPubkey: globalVault.script,
       };
 
-      return composeDepositPlan(
-        {
-          requester,
-          btcInputs,
-          btcOutputs,
-          txParams,
-          path,
-          vaultAuthority,
-        },
-        {
-          vaultAuthority,
-          globalVault,
-        }
-      );
+      return composeDepositPlan({
+        requester,
+        btcInputs,
+        btcOutputs,
+        txParams,
+        path,
+        vaultAuthority,
+        globalVault,
+      });
     }
     case "mock": {
       if (!program || !btcUtils) {
@@ -705,20 +672,15 @@ const buildDepositPlan = async (
         vaultScriptPubkey: globalVault.script,
       };
 
-      return composeDepositPlan(
-        {
-          requester,
-          btcInputs,
-          btcOutputs,
-          txParams,
-          path,
-          vaultAuthority,
-        },
-        {
-          vaultAuthority,
-          globalVault,
-        }
-      );
+      return composeDepositPlan({
+        requester,
+        btcInputs,
+        btcOutputs,
+        txParams,
+        path,
+        vaultAuthority,
+        globalVault,
+      });
     }
   }
 };
@@ -744,7 +706,7 @@ const buildWithdrawalPlan = async (
 
       const globalVaultUtxos =
         (await bitcoinAdapter.getAddressUtxos(globalVault.address)) ?? [];
-      const targetTotal = bnToNumber(withdrawAmountBn) + feeBudget;
+      const targetTotal = withdrawAmountBn.toNumber() + feeBudget;
       const { selected: selectedUtxos, total } = selectUtxosForTarget(
         globalVaultUtxos,
         targetTotal,
@@ -763,7 +725,6 @@ const buildWithdrawalPlan = async (
           `Unable to construct withdrawal with non-dust change (change=${changeValue} sats). Add liquidity or increase fee budget.`
         );
       }
-
 
       const externalPrivKey = randomBytes(32);
       const externalPubkey = secp256k1.getPublicKey(externalPrivKey, false);
@@ -787,16 +748,16 @@ const buildWithdrawalPlan = async (
           inputs: btcInputs,
           amount: withdrawAmountBn,
           fee: new BN(feeBudget),
-          recipientScript: withdrawScript,
-          recipientAddress: withdrawAddress,
+          recipient: {
+            script: withdrawScript,
+            address: withdrawAddress,
+          },
           vaultScript: globalVault.script,
           caip2Id: WITHDRAW_CAIP2_ID,
           lockTime: 0,
           globalVault,
         },
         {
-          withdrawAddress,
-          withdrawScript,
           globalVault,
           selectedUtxos,
           feeBudget,
@@ -841,16 +802,16 @@ const buildWithdrawalPlan = async (
           inputs: btcInputs,
           amount: new BN(amountValue),
           fee: new BN(feeValue),
-          recipientScript: withdrawScript,
-          recipientAddress: withdrawAddress,
+          recipient: {
+            script: withdrawScript,
+            address: withdrawAddress,
+          },
           vaultScript: globalVault.script,
           caip2Id: WITHDRAW_CAIP2_ID,
           lockTime: 0,
           globalVault,
         },
         {
-          withdrawAddress,
-          withdrawScript,
           globalVault,
           selectedUtxos: [],
           feeBudget: feeValue,
@@ -948,7 +909,6 @@ async function createFundedAuthority(
     throw lastError;
   }
   throw new Error(String(lastError));
-  return authority;
 }
 
 async function waitForUtxoCount(
@@ -1151,6 +1111,24 @@ const deriveVaultContext = (
   };
 };
 
+const deriveChangeScript = (
+  vaultAuthority: BtcTarget,
+  path: string
+): Buffer => {
+  const changePath = `${path}::change`;
+  const changePubkeyUncompressed =
+    signetUtils.cryptography.deriveChildPublicKey(
+      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+      vaultAuthority.pda.toString(),
+      changePath,
+      CONFIG.SOLANA_CHAIN_ID
+    );
+  const compressedChangePubkey = btcUtils.compressPublicKey(
+    changePubkeyUncompressed
+  );
+  return btcUtils.createP2WPKHScript(compressedChangePubkey);
+};
+
 const fetchUserBalance = async (authority: anchor.web3.PublicKey) => {
   if (!program) {
     throw new Error("Program is not initialized yet");
@@ -1240,13 +1218,13 @@ class BitcoinUtils {
     inputs: Array<{
       txid: string;
       vout: number;
-      value: number;
+      value: BN | number | bigint;
       scriptPubkey: Buffer;
     }>,
     outputs: Array<{
       address?: string;
       script?: Buffer;
-      value: number;
+      value: BN | number | bigint;
     }>
   ): bitcoin.Psbt {
     const psbt = new bitcoin.Psbt({ network: this.network });
@@ -1258,7 +1236,7 @@ class BitcoinUtils {
         index: input.vout,
         witnessUtxo: {
           script: Buffer.from(input.scriptPubkey),
-          value: BigInt(input.value),
+          value: bnToBigInt(input.value),
         },
       });
     }
@@ -1268,31 +1246,17 @@ class BitcoinUtils {
       if (output.address) {
         psbt.addOutput({
           address: output.address,
-          value: BigInt(output.value),
+          value: bnToBigInt(output.value),
         });
       } else if (output.script) {
         psbt.addOutput({
           script: Buffer.from(output.script),
-          value: BigInt(output.value),
+          value: bnToBigInt(output.value),
         });
       }
     }
 
     return psbt;
-  }
-
-  /**
-   * Get PSBT hex for transmission
-   */
-  getPSBTHex(psbt: bitcoin.Psbt): string {
-    return psbt.toHex();
-  }
-
-  /**
-   * Parse PSBT from hex
-   */
-  parsePSBT(hex: string): bitcoin.Psbt {
-    return bitcoin.Psbt.fromHex(hex);
   }
 }
 
@@ -1331,7 +1295,7 @@ async function ensureVaultConfigInitialized(
 
 describe.only("🪙 Bitcoin Deposit Integration", () => {
   before(async function () {
-    this.timeout(120000);
+    this.timeout(60000);
 
     provider = anchor.AnchorProvider.env();
     anchor.setProvider(provider);
@@ -1451,7 +1415,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     });
 
     const { requestIdHex } = preparedPlan;
-    const signatureRequestIds = computeDepositSignatureRequestIds(preparedPlan);
+    const signatureRequestIds = computeSignatureRequestIds(preparedPlan);
 
     const eventPromises = await setupEventListeners(
       provider,
@@ -1495,26 +1459,26 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       );
       const signatureMap = buildSignatureMap(
         signatureEvents,
-        computeDepositSignatureRequestIds(preparedPlan)
+        computeSignatureRequestIds(preparedPlan)
       );
 
       const psbt = btcUtils.buildPSBT(
         preparedPlan.btcInputs.map((input) => ({
           txid: Buffer.from(input.txid).toString("hex"),
           vout: input.vout,
-          value: bnToNumber(input.value),
+          value: input.value,
           scriptPubkey: preparedPlan.vaultAuthority.script,
         })),
         preparedPlan.btcOutputs.map((output) => ({
           script: output.scriptPubkey,
-          value: bnToNumber(output.value),
+          value: output.value,
         }))
       );
 
       applySignaturesToPsbt(
         psbt,
         signatureMap,
-        computeDepositSignatureRequestIds(preparedPlan),
+        computeSignatureRequestIds(preparedPlan),
         preparedPlan.vaultAuthority.compressedPubkey
       );
 
@@ -1608,7 +1572,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     }
 
     console.log("\n📍 STEP 2: Setting up event listeners for MPC signatures\n");
-    const signatureRequestIds = computeDepositSignatureRequestIds(plan);
+    const signatureRequestIds = computeSignatureRequestIds(plan);
     const events = await setupEventListeners(
       provider,
       signatureRequestIds,
@@ -1640,7 +1604,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       );
       const signatureMap = buildSignatureMap(
         signatureEvents,
-        computeDepositSignatureRequestIds(plan)
+        computeSignatureRequestIds(plan)
       );
 
       console.log("\n📍 STEP 5: Broadcasting signed Bitcoin transaction\n");
@@ -1648,19 +1612,19 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
         plan.btcInputs.map((input) => ({
           txid: Buffer.from(input.txid).toString("hex"),
           vout: input.vout,
-          value: bnToNumber(input.value),
+          value: input.value,
           scriptPubkey: plan.vaultAuthority.script,
         })),
         plan.btcOutputs.map((output) => ({
           script: output.scriptPubkey,
-          value: bnToNumber(output.value),
+          value: output.value,
         }))
       );
 
       applySignaturesToPsbt(
         psbt,
         signatureMap,
-        computeDepositSignatureRequestIds(plan),
+        computeSignatureRequestIds(plan),
         plan.vaultAuthority.compressedPubkey
       );
 
@@ -1694,7 +1658,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       const finalBalanceAccount = await program.account.userBtcBalance.fetch(
         userBalancePda
       );
-      const expectedBalance = initialBalance.add(new BN(plan.creditedAmount));
+      const expectedBalance = initialBalance.add(plan.creditedAmount);
       expect(finalBalanceAccount.amount.toString()).to.equal(
         expectedBalance.toString()
       );
@@ -1722,7 +1686,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     console.log(`  Global vault address: ${plan.globalVault.address}\n`);
 
     console.log("\n📍 STEP 2: Setting up event listeners for MPC signatures\n");
-    const signatureRequestIds = computeDepositSignatureRequestIds(plan);
+    const signatureRequestIds = computeSignatureRequestIds(plan);
     const events = await setupEventListeners(
       provider,
       signatureRequestIds,
@@ -1772,19 +1736,19 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       );
       const signatureMap = buildSignatureMap(
         signatureEvents,
-        computeDepositSignatureRequestIds(plan)
+        computeSignatureRequestIds(plan)
       );
 
       const psbt = btcUtils.buildPSBT(
         plan.btcInputs.map((input) => ({
           txid: Buffer.from(input.txid).toString("hex"),
           vout: input.vout,
-          value: bnToNumber(input.value),
+          value: input.value,
           scriptPubkey: plan.vaultAuthority.script,
         })),
         plan.btcOutputs.map((output) => ({
           script: output.scriptPubkey,
-          value: bnToNumber(output.value),
+          value: output.value,
         }))
       );
 
@@ -1792,7 +1756,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       applySignaturesToPsbt(
         psbt,
         signatureMap,
-        computeDepositSignatureRequestIds(plan),
+        computeSignatureRequestIds(plan),
         plan.vaultAuthority.compressedPubkey
       );
 
@@ -1820,7 +1784,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       const finalBalanceAccount = await program.account.userBtcBalance.fetch(
         userBalancePda
       );
-      const expectedBalance = initialBalance.add(new BN(plan.creditedAmount));
+      const expectedBalance = initialBalance.add(plan.creditedAmount);
       expect(finalBalanceAccount.amount.toString()).to.equal(
         expectedBalance.toString()
       );
@@ -1878,10 +1842,10 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     console.log("Starting Bitcoin Withdrawal Flow Test");
     console.log("=".repeat(80) + "\n");
     console.log(`  🏦 Global vault UTXO address: ${plan.globalVault.address}`);
-    console.log(`  🎯 Withdrawal recipient address: ${plan.withdrawAddress}`);
+    console.log(`  🎯 Withdrawal recipient address: ${plan.recipient.address}`);
 
     const initialRecipientUtxos =
-      (await bitcoinAdapter.getAddressUtxos(plan.withdrawAddress)) ?? [];
+      (await bitcoinAdapter.getAddressUtxos(plan.recipient.address)) ?? [];
     const initialRecipientBalance = initialRecipientUtxos.reduce(
       (acc, utxo) => acc + utxo.value,
       0
@@ -1903,7 +1867,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
       );
     }
 
-    const signatureRequestIds = computeWithdrawalSignatureRequestIds(plan);
+    const signatureRequestIds = computeSignatureRequestIds(plan);
     const events = await setupEventListeners(
       provider,
       signatureRequestIds,
@@ -1916,7 +1880,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
         planRequestIdBytes(plan),
         plan.inputs,
         plan.amount,
-        plan.recipientAddress,
+        plan.recipient.address,
         plan.txParams
       )
       .accounts({
@@ -1951,12 +1915,13 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     }
 
     const totalInputValue = plan.selectedUtxos.reduce(
-      (acc, utxo) => acc + utxo.value,
-      0
+      (acc, utxo) => acc.add(new BN(utxo.value)),
+      new BN(0)
     );
-    const withdrawAmount = bnToNumber(plan.amount);
-    const totalDebit = bnToNumber(totalDebitBn);
-    const changeValue = totalInputValue - totalDebit;
+    const changeValue = totalInputValue.sub(totalDebitBn);
+    if (changeValue.isNeg()) {
+      throw new Error("Selected inputs no longer cover withdrawal + fee");
+    }
 
     console.log("\n📍 STEP 3: Broadcasting signed withdrawal transaction\n");
     const withdrawPsbt = btcUtils.buildPSBT(
@@ -1967,8 +1932,8 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
         scriptPubkey: plan.globalVault.script,
       })),
       [
-        { script: plan.withdrawScript, value: withdrawAmount },
-        ...(changeValue > 0
+        { script: plan.recipient.script, value: plan.amount },
+        ...(changeValue.gt(new BN(0))
           ? [
               {
                 script: plan.globalVault.script,
@@ -2018,11 +1983,13 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
     console.log(`  SOL complete withdraw tx: ${completeTx}`);
 
     console.log("\n📍 STEP 6: Verifying post-withdrawal balance\n");
-    const expectedRecipientBalance = initialRecipientBalance + withdrawAmount;
+    const withdrawAmountNumber = plan.amount.toNumber();
+    const expectedRecipientBalance =
+      initialRecipientBalance + withdrawAmountNumber;
     let latestRecipientBalance = 0;
     for (let attempt = 0; attempt < 15; attempt++) {
       const utxos =
-        (await bitcoinAdapter.getAddressUtxos(plan.withdrawAddress)) ?? [];
+        (await bitcoinAdapter.getAddressUtxos(plan.recipient.address)) ?? [];
       latestRecipientBalance = utxos.reduce((acc, utxo) => acc + utxo.value, 0);
       if (latestRecipientBalance >= expectedRecipientBalance) {
         break;
@@ -2275,7 +2242,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
           planRequestIdBytes(withdrawPlan),
           withdrawPlan.inputs,
           withdrawPlan.amount,
-          withdrawPlan.recipientAddress,
+          withdrawPlan.recipient.address,
           withdrawPlan.txParams
         )
         .accounts({
@@ -2307,7 +2274,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
           planRequestIdBytes(withdrawPlan),
           withdrawPlan.inputs,
           withdrawPlan.amount,
-          withdrawPlan.recipientAddress,
+          withdrawPlan.recipient.address,
           withdrawPlan.txParams
         )
         .accounts({
@@ -2341,7 +2308,7 @@ describe.only("🪙 Bitcoin Deposit Integration", () => {
         planRequestIdBytes(withdrawPlan),
         withdrawPlan.inputs,
         withdrawPlan.amount,
-        withdrawPlan.recipientAddress,
+        withdrawPlan.recipient.address,
         withdrawPlan.txParams
       )
       .accounts({
