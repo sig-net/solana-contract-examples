@@ -41,6 +41,17 @@ describe.only("BTC Happy Path", () => {
       fee: 200,
     });
 
+    console.log("\n" + "=".repeat(60));
+    console.log("🚀 [btc] Single-input deposit flow");
+    console.log("=".repeat(60));
+    console.log("📍 Step 1: Plan ready");
+    console.log("  • requester:", singleRequester.publicKey.toString());
+    console.log("  • vault address:", plan.vaultAuthority.address);
+    console.log("  • global vault:", plan.globalVault.address);
+    console.log("  • amount:", plan.creditedAmount.toString());
+    console.log("  • inputs:", plan.btcInputs.length);
+    console.log("  • outputs:", plan.btcOutputs.length);
+
     const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("user_btc_balance"), singleRequester.publicKey.toBuffer()],
       program.programId
@@ -64,6 +75,7 @@ describe.only("BTC Happy Path", () => {
     );
 
     try {
+      console.log("📍 Step 2: Submitting deposit ix");
       const depositTx = await program.methods
         .depositBtc(
           planRequestIdBytes(plan),
@@ -80,6 +92,8 @@ describe.only("BTC Happy Path", () => {
         .rpc();
       await provider.connection.confirmTransaction(depositTx);
 
+      console.log("  • solana deposit tx:", depositTx);
+      console.log("📍 Step 3: Waiting for signature response(s)");
       const signatureEvents = await events.waitForSignatures(
         plan.btcInputs.length
       );
@@ -88,6 +102,7 @@ describe.only("BTC Happy Path", () => {
         computeSignatureRequestIds(plan)
       );
 
+      console.log("📍 Step 4: Building/signing PSBT");
       const psbt = btcUtils.buildPSBT(
         plan.btcInputs.map((input) => ({
           txid: Buffer.from(input.txid).toString("hex"),
@@ -109,10 +124,13 @@ describe.only("BTC Happy Path", () => {
       );
 
       const signedTx = psbt.extractTransaction();
+      console.log("  • bitcoin txid:", signedTx.getId());
       await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
 
+      console.log("📍 Step 5: Waiting for read/claim response");
       const readEvent = await events.readRespond;
 
+      console.log("📍 Step 6: Submitting claim ix");
       const claimTx = await program.methods
         .claimBtc(
           planRequestIdBytes(plan),
@@ -130,6 +148,7 @@ describe.only("BTC Happy Path", () => {
       expect(finalBalanceAccount.amount.toString()).to.equal(
         expectedBalance.toString()
       );
+      console.log("📍 Step 7: Balance verified");
     } finally {
       await cleanupEventListeners(events);
     }
@@ -144,6 +163,16 @@ describe.only("BTC Happy Path", () => {
       mode: "live_multi",
       requester: secondaryRequester,
     });
+
+    console.log("\n" + "=".repeat(60));
+    console.log("🚀 [btc] Multi-input deposit flow");
+    console.log("=".repeat(60));
+    console.log("📍 Step 1: Plan ready");
+    console.log("  • requester:", secondaryRequester.publicKey.toString());
+    console.log("  • vault address:", plan.vaultAuthority.address);
+    console.log("  • global vault:", plan.globalVault.address);
+    console.log("  • inputs:", plan.btcInputs.length);
+    console.log("  • outputs:", plan.btcOutputs.length);
 
     const signatureRequestIds = computeSignatureRequestIds(plan);
     const events = await setupEventListeners(
@@ -171,6 +200,7 @@ describe.only("BTC Happy Path", () => {
     }
 
     try {
+      console.log("📍 Step 2: Submitting deposit ix");
       const depositTx = await program.methods
         .depositBtc(
           planRequestIdBytes(plan),
@@ -187,6 +217,8 @@ describe.only("BTC Happy Path", () => {
         .rpc();
       await provider.connection.confirmTransaction(depositTx);
 
+      console.log("  • solana deposit tx:", depositTx);
+      console.log("📍 Step 3: Waiting for signature response(s)");
       const signatureEvents = await events.waitForSignatures(
         plan.btcInputs.length
       );
@@ -216,6 +248,7 @@ describe.only("BTC Happy Path", () => {
       );
 
       const signedTx = psbt.extractTransaction();
+      console.log("  • bitcoin txid:", signedTx.getId());
       await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
 
       const readEvent = await events.readRespond;
@@ -283,6 +316,17 @@ describe.only("BTC Happy Path", () => {
       feeBudget,
     });
 
+    console.log("\n🚀 [btc] Starting withdrawal flow");
+    console.log("\n" + "=".repeat(60));
+    console.log("🚀 [btc] Withdrawal flow");
+    console.log("=".repeat(60));
+    console.log("📍 Step 1: Plan ready");
+    console.log("  • requester:", depositor.publicKey.toString());
+    console.log("  • inputs:", plan.inputs.length);
+    console.log("  • amount:", plan.amount.toString());
+    console.log("  • fee:", plan.fee.toString());
+    console.log("  • recipient:", plan.recipient.address);
+
     const initialRecipientUtxos =
       (await bitcoinAdapter.getAddressUtxos(plan.recipient.address)) ?? [];
     const initialRecipientBalance = initialRecipientUtxos.reduce(
@@ -313,6 +357,7 @@ describe.only("BTC Happy Path", () => {
       plan.requestIdHex
     );
 
+    console.log("📍 Step 2: Submitting withdraw ix");
     const withdrawTx = await program.methods
       .withdrawBtc(
         planRequestIdBytes(plan),
@@ -340,6 +385,8 @@ describe.only("BTC Happy Path", () => {
       expectedAfterInitiation.toString()
     );
 
+    console.log("  • solana withdraw tx:", withdrawTx);
+    console.log("📍 Step 3: Waiting for signature response(s)");
     const signatureEvents = await events.waitForSignatures(
       plan.selectedUtxos.length
     );
@@ -392,10 +439,13 @@ describe.only("BTC Happy Path", () => {
     const signedWithdrawTx = withdrawPsbt.extractTransaction();
     const withdrawTxHex = signedWithdrawTx.toHex();
 
+    console.log("📍 Step 4: Broadcasting signed Bitcoin withdrawal");
+    console.log("  • bitcoin txid:", signedWithdrawTx.getId());
     await bitcoinAdapter.broadcastTransaction(withdrawTxHex);
 
     const readEvent = await events.readRespond;
 
+    console.log("📍 Step 5: Completing withdrawal on Solana");
     const completeTx = await program.methods
       .completeWithdrawBtc(
         planRequestIdBytes(plan),
@@ -405,6 +455,7 @@ describe.only("BTC Happy Path", () => {
       )
       .rpc();
     await provider.connection.confirmTransaction(completeTx);
+    console.log("  • solana complete withdraw tx:", completeTx);
 
     const withdrawAmountNumber = plan.amount.toNumber();
     const expectedRecipientBalance =
@@ -427,6 +478,7 @@ describe.only("BTC Happy Path", () => {
     expect(finalBalanceAccount.amount.toString()).to.equal(
       balanceAfterInitiation.toString()
     );
+    console.log("📍 Step 6: Withdrawal balance checks passed");
 
     const [pendingWithdrawPda] = anchor.web3.PublicKey.findProgramAddressSync(
       [
