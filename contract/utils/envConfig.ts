@@ -113,11 +113,13 @@ export const CONFIG = {
   TRANSFER_AMOUNT: "0.01",
   DECIMALS: 18,
   GAS_BUFFER_PERCENT: 20,
+  // Bitcoin derivation/signing config
   BITCOIN_NETWORK: ENV_CONFIG.BITCOIN_NETWORK,
   BITCOIN_CAIP2_ID:
     ENV_CONFIG.BITCOIN_NETWORK === "testnet"
       ? "bip122:000000000933ea01ad0ee984209779ba"
       : "bip122:0f9188f13cb7b2c71f2a335e3a4fc328",
+  BITCOIN_WITHDRAW_PATH: "root",
 } as const;
 
 export const SERVER_CONFIG = {

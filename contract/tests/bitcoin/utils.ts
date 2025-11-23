@@ -12,7 +12,7 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { ethers } from "ethers";
 import { contracts, utils as signetUtils } from "signet.js";
 import * as varuint from "varuint-bitcoin";
-import { hexToBytes } from "viem";
+import { Hex, hexToBytes } from "viem";
 import {
   ChainSignatureServer,
   RequestIdGenerator,
@@ -131,6 +131,10 @@ const MIN_WITHDRAW_CHANGE_SATS = 600;
 
 export const getBitcoinTestContext = (): BitcoinTestContext => requireContext();
 
+/**
+ * Lazily boots the shared Bitcoin test harness (Anchor provider, program, BTC utils, adapter, optional local Chain Signatures server).
+ * Reference counted so multiple suites can call setup/teardown without double-initializing or early shutdown.
+ */
 export async function setupBitcoinTestContext(): Promise<BitcoinTestContext> {
   if (contextRefCount === 0) {
     provider = anchor.AnchorProvider.env();
@@ -166,6 +170,9 @@ export async function setupBitcoinTestContext(): Promise<BitcoinTestContext> {
   return requireContext();
 }
 
+/**
+ * Decrements the shared test harness refcount and shuts down the local Chain Signatures server once the last suite finishes.
+ */
 export async function teardownBitcoinTestContext(): Promise<void> {
   if (contextRefCount === 0) {
     return;
@@ -206,7 +213,7 @@ export type DepositPlan = {
   txParams: BtcDepositParams;
   path: string;
   txidExplorerHex: string;
-  requestIdHex: `0x${string}`;
+  requestIdHex: Hex;
   creditedAmount: BN;
   vaultAuthority: BtcTarget;
   globalVault: BtcTarget;
@@ -220,7 +227,7 @@ export type WithdrawalPlan = {
   recipient: BtcDestination;
   txParams: BtcWithdrawParams;
   txidExplorerHex: string;
-  requestIdHex: `0x${string}`;
+  requestIdHex: Hex;
   globalVault: BtcTarget;
   selectedUtxos: UTXO[];
   feeBudget: number;
@@ -283,11 +290,18 @@ const bnToBigInt = (value: BN | number | bigint): bigint =>
 const bufferFromBytes = (value: Buffer | number[] | Uint8Array): Buffer =>
   Buffer.isBuffer(value) ? value : Buffer.from(value);
 
+/**
+ * Builds a bitcoinjs-lib Transaction from provided inputs/outputs and computes the aggregate request id used by Chain Signatures.
+ * @param inputs Already-valued inputs (little-endian txid bytes expected)
+ * @param outputs Outputs with script/value pairs
+ * @param lockTime Optional locktime (defaults to 0)
+ * @param requestIdParams Signing metadata used to derive the request id
+ */
 const buildTransaction = (
   inputs: BtcInput[],
   outputs: BtcOutput[],
   lockTime = 0,
-  requestIdParams?: {
+  requestIdParams: {
     sender: string;
     caip2Id: string;
     path: string;
@@ -295,7 +309,7 @@ const buildTransaction = (
 ): {
   tx: bitcoin.Transaction;
   txidExplorerHex: string;
-  requestIdHex?: `0x${string}`;
+  requestIdHex: Hex;
 } => {
   const tx = new bitcoin.Transaction();
   tx.version = 2;
@@ -305,33 +319,35 @@ const buildTransaction = (
     tx.addInput(Buffer.from(txidBytes).reverse(), input.vout, 0xffffffff);
   });
   outputs.forEach((output) => {
-    tx.addOutput(Buffer.from(output.scriptPubkey), bnToBigInt(output.value));
+    tx.addOutput(output.scriptPubkey, bnToBigInt(output.value));
   });
 
   const txidExplorerHex = tx.getId();
-  const requestIdHex = requestIdParams
-    ? (RequestIdGenerator.generateSignBidirectionalRequestId(
-        requestIdParams.sender,
-        Array.from(Buffer.from(txidExplorerHex, "hex")),
-        requestIdParams.caip2Id,
-        0,
-        requestIdParams.path,
-        "ECDSA",
-        "bitcoin",
-        ""
-      ) as `0x${string}`)
-    : undefined;
+  const requestIdHex = RequestIdGenerator.generateSignBidirectionalRequestId(
+    requestIdParams.sender,
+    Array.from(Buffer.from(txidExplorerHex, "hex")),
+    requestIdParams.caip2Id,
+    0,
+    requestIdParams.path,
+    "ECDSA",
+    "bitcoin",
+    ""
+  ) as Hex;
 
   return { tx, txidExplorerHex, requestIdHex };
 };
 
 // Convert 0x-prefixed request id hex to byte array
-export const requestIdToBytes = (hexId: `0x${string}`): number[] =>
+export const requestIdToBytes = (hexId: Hex): number[] =>
   Array.from(hexToBytes(hexId));
 
 export const planRequestIdBytes = (plan: { requestIdHex: string }): number[] =>
-  requestIdToBytes(plan.requestIdHex as `0x${string}`);
+  requestIdToBytes(plan.requestIdHex as Hex);
 
+/**
+ * Builds a fully-resolved deposit plan: tx params, request id, credited amount, and destination metadata used by tests.
+ * Throws if the request id cannot be deterministically recomputed.
+ */
 export const composeDepositPlan = (params: {
   requester: anchor.web3.PublicKey;
   btcInputs: BtcInput[];
@@ -366,6 +382,7 @@ export const composeDepositPlan = (params: {
   );
   const creditedAmount = params.btcOutputs.reduce((acc, output) => {
     const scriptHex = Buffer.from(output.scriptPubkey).toString("hex");
+    // Check if the script pubkey is the same as the global vault script pubkey, if yes increment the credited amount
     return scriptHex === vaultScriptHex ? acc.add(output.value) : acc;
   }, new BN(0));
 
@@ -384,6 +401,10 @@ export const composeDepositPlan = (params: {
   };
 };
 
+/**
+ * Compose a withdrawal plan with derived change, request id, and tx params validated against provided inputs.
+ * Computes the deterministic request id for signature collection.
+ */
 export const composeWithdrawalPlan = (
   params: {
     inputs: BtcInput[];
@@ -424,7 +445,7 @@ export const composeWithdrawalPlan = (
     {
       sender: params.globalVault.pda.toString(),
       caip2Id: params.caip2Id,
-      path: WITHDRAW_PATH,
+      path: CONFIG.BITCOIN_WITHDRAW_PATH,
     }
   );
 
@@ -500,8 +521,9 @@ const computePerInputRequestIds = ({
   return ids;
 };
 
-export function computeSignatureRequestIds(plan: DepositPlan): string[];
-export function computeSignatureRequestIds(plan: WithdrawalPlan): string[];
+/**
+ * Computes per-input request ids expected from Chain Signatures for the given deposit or withdrawal plan.
+ */
 export function computeSignatureRequestIds(
   plan: DepositPlan | WithdrawalPlan
 ): string[] {
@@ -509,7 +531,7 @@ export function computeSignatureRequestIds(
   const sender = isDeposit
     ? plan.vaultAuthority.pda.toString()
     : plan.globalVault.pda.toString();
-  const path = isDeposit ? plan.path : WITHDRAW_PATH;
+  const path = isDeposit ? plan.path : CONFIG.BITCOIN_WITHDRAW_PATH;
   const inputCount = isDeposit ? plan.btcInputs.length : plan.inputs.length;
 
   return computePerInputRequestIds({
@@ -521,6 +543,9 @@ export function computeSignatureRequestIds(
   });
 }
 
+/**
+ * Builds a deposit plan for live or mock modes: sources UTXOs, determines change, computes request id, and prepares vault metadata.
+ */
 export const buildDepositPlan = async (
   options: DepositBuildOptions
 ): Promise<DepositPlan> => {
@@ -681,6 +706,9 @@ export const buildDepositPlan = async (
   }
 };
 
+/**
+ * Builds a withdrawal plan for live or mock paths, selecting vault UTXOs and computing deterministic request/signing metadata.
+ */
 export const buildWithdrawalPlan = async (
   options: WithdrawalBuildOptions
 ): Promise<WithdrawalPlan> => {
@@ -734,7 +762,7 @@ export const buildWithdrawalPlan = async (
           fee: new BN(feeBudget),
           recipient,
           vaultScript: globalVault.script,
-          caip2Id: WITHDRAW_CAIP2_ID,
+          caip2Id: CONFIG.BITCOIN_CAIP2_ID,
           lockTime: 0,
           globalVault,
         },
@@ -771,7 +799,7 @@ export const buildWithdrawalPlan = async (
           fee: new BN(feeValue),
           recipient,
           vaultScript: globalVault.script,
-          caip2Id: WITHDRAW_CAIP2_ID,
+          caip2Id: CONFIG.BITCOIN_CAIP2_ID,
           lockTime: 0,
           globalVault,
         },
@@ -814,6 +842,9 @@ export const signHashWithMpc = (hash: Buffer): ChainSignaturePayload => {
   };
 };
 
+/**
+ * End-to-end helper that performs a live single-input deposit for tests: submits the Solana ix, waits for MPC signatures, signs/broadcasts Bitcoin, then claims on-chain.
+ */
 export async function executeSyntheticDeposit(
   amount: number,
   requester?: anchor.web3.PublicKey
@@ -942,8 +973,6 @@ const SECP256K1_ORDER = BigInt(
   "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
 );
 const SECP256K1_HALF_ORDER = BigInt(SECP256K1_ORDER) >> BigInt(1);
-const WITHDRAW_CAIP2_ID = "bip122:000000000019d6689c085ae165831e93";
-const WITHDRAW_PATH = "root";
 
 function encodeVarInt(value: number): Buffer {
   const { buffer } = varuint.encode(value);
@@ -959,6 +988,9 @@ function encodeWitnessStack(items: Buffer[]): Buffer {
   return Buffer.concat(chunks);
 }
 
+/**
+ * Normalizes an MPC-produced signature to low-S form and encodes a P2WPKH witness stack for bitcoinjs-lib PSBT finalization.
+ */
 export function prepareSignatureWitness(
   signature: ProcessedSignature,
   publicKey: Buffer
@@ -984,6 +1016,9 @@ export function prepareSignatureWitness(
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Creates a throwaway keypair and funds it with SOL from the provider wallet, retrying on transient blockhash errors.
+ */
 export async function createFundedAuthority(
   lamports = Math.floor(0.005 * anchor.web3.LAMPORTS_PER_SOL)
 ): Promise<anchor.web3.Keypair> {
@@ -1029,6 +1064,9 @@ export async function createFundedAuthority(
   throw new Error(String(lastError));
 }
 
+/**
+ * Polls a Bitcoin adapter for UTXOs on an address until the minimum count is met or attempts are exhausted.
+ */
 async function waitForUtxoCount(
   adapter: IBitcoinAdapter,
   address: string,
@@ -1057,6 +1095,9 @@ type EnsureUtxoOptions = {
   fundingSats?: number;
 };
 
+/**
+ * Ensures an address has enough funded UTXOs (optionally above a value threshold), funding via adapter.fundAddress when available.
+ */
 const ensureUtxos = async (
   adapter: IBitcoinAdapter,
   address: string,
@@ -1110,6 +1151,9 @@ const toBtcInput = (utxo: UTXO, script: Buffer): BtcInput => ({
   value: new BN(utxo.value),
 });
 
+/**
+ * Greedy-selects UTXOs until the target is met while optionally enforcing a minimum change threshold.
+ */
 const selectUtxosForTarget = (
   utxos: UTXO[] | null | undefined,
   target: number,
@@ -1133,6 +1177,9 @@ const selectUtxosForTarget = (
   return { selected, total };
 };
 
+/**
+ * Derives the static global vault PDA and its corresponding Bitcoin address/script/key material.
+ */
 const deriveGlobalVaultContext = (): GlobalVaultContext => {
   const { program, btcUtils } = requireContext();
 
@@ -1144,7 +1191,7 @@ const deriveGlobalVaultContext = (): GlobalVaultContext => {
   const globalVaultPubkey = signetUtils.cryptography.deriveChildPublicKey(
     CONFIG.BASE_PUBLIC_KEY as `04${string}`,
     globalVault.toString(),
-    WITHDRAW_PATH,
+    CONFIG.BITCOIN_WITHDRAW_PATH,
     CONFIG.SOLANA_CHAIN_ID
   );
   const compressedGlobalVaultPubkey =
@@ -1166,6 +1213,9 @@ const deriveGlobalVaultContext = (): GlobalVaultContext => {
   };
 };
 
+/**
+ * Derive user-specific vault PDA plus Bitcoin address/script for a requester path.
+ */
 const deriveVaultContext = (
   requester: anchor.web3.PublicKey,
   pathOverride?: string
@@ -1208,6 +1258,9 @@ const deriveVaultContext = (
   };
 };
 
+/**
+ * Derives the change output script for a depositor by appending a ::change path to the vault authority derivation.
+ */
 const deriveChangeScript = (
   vaultAuthority: BtcTarget,
   path: string
@@ -1226,6 +1279,9 @@ const deriveChangeScript = (
   return btcUtils.createP2WPKHScript(compressedChangePubkey);
 };
 
+/**
+ * Generates a fresh external P2WPKH destination (used as the withdrawal recipient in tests).
+ */
 const buildExternalDestination = (): BtcDestination => {
   const { btcUtils } = requireContext();
   const externalPrivKey = randomBytes(32);
@@ -1240,6 +1296,9 @@ const buildExternalDestination = (): BtcDestination => {
   };
 };
 
+/**
+ * Fetches (or lazily initializes to zero) a user's BTC balance account on-chain.
+ */
 export const fetchUserBalance = async (authority: anchor.web3.PublicKey) => {
   const { program } = requireContext();
 
@@ -1367,6 +1426,9 @@ class BitcoinUtils {
   }
 }
 
+/**
+ * Idempotently initializes the on-chain vault_config account with the MPC root signer address expected by tests.
+ */
 async function ensureVaultConfigInitialized(
   program: Program<SolanaCoreContracts>,
   provider: anchor.AnchorProvider
@@ -1399,6 +1461,10 @@ async function ensureVaultConfigInitialized(
   }
 }
 
+/**
+ * Subscribes to Chain Signatures program events and returns helpers for awaiting per-input signatures and the aggregate read response.
+ * Handles filtering, buffering, and cleanup hooks used by the BTC integration tests.
+ */
 export async function setupEventListeners(
   provider: anchor.AnchorProvider,
   signatureRequestIds: string[],
@@ -1585,6 +1651,9 @@ export async function setupEventListeners(
   };
 }
 
+/**
+ * Normalizes a Chain Signatures event payload into {r,s,v} hex components.
+ */
 export function extractSignature(
   event: SignatureRespondedEventPayload
 ): ProcessedSignature {
@@ -1608,6 +1677,9 @@ export function extractSignature(
   return { r, s, v };
 }
 
+/**
+ * Unsubscribes all Chain Signatures listeners created by setupEventListeners.
+ */
 export async function cleanupEventListeners(events: ChainSignatureEvents) {
   await events.unsubscribe();
   await events.program.removeEventListener(events.readRespondListener);
@@ -1615,6 +1687,9 @@ export async function cleanupEventListeners(events: ChainSignatureEvents) {
 
 type SignatureMap = Map<string, ProcessedSignature>;
 
+/**
+ * Validates and maps signature events to their expected request ids, throwing if any are missing or unexpected.
+ */
 export const buildSignatureMap = (
   signatureEvents: SignatureRespondedEventPayload[],
   expectedRequestIds: string[]
@@ -1624,9 +1699,13 @@ export const buildSignatureMap = (
   const expectedSet = new Set(expectedLower);
 
   signatureEvents.forEach((event) => {
-    const eventRequestId = `0x${Buffer.from(event.requestId).toString("hex")}`.toLowerCase();
+    const eventRequestId = `0x${Buffer.from(event.requestId).toString(
+      "hex"
+    )}`.toLowerCase();
     if (!expectedSet.has(eventRequestId)) {
-      throw new Error(`Received unexpected signature for requestId ${eventRequestId}`);
+      throw new Error(
+        `Received unexpected signature for requestId ${eventRequestId}`
+      );
     }
 
     map.set(eventRequestId, extractSignature(event));
@@ -1640,6 +1719,9 @@ export const buildSignatureMap = (
   return map;
 };
 
+/**
+ * Inserts prepared P2WPKH witnesses into a PSBT using the supplied signature map and ordering.
+ */
 export const applySignaturesToPsbt = (
   psbt: bitcoin.Psbt,
   signatureMap: SignatureMap,
