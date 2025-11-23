@@ -15,7 +15,7 @@ import {
   createFundedAuthority,
 } from "./utils";
 
-describe.skip("BTC Sad Path", () => {
+describe.only("BTC Sad Path", () => {
   before(async function () {
     await setupBitcoinTestContext();
   });

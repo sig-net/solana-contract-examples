@@ -85,12 +85,10 @@ export type RespondBidirectionalEventPayload = {
 };
 
 export type ChainSignatureEvents = {
-  signature: Promise<SignatureRespondedEventPayload>;
   waitForSignatures: (
     count: number
   ) => Promise<SignatureRespondedEventPayload[]>;
   readRespond: Promise<RespondBidirectionalEventPayload>;
-  waitForReadResponse: () => Promise<RespondBidirectionalEventPayload>;
   unsubscribe: () => Promise<void>;
   readRespondListener: number;
   program: Program<ChainSignaturesProject>;
@@ -121,8 +119,8 @@ const requireContext = (): BitcoinTestContext => {
   return { provider, program, btcUtils, bitcoinAdapter, server };
 };
 
-export const DEFAULT_DEPOSIT_AMOUNT = 5_000;
 export const SATS_PER_BTC = 100_000_000;
+export const DEFAULT_DEPOSIT_AMOUNT = 5_000;
 const MULTI_INPUT_TARGET = 4;
 export const WITHDRAW_FEE_BUDGET = 500;
 export const SYNTHETIC_TX_FEE = 200;
@@ -1470,53 +1468,36 @@ export async function setupEventListeners(
   signatureRequestIds: string[],
   aggregateRequestId: string
 ): Promise<ChainSignatureEvents> {
-  let signatureResolve!: (value: SignatureRespondedEventPayload) => void;
-  let signatureReject!: (reason?: unknown) => void;
+  // Promise for the aggregate read response.
   let readRespondResolve!: (value: RespondBidirectionalEventPayload) => void;
-  let readRespondReject!: (reason?: unknown) => void;
-
-  const signaturePromise = new Promise<SignatureRespondedEventPayload>(
-    (resolve, reject) => {
-      signatureResolve = resolve;
-      signatureReject = reject;
-    }
-  );
 
   const readRespondPromise = new Promise<RespondBidirectionalEventPayload>(
-    (resolve, reject) => {
+    (resolve) => {
       readRespondResolve = resolve;
-      readRespondReject = reject;
     }
   );
 
+  // Buffers matched signature events and a single waiter (only one waitForSignatures call per flow).
   const matchedSignatureEvents: SignatureRespondedEventPayload[] = [];
-  const signatureWaiters: {
-    count: number;
-    resolve: (events: SignatureRespondedEventPayload[]) => void;
-    reject: (reason?: unknown) => void;
-  }[] = [];
-  let firstSignatureResolved = false;
-
-  const eventsCoveringCount = (
-    count: number
-  ): SignatureRespondedEventPayload[] => matchedSignatureEvents.slice(0, count);
-
-  const resolveSignatureWaiters = () => {
-    for (let i = 0; i < signatureWaiters.length; ) {
-      const waiter = signatureWaiters[i];
-      if (matchedSignatureEvents.length >= waiter.count) {
-        waiter.resolve(eventsCoveringCount(waiter.count));
-        signatureWaiters.splice(i, 1);
-      } else {
-        i += 1;
+  let pendingSignatureWaiter:
+    | {
+        count: number;
+        resolve: (events: SignatureRespondedEventPayload[]) => void;
+        reject: (reason?: unknown) => void;
       }
-    }
-  };
+    | undefined;
 
-  const rejectSignatureWaiters = (reason?: unknown) => {
-    while (signatureWaiters.length > 0) {
-      const waiter = signatureWaiters.shift();
-      waiter?.reject(reason);
+  const tryResolveSignatureWaiter = () => {
+    if (
+      pendingSignatureWaiter &&
+      matchedSignatureEvents.length >= pendingSignatureWaiter.count
+    ) {
+      const events = matchedSignatureEvents.slice(
+        0,
+        pendingSignatureWaiter.count
+      );
+      pendingSignatureWaiter.resolve(events);
+      pendingSignatureWaiter = undefined;
     }
   };
 
@@ -1528,11 +1509,11 @@ export async function setupEventListeners(
       return Promise.resolve([]);
     }
     if (matchedSignatureEvents.length >= expectedCount) {
-      return Promise.resolve(eventsCoveringCount(expectedCount));
+      return Promise.resolve(matchedSignatureEvents.slice(0, expectedCount));
     }
 
     return new Promise((resolve, reject) => {
-      signatureWaiters.push({ count: expectedCount, resolve, reject });
+      pendingSignatureWaiter = { count: expectedCount, resolve, reject };
     });
   };
 
@@ -1541,10 +1522,12 @@ export async function setupEventListeners(
     false
   );
 
+  // Normalize the MPC root pubkey to the format signet.js expects (no 0x04 prefix, base58-encoded, prefixed with scheme).
   const publicKeyBytes = rootPublicKeyUncompressed.slice(1);
   const base58PublicKey = anchor.utils.bytes.bs58.encode(publicKeyBytes);
   const rootPublicKeyForSignet = `secp256k1:${base58PublicKey}`;
 
+  // Construct a ChainSignatureContract client for event subscriptions.
   const signetContract = new contracts.solana.ChainSignatureContract({
     provider,
     programId: new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
@@ -1558,6 +1541,9 @@ export async function setupEventListeners(
   );
   const aggregateRequestIdLower = aggregateRequestId.toLowerCase();
 
+  const toHexId = (bytes: ArrayLike<number>): string =>
+    ("0x" + Buffer.from(bytes).toString("hex")).toLowerCase();
+
   console.log("  🔍 Subscribing to Chain Signatures events");
   console.log(
     `    ▶️ Expecting ${signatureRequestIds.length} signature request id(s)`
@@ -1567,12 +1553,11 @@ export async function setupEventListeners(
   });
   console.log(`    • respondId: ${aggregateRequestId}`);
 
+  // Subscribe to per-input signature responses and errors, buffering matches and waking any waiters.
   const unsubscribe = await signetContract.subscribeToEvents({
     onSignatureResponded: (event: SignatureRespondedEventPayload, slot) => {
-      const eventRequestId =
-        "0x" + Buffer.from(event.requestId).toString("hex");
-
-      const isMatch = signatureRequestIdSet.has(eventRequestId.toLowerCase());
+      const eventRequestId = toHexId(event.requestId);
+      const isMatch = signatureRequestIdSet.has(eventRequestId);
       console.log(
         "    📨 onSignatureResponded slot=%s eventId=%s match=%s",
         slot ?? "n/a",
@@ -1582,21 +1567,14 @@ export async function setupEventListeners(
 
       if (isMatch) {
         matchedSignatureEvents.push(event);
-
-        if (!firstSignatureResolved) {
-          firstSignatureResolved = true;
-          signatureResolve(event);
-        }
-        resolveSignatureWaiters();
+        tryResolveSignatureWaiter();
       } else {
         console.log("    ⚠️ Ignoring unrelated signature event");
       }
     },
     onSignatureError: (event, slot) => {
-      const eventRequestId =
-        "0x" + Buffer.from(event.requestId).toString("hex");
-
-      const isMatch = signatureRequestIdSet.has(eventRequestId.toLowerCase());
+      const eventRequestId = toHexId(event.requestId);
+      const isMatch = signatureRequestIdSet.has(eventRequestId);
       console.log(
         "    ❌ onSignatureError slot=%s eventId=%s match=%s error=%s",
         slot ?? "n/a",
@@ -1607,24 +1585,25 @@ export async function setupEventListeners(
 
       if (isMatch) {
         const error = new Error(event.error);
-        signatureReject(error);
-        rejectSignatureWaiters(error);
+        if (pendingSignatureWaiter) {
+          pendingSignatureWaiter.reject(error);
+          pendingSignatureWaiter = undefined;
+        }
       } else {
         console.log("    ⚠️ Ignoring unrelated signature error event");
       }
     },
   });
 
+  // Independently listen for the aggregate read/claim response on the Anchor program to resolve the read promise.
   const program: Program<ChainSignaturesProject> =
     new anchor.Program<ChainSignaturesProject>(IDL, provider);
 
   const readRespondListener = program.addEventListener(
     "respondBidirectionalEvent",
     (event: RespondBidirectionalEventPayload, slot: number) => {
-      const eventRequestId =
-        "0x" + Buffer.from(event.requestId).toString("hex");
-
-      const isMatch = eventRequestId.toLowerCase() === aggregateRequestIdLower;
+      const eventRequestId = toHexId(event.requestId);
+      const isMatch = eventRequestId === aggregateRequestIdLower;
       console.log(
         "    📨 respondBidirectionalEvent slot=%s eventId=%s match=%s",
         slot ?? "n/a",
@@ -1641,10 +1620,8 @@ export async function setupEventListeners(
   );
 
   return {
-    signature: signaturePromise,
     waitForSignatures,
     readRespond: readRespondPromise,
-    waitForReadResponse: () => readRespondPromise,
     unsubscribe,
     readRespondListener,
     program,

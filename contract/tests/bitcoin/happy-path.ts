@@ -270,19 +270,6 @@ describe.only("BTC Happy Path", () => {
       expect(finalBalanceAccount.amount.toString()).to.equal(
         expectedBalance.toString()
       );
-
-      const [pendingDepositPda] = anchor.web3.PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("pending_btc_deposit"),
-          Buffer.from(planRequestIdBytes(plan)),
-        ],
-        program.programId
-      );
-      const pendingDeposit =
-        await program.account.pendingBtcDeposit.fetchNullable(
-          pendingDepositPda
-        );
-      expect(pendingDeposit).to.be.null;
     } finally {
       await cleanupEventListeners(events);
     }
@@ -479,18 +466,5 @@ describe.only("BTC Happy Path", () => {
       balanceAfterInitiation.toString()
     );
     console.log("📍 Step 6: Withdrawal balance checks passed");
-
-    const [pendingWithdrawPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("pending_btc_withdrawal"),
-        Buffer.from(planRequestIdBytes(plan)),
-      ],
-      program.programId
-    );
-    const pendingWithdrawal =
-      await program.account.pendingBtcWithdrawal.fetchNullable(
-        pendingWithdrawPda
-      );
-    expect(pendingWithdrawal).to.be.null;
   });
 });

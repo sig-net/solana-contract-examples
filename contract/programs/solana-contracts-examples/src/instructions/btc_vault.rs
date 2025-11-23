@@ -29,7 +29,8 @@ pub fn deposit_btc(
     tx_params: BtcDepositParams,
 ) -> Result<()> {
     let path = requester.to_string();
-    // SECURITY: outputs should eventually be restricted so vault destinations are contract-defined.
+    // SECURITY: caller-provided outputs can redirect funds; the vault output should be hardcoded
+    // (e.g., to a program-derived script) so deposits always land in the contract-controlled vault.
     let BtcDepositParams {
         lock_time,
         caip2_id,
@@ -362,7 +363,8 @@ pub fn withdraw_btc(
         .checked_sub(total_debit)
         .ok_or(crate::error::ErrorCode::Underflow)?;
 
-    // SECURITY: vault script should eventually be contract-enforced rather than caller-provided.
+    // SECURITY: vault change is caller-supplied; the vault/change script should be hardcoded
+    // by the program to avoid malicious change addresses siphoning funds.
     let mut btc_outputs = Vec::new();
     btc_outputs.push(TxOut {
         value: Amount::from_sat(amount),
