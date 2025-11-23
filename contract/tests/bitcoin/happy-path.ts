@@ -20,7 +20,7 @@ import {
   WITHDRAW_FEE_BUDGET,
 } from "./utils";
 
-describe.only("BTC Happy Path", () => {
+describe("BTC Happy Path", () => {
   before(async function () {
     await setupBitcoinTestContext();
   });
