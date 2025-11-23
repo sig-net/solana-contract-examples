@@ -1374,10 +1374,10 @@ eyes@^0.1.8:
   resolved "https://registry.yarnpkg.com/eyes/-/eyes-0.1.8.tgz#62cf120234c683785d902348a800ef3e0cc20bc0"
   integrity sha512-GipyPsXO1anza0AOZdy69Im7hGFCNB7Y/NGjDlZGJ3GJJLtwNSb2vrzYrTYJRrRloVx7pl+bhUaTB8yiccPvFQ==
 
-fakenet-signer@^1.3.3:
-  version "1.3.3"
-  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.3.3.tgz#eb22ee5dc4cd12ff8f5c29d118c1cfd0289c7ec3"
-  integrity sha512-buGN3oNiHWEc+HoOOLy2+8LIBIdZrSRRN8UQf2AWHXYkbYZ4CXBFkur8tslp66ahWdd44Y8yYvv5CfH85tBcrQ==
+fakenet-signer@^1.3.4:
+  version "1.3.4"
+  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.3.4.tgz#292d38511405c9fc48aa12cdd92fcabe375baab7"
+  integrity sha512-fNUihTUHhZfY49+X5xj4RrdDEN7prsp1cTa+SwS7lBf0MzVskN9QLUaqCcv10QtEvOxSuhXqtEpsr8Loyokb/A==
   dependencies:
     "@coral-xyz/anchor" "^0.31.0"
     "@solana/web3.js" "^1.98.0"
