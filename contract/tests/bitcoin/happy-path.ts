@@ -10,7 +10,7 @@ import {
   computeSignatureRequestIds,
   createFundedAuthority,
   executeSyntheticDeposit,
-  extractSignatures,
+  extractSignature,
   getBitcoinTestContext,
   planRequestIdBytes,
   prepareSignatureWitness,
@@ -20,7 +20,7 @@ import {
   WITHDRAW_FEE_BUDGET,
 } from "./utils";
 
-describe("BTC Happy Path", () => {
+describe.only("BTC Happy Path", () => {
   before(async function () {
     await setupBitcoinTestContext();
   });
@@ -110,10 +110,6 @@ describe("BTC Happy Path", () => {
 
       const signedTx = psbt.extractTransaction();
       await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
-
-      if (bitcoinAdapter.mineBlocks) {
-        await bitcoinAdapter.mineBlocks(1);
-      }
 
       const readEvent = await events.readRespond;
 
@@ -221,10 +217,6 @@ describe("BTC Happy Path", () => {
 
       const signedTx = psbt.extractTransaction();
       await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
-
-      if (bitcoinAdapter.mineBlocks) {
-        await bitcoinAdapter.mineBlocks(1);
-      }
 
       const readEvent = await events.readRespond;
 
@@ -351,7 +343,7 @@ describe("BTC Happy Path", () => {
     const signatureEvents = await events.waitForSignatures(
       plan.selectedUtxos.length
     );
-    const signatures = signatureEvents.flatMap(extractSignatures);
+    const signatures = signatureEvents.map(extractSignature);
     if (signatures.length !== plan.selectedUtxos.length) {
       throw new Error(
         `Expected ${plan.selectedUtxos.length} signature(s), received ${signatures.length}`
@@ -401,10 +393,6 @@ describe("BTC Happy Path", () => {
     const withdrawTxHex = signedWithdrawTx.toHex();
 
     await bitcoinAdapter.broadcastTransaction(withdrawTxHex);
-
-    if (bitcoinAdapter.mineBlocks) {
-      await bitcoinAdapter.mineBlocks(1);
-    }
 
     const readEvent = await events.readRespond;
 

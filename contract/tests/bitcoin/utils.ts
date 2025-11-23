@@ -886,10 +886,6 @@ export async function executeSyntheticDeposit(
     const txHex = signedTx.toHex();
     await bitcoinAdapter.broadcastTransaction(txHex);
 
-    if (bitcoinAdapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
-      await bitcoinAdapter.mineBlocks(1);
-    }
-
     const readEvent = await eventPromises.readRespond;
 
     const claimTx = await program.methods
@@ -1084,9 +1080,6 @@ const ensureUtxos = async (
     );
 
     await adapter.fundAddress(address, satsToSend / SATS_PER_BTC);
-    if (adapter.mineBlocks && CONFIG.BITCOIN_NETWORK === "regtest") {
-      await adapter.mineBlocks(1);
-    }
 
     const currentCount = utxos.length;
     const targetCount =
@@ -1592,9 +1585,9 @@ export async function setupEventListeners(
   };
 }
 
-export function extractSignatures(
+export function extractSignature(
   event: SignatureRespondedEventPayload
-): ProcessedSignature[] {
+): ProcessedSignature {
   const signature = event.signature;
   if (!signature) {
     throw new Error("Signature event did not contain any signatures");
@@ -1612,7 +1605,7 @@ export function extractSignatures(
   const s = `0x${Buffer.from(sBytes).toString("hex")}`;
   const v = BigInt(recoveryId + 27);
 
-  return [{ r, s, v }];
+  return { r, s, v };
 }
 
 export async function cleanupEventListeners(events: ChainSignatureEvents) {
@@ -1626,21 +1619,22 @@ export const buildSignatureMap = (
   signatureEvents: SignatureRespondedEventPayload[],
   expectedRequestIds: string[]
 ): SignatureMap => {
-  // TODO: map by requestId from the event (not arrival order) to avoid
-  // misalignment if signatures arrive out-of-order; current logic assumes
-  // signatureEvents aligns with expectedRequestIds by index.
   const map: SignatureMap = new Map();
   const expectedLower = expectedRequestIds.map((id) => id.toLowerCase());
-  const signatures = signatureEvents.flatMap(extractSignatures);
+  const expectedSet = new Set(expectedLower);
 
-  if (signatures.length !== expectedLower.length) {
-    throw new Error(
-      `Expected ${expectedLower.length} signatures, got ${signatures.length}`
-    );
-  }
+  signatureEvents.forEach((event) => {
+    const eventRequestId = `0x${Buffer.from(event.requestId).toString("hex")}`.toLowerCase();
+    if (!expectedSet.has(eventRequestId)) {
+      throw new Error(`Received unexpected signature for requestId ${eventRequestId}`);
+    }
 
-  for (let i = 0; i < expectedLower.length; i++) {
-    map.set(expectedLower[i], signatures[i]);
+    map.set(eventRequestId, extractSignature(event));
+  });
+
+  const missing = expectedLower.filter((id) => !map.has(id));
+  if (missing.length > 0) {
+    throw new Error(`Missing signatures for requestIds: ${missing.join(", ")}`);
   }
 
   return map;
