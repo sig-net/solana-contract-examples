@@ -28,7 +28,7 @@ export interface RespondBidirectionalEvent {
 // Event Listener Types
 export interface EventPromises {
   signature: Promise<SignatureRespondedEvent>;
-  readRespond: Promise<RespondBidirectionalEvent>;
+  respondBidirectional: Promise<RespondBidirectionalEvent>;
   cleanup: () => void;
   backfillSignature: () => Promise<void>;
   backfillRead: () => Promise<void>;

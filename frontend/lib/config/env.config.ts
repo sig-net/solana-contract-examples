@@ -17,7 +17,7 @@ const clientEnvSchema = z.object({
   NEXT_PUBLIC_RESPONDER_ADDRESS: z
     .string()
     .min(1, 'Responder address is required'),
-  NEXT_PUBLIC_BASE_PUBLIC_KEY: z.string().min(1, 'Base public key is required'),
+  NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY: z.string().min(1, 'Base public key is required'),
 });
 
 // Server-side only environment variables
@@ -47,7 +47,7 @@ export function getClientEnv(): ClientEnv {
     NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID:
       process.env.NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID,
     NEXT_PUBLIC_RESPONDER_ADDRESS: process.env.NEXT_PUBLIC_RESPONDER_ADDRESS,
-    NEXT_PUBLIC_BASE_PUBLIC_KEY: process.env.NEXT_PUBLIC_BASE_PUBLIC_KEY,
+    NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY: process.env.NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY,
   };
 
   try {
@@ -81,7 +81,7 @@ export function getFullEnv(): FullEnv {
     NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID:
       process.env.NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID,
     NEXT_PUBLIC_RESPONDER_ADDRESS: process.env.NEXT_PUBLIC_RESPONDER_ADDRESS,
-    NEXT_PUBLIC_BASE_PUBLIC_KEY: process.env.NEXT_PUBLIC_BASE_PUBLIC_KEY,
+    NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY: process.env.NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY,
     RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY,
   };
 
@@ -111,7 +111,7 @@ export function getEnvForSST(): Record<string, string> {
       process.env.NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID ?? '',
     NEXT_PUBLIC_RESPONDER_ADDRESS:
       process.env.NEXT_PUBLIC_RESPONDER_ADDRESS ?? '',
-    NEXT_PUBLIC_BASE_PUBLIC_KEY: process.env.NEXT_PUBLIC_BASE_PUBLIC_KEY ?? '',
+    NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY: process.env.NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY ?? '',
     RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY ?? '',
   };
 }

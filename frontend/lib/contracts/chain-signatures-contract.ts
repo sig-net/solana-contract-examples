@@ -52,7 +52,7 @@ export class ChainSignaturesContract {
 
   setupEventListeners(requestId: string): EventPromises {
     let signatureResolve: (value: SignatureRespondedEvent) => void;
-    let readRespondResolve: (value: RespondBidirectionalEvent) => void;
+    let respondBidirectionalResolve: (value: RespondBidirectionalEvent) => void;
     let resolvedSignature = false;
     let resolvedRead = false;
     // Timers are managed by the waiter per-event; initialize as null
@@ -63,8 +63,8 @@ export class ChainSignaturesContract {
       signatureResolve = resolve;
     });
 
-    const readRespondPromise = new Promise<RespondBidirectionalEvent>(resolve => {
-      readRespondResolve = resolve;
+    const respondBidirectionalPromise = new Promise<RespondBidirectionalEvent>(resolve => {
+      respondBidirectionalResolve = resolve;
     });
 
     const chainSignaturesProgram = this.getEventProgram();
@@ -99,7 +99,7 @@ export class ChainSignaturesContract {
       },
     );
 
-    const readRespondListener = chainSignaturesProgram.addEventListener(
+    const respondBidirectionalListener = chainSignaturesProgram.addEventListener(
       'respondBidirectionalEvent',
       (event: RespondBidirectionalEvent) => {
         const eventRequestId =
@@ -111,7 +111,7 @@ export class ChainSignaturesContract {
         ) {
           if (!resolvedRead) {
             resolvedRead = true;
-            readRespondResolve(event);
+            respondBidirectionalResolve(event);
             if (resolvedSignature && resolvedRead) {
               if (backfillSignatureTimer) {
                 clearTimeout(backfillSignatureTimer);
@@ -131,7 +131,7 @@ export class ChainSignaturesContract {
 
     const cleanup = () => {
       chainSignaturesProgram.removeEventListener(signatureListener);
-      chainSignaturesProgram.removeEventListener(readRespondListener);
+      chainSignaturesProgram.removeEventListener(respondBidirectionalListener);
       if (backfillSignatureTimer) {
         clearTimeout(backfillSignatureTimer);
         backfillSignatureTimer = null;
@@ -164,7 +164,7 @@ export class ChainSignaturesContract {
         read => {
           if (!resolvedRead) {
             resolvedRead = true;
-            readRespondResolve(read);
+            respondBidirectionalResolve(read);
           }
         },
       );
@@ -172,7 +172,7 @@ export class ChainSignaturesContract {
 
     return {
       signature: signaturePromise,
-      readRespond: readRespondPromise,
+      respondBidirectional: respondBidirectionalPromise,
       cleanup,
       backfillSignature,
       backfillRead,
@@ -190,7 +190,7 @@ export class ChainSignaturesContract {
   private async tryBackfillEvents(
     requestId: string,
     onSignature: (event: SignatureRespondedEvent) => void,
-    onReadRespond: (event: RespondBidirectionalEvent) => void,
+    onrespondBidirectional: (event: RespondBidirectionalEvent) => void,
     maxSignatures = 5,
   ): Promise<void> {
     try {
@@ -238,7 +238,7 @@ export class ChainSignaturesContract {
                       if (name === 'signatureRespondedEvent') {
                         onSignature(decoded.data as SignatureRespondedEvent);
                       } else if (name === 'respondBidirectionalEvent') {
-                        onReadRespond(decoded.data as RespondBidirectionalEvent);
+                        onrespondBidirectional(decoded.data as RespondBidirectionalEvent);
                       }
                     }
                   } catch {

@@ -14,11 +14,11 @@ const envSchema = z
   .object({
     INFURA_API_KEY: z.string().min(1, "INFURA_API_KEY is required"),
     CHAIN_SIGNATURES_PROGRAM_ID: z.string().min(32),
-    MPC_ROOT_KEY: z
+    MPC_ROOT_PRIVATE_KEY: z
       .string()
       .regex(/^0x[a-fA-F0-9]{64}$/, "Invalid private key")
       .optional(),
-    BASE_PUBLIC_KEY: z
+    MPC_ROOT_PUBLIC_KEY: z
       .string()
       .regex(/^04[a-fA-F0-9]{128}$/, "Invalid uncompressed public key")
       .optional(),
@@ -36,21 +36,22 @@ const envSchema = z
     DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: z.string().optional().default("true"),
   })
   .superRefine((data, ctx) => {
-    if (!data.MPC_ROOT_KEY && !data.BASE_PUBLIC_KEY) {
+    if (!data.MPC_ROOT_PRIVATE_KEY && !data.MPC_ROOT_PUBLIC_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Provide either MPC_ROOT_KEY or BASE_PUBLIC_KEY",
-        path: ["MPC_ROOT_KEY"],
+        message: "Provide either MPC_ROOT_PRIVATE_KEY or MPC_ROOT_PUBLIC_KEY",
+        path: ["MPC_ROOT_PRIVATE_KEY"],
       });
     }
 
-    if (data.MPC_ROOT_KEY && data.BASE_PUBLIC_KEY) {
-      const derived = deriveBasePublicKey(data.MPC_ROOT_KEY);
-      if (derived !== data.BASE_PUBLIC_KEY.toLowerCase()) {
+    if (data.MPC_ROOT_PRIVATE_KEY && data.MPC_ROOT_PUBLIC_KEY) {
+      const derived = deriveBasePublicKey(data.MPC_ROOT_PRIVATE_KEY);
+      if (derived !== data.MPC_ROOT_PUBLIC_KEY.toLowerCase()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "BASE_PUBLIC_KEY does not match the provided MPC_ROOT_KEY",
-          path: ["BASE_PUBLIC_KEY"],
+          message:
+            "MPC_ROOT_PUBLIC_KEY does not match the provided MPC_ROOT_PRIVATE_KEY",
+          path: ["MPC_ROOT_PUBLIC_KEY"],
         });
       }
     }
@@ -77,24 +78,26 @@ const parseEnv = (): EnvConfig => {
 export const ENV_CONFIG = parseEnv();
 
 const resolveBasePublicKey = (env: EnvConfig): string => {
-  if (env.BASE_PUBLIC_KEY) {
-    return env.BASE_PUBLIC_KEY.toLowerCase();
+  if (env.MPC_ROOT_PUBLIC_KEY) {
+    return env.MPC_ROOT_PUBLIC_KEY.toLowerCase();
   }
 
-  if (!env.MPC_ROOT_KEY) {
-    throw new Error("Unable to resolve BASE_PUBLIC_KEY without MPC_ROOT_KEY");
+  if (!env.MPC_ROOT_PRIVATE_KEY) {
+    throw new Error(
+      "Unable to resolve MPC_ROOT_PUBLIC_KEY without MPC_ROOT_PRIVATE_KEY"
+    );
   }
 
-  return deriveBasePublicKey(env.MPC_ROOT_KEY);
+  return deriveBasePublicKey(env.MPC_ROOT_PRIVATE_KEY);
 };
 
 export const CONFIG = {
   INFURA_API_KEY: ENV_CONFIG.INFURA_API_KEY,
-  BASE_PUBLIC_KEY: resolveBasePublicKey(ENV_CONFIG),
+  MPC_ROOT_PUBLIC_KEY: resolveBasePublicKey(ENV_CONFIG),
   CHAIN_SIGNATURES_PROGRAM_ID: ENV_CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
   DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER:
     ENV_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER === "true",
-  MPC_ROOT_KEY: ENV_CONFIG.MPC_ROOT_KEY,
+  MPC_ROOT_PRIVATE_KEY: ENV_CONFIG.MPC_ROOT_PRIVATE_KEY,
   // Get tokens here: https://swap.cow.fi/#/11155111/swap/ETH/0xbe72E441BF55620febc26715db68d3494213D8Cb
   USDC_ADDRESS_SEPOLIA: "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
   WITHDRAWAL_RECIPIENT_ADDRESS: "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f",

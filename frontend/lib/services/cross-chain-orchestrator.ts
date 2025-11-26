@@ -6,7 +6,7 @@ import { BridgeContract } from '@/lib/contracts/bridge-contract';
 import { ChainSignaturesContract } from '@/lib/contracts/chain-signatures-contract';
 import type {
   EventPromises,
-  ReadRespondedEvent,
+  RespondBidirectionalEvent,
 } from '@/lib/types/chain-signatures.types';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
 import { retryWithBackoff } from '@/lib/utils/retry';
@@ -56,7 +56,7 @@ export class CrossChainOrchestrator {
     requestId: string,
     ethereumTxParams: EvmTransactionRequest,
     solanaCompletionFn: (
-      readEvent: ReadRespondedEvent,
+      respondBidirectionalEvent: RespondBidirectionalEvent,
       ethereumTxHash?: string,
     ) => Promise<T>,
     initialSolanaFn?: () => Promise<string>,
@@ -90,10 +90,10 @@ export class CrossChainOrchestrator {
 
       // Phase 3: Wait for read response and complete on Solana
       console.log(`[${op}] Waiting for read response...`);
-      const readEvent = await this.waitForReadResponse(eventPromises);
+      const respondBidirectionalEvent = await this.waitForRespondBidirectional(eventPromises);
 
       console.log(`[${op}] Completing on Solana...`);
-      const solanaResult = await solanaCompletionFn(readEvent, ethereumTxHash);
+      const solanaResult = await solanaCompletionFn(respondBidirectionalEvent, ethereumTxHash);
 
       console.log(`[${op}] Flow completed successfully`);
 
@@ -177,9 +177,9 @@ export class CrossChainOrchestrator {
     return txResponse.hash;
   }
 
-  private async waitForReadResponse(
+  private async waitForRespondBidirectional(
     eventPromises: EventPromises,
-  ): Promise<ReadRespondedEvent> {
+  ): Promise<RespondBidirectionalEvent> {
     const op = this.config.operationName;
 
     // Start a 30s delayed backfill for read event if it hasn't arrived yet
@@ -188,7 +188,7 @@ export class CrossChainOrchestrator {
     }, 30000);
 
     return await this.waitWithTimeout(
-      eventPromises.readRespond,
+      eventPromises.respondBidirectional,
       this.config.eventTimeoutMs,
       `Read response timeout for ${op}`,
     ).finally(() => clearTimeout(readBackfillTimeout));
