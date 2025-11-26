@@ -306,8 +306,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("📍 Step 2: Preparing transaction...");
 
-    // initialize account if not already initialized
-    const rootPublicKeyUncompressed = CONFIG.MPC_ROOT_PUBLIC_KEY;
     const [configPda] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("vault_config")],
       program.programId
@@ -323,6 +321,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       Buffer.from(rootSignerAddress.slice(2), "hex")
     );
 
+    // initialize account if not already initialized
     let result = await program.methods
       .updateConfig(rootSignerAddressBytes)
       .accountsStrict({
