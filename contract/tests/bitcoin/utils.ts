@@ -154,7 +154,7 @@ export async function setupBitcoinTestContext(): Promise<BitcoinTestContext> {
         infuraApiKey: CONFIG.INFURA_API_KEY,
         programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
         isDevnet: true,
-        verbose: false,
+        verbose: true,
         bitcoinNetwork: CONFIG.BITCOIN_NETWORK,
       };
 
