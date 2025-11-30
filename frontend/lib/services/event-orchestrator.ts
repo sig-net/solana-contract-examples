@@ -111,7 +111,7 @@ export class EventOrchestrator {
 
     return {
       signature: eventPromises.signature,
-      readRespond: eventPromises.readRespond,
+      respondBidirectional: eventPromises.respondBidirectional,
       cleanup: enhancedCleanup,
       backfillSignature: eventPromises.backfillSignature,
       backfillRead: eventPromises.backfillRead,

@@ -11,7 +11,7 @@
     "dotenv": "^17.2.3",
     "ethers": "^6.14.4",
     "fakenet-signer": "1.2.1-beta.5",
-    "signet.js": "0.0.12-beta.13",
+    "signet.js": "0.0.12-beta.17",
     "zod": "^4.1.11"
   },
   "devDependencies": {

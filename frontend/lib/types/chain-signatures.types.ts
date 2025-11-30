@@ -18,7 +18,7 @@ export interface SignatureRespondedEvent {
   signature: ChainSignaturesSignature;
 }
 
-export interface ReadRespondedEvent {
+export interface RespondBidirectionalEvent {
   requestId: number[];
   responder: PublicKey;
   serializedOutput: number[];
@@ -28,7 +28,7 @@ export interface ReadRespondedEvent {
 // Event Listener Types
 export interface EventPromises {
   signature: Promise<SignatureRespondedEvent>;
-  readRespond: Promise<ReadRespondedEvent>;
+  respondBidirectional: Promise<RespondBidirectionalEvent>;
   cleanup: () => void;
   backfillSignature: () => Promise<void>;
   backfillRead: () => Promise<void>;
@@ -41,7 +41,7 @@ export interface ChainSignaturesProgram {
     events: {
       decode(logMessage: string): {
         name: string;
-        data: SignatureRespondedEvent | ReadRespondedEvent;
+        data: SignatureRespondedEvent | RespondBidirectionalEvent;
       } | null;
     };
   };
@@ -50,8 +50,8 @@ export interface ChainSignaturesProgram {
     callback: (event: SignatureRespondedEvent) => void,
   ): unknown;
   addEventListener(
-    eventName: 'readRespondedEvent',
-    callback: (event: ReadRespondedEvent) => void,
+    eventName: 'respondBidirectionalEvent',
+    callback: (event: RespondBidirectionalEvent) => void,
   ): unknown;
   removeEventListener(listener: unknown): void;
 }

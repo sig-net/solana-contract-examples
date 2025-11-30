@@ -1937,10 +1937,10 @@ serialize-javascript@6.0.0:
   dependencies:
     randombytes "^2.1.0"
 
-signet.js@0.0.12-beta.13:
-  version "0.0.12-beta.13"
-  resolved "https://registry.yarnpkg.com/signet.js/-/signet.js-0.0.12-beta.13.tgz#f2816e5059aa540e58e2e40cb4cc022aa460ecaf"
-  integrity sha512-nAwmzr4VkH5ysgU5NgXUFFSIlMuVayFN4PX+vkwtand3ECexWZWvFfImlxu7jmS5iSVOrNvniYhMpTzO05T5sQ==
+signet.js@0.0.12-beta.17:
+  version "0.0.12-beta.17"
+  resolved "https://registry.yarnpkg.com/signet.js/-/signet.js-0.0.12-beta.17.tgz#0974bfa7a8b675d01fc59898b7eea6d5434f2d0c"
+  integrity sha512-P2977tLZGFE04hgXNQw0XkATYuNncECix/ibbI+shdKO8BfEt1RvUOiQFnbeDwkQtIEzEdUIHWzuGVL1KCQM3A==
   dependencies:
     "@coral-xyz/anchor" "^0.31.0"
     "@cosmjs/amino" "^0.32.4"

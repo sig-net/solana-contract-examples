@@ -316,7 +316,7 @@ export class BridgeContract {
     return deriveEthereumAddress(
       path,
       vaultAuthority.toString(),
-      CHAIN_SIGNATURES_CONFIG.BASE_PUBLIC_KEY,
+      CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
     );
   }
 

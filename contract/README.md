@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Install dependencies: `yarn install`
-- Copy `.env.example` to `.env` and provide either `MPC_ROOT_KEY` or `BASE_PUBLIC_KEY`
+- Copy `.env.example` to `.env` and provide either `MPC_ROOT_PRIVATE_KEY` or `MPC_ROOT_PUBLIC_KEY`
 - Set `SOLANA_RPC_URL`, `SOLANA_PRIVATE_KEY`, and other required variables
 
 ## Build, Type Check, and Test
@@ -17,6 +17,6 @@
 
 ## Key Management
 
-- If you have access to the private key, set `MPC_ROOT_KEY`; the base public key is derived automatically.
-- If the private key is unavailable, provide the uncompressed key in `BASE_PUBLIC_KEY` (65-byte hex, prefixed with `04`).
+- If you have access to the private key, set `MPC_ROOT_PRIVATE_KEY`; the root public key is derived automatically.
+- If the private key is unavailable, provide the uncompressed key in `MPC_ROOT_PUBLIC_KEY` (65-byte hex, prefixed with `04`).
 - Ensure the on-chain contract is initialized with the same base public key you load here before interacting with it.
