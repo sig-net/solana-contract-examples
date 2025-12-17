@@ -15,7 +15,7 @@ Solana transactions are limited to ~1232 bytes. Bitcoin transaction data scales 
 
 ## Solution
 
-Leverage BIP143’s SegWit v0 sighash structure to sign each input independently in separate Solana transactions, while all signatures still commit to the same Bitcoin inputs + outputs.
+Leverage BIP143's SegWit v0 sighash structure to sign each input independently in separate Solana transactions, while all signatures still commit to the same Bitcoin inputs + outputs.
 
 **Key insight:** In BIP143 with `SIGHASH_ALL`, the sighash preimage contains three transaction-wide 32-byte commitments that are constant for all inputs:
 
@@ -27,7 +27,7 @@ Instead of passing a full PSBT, pass only these commitments + per-input fields.
 
 ---
 
-## Scope / assumptions
+## Scope / Assumptions
 
 - **Bitcoin inputs:** SegWit v0 spends using **BIP143** and **ECDSA** signatures with `SIGHASH_ALL` (e.g., P2WPKH / P2WSH / nested SegWit).
 - **Outputs:** Fixed shape of **2 outputs**: user withdrawal + vault change.
@@ -35,7 +35,7 @@ Instead of passing a full PSBT, pass only these commitments + per-input fields.
 
 ---
 
-## Threat model
+## Threat Model
 
 **Single invariant:** A user must not be able to extract vault value beyond their reserved balance.
 
@@ -47,9 +47,9 @@ Invalid signatures, failed broadcasts, or wasted gas are the user's problem—no
 
 ---
 
-## Security model
+## Security Model
 
-### Why the invariant holds
+### Why the Invariant Holds
 
 The math that guarantees no theft:
 
@@ -71,7 +71,7 @@ Net vault loss:
 Therefore: vault_loss ≤ user_cost  (always)
 ```
 
-### Three mechanisms enforce this invariant
+### Three Mechanisms Enforce This Invariant
 
 | Mechanism | What it prevents | Why it's required |
 |-----------|------------------|-------------------|
@@ -81,7 +81,7 @@ Therefore: vault_loss ≤ user_cost  (always)
 
 **Remove any one mechanism and the invariant breaks.**
 
-### Why change address validation is mathematically required
+### Why Change Address Validation is Mathematically Required
 
 This isn't just "good hygiene"—it's essential for the math to work.
 
@@ -104,7 +104,7 @@ The `user_cost` formula is `user_out + declared_fee`. It does NOT include `vault
 
 **Enforcing change → vault address closes this gap.**
 
-### Summary table
+### Summary Table
 
 | What user controls | What DEX enforces | Result |
 |-------------------|-------------------|--------|
@@ -116,7 +116,7 @@ The `user_cost` formula is `user_out + declared_fee`. It does NOT include `vault
 
 ---
 
-## BIP143 sighash preimage (per input)
+## BIP143 Sighash Preimage (Per Input)
 
 For each input `i`, the sighash preimage is:
 
@@ -139,7 +139,7 @@ For each input `i`, the sighash preimage is:
 sighash = SHA256(SHA256(preimage))
 ```
 
-### Shared hash computation
+### Shared Hash Computation
 
 ```text
 hashPrevouts = SHA256(SHA256(outpoint[0] || outpoint[1] || ... || outpoint[N]))
@@ -151,14 +151,7 @@ hashOutputs  = SHA256(SHA256(output[0] || output[1] || ...))
                where output = value(8 LE) || scriptPubKey_len(varint) || scriptPubKey
 ```
 
-### Input set is fixed per session
-
-With `SIGHASH_ALL` + BIP143, each signature commits to **the complete input set** via `hashPrevouts` and `hashSequence`. That means:
-
-- You must know the full list of inputs (outpoints + sequences) before you can compute `hashPrevouts/hashSequence`.
-- If you want to add/remove inputs, you must create a **new session** with new commitment hashes.
-
-### Why parallel signing works
+### Why Parallel Signing Works
 
 Once `hashPrevouts`, `hashSequence`, and `hashOutputs` are fixed:
 
@@ -166,11 +159,37 @@ Once `hashPrevouts`, `hashSequence`, and `hashOutputs` are fixed:
 - Each signature can be computed independently (each call only needs its own outpoint/script/amount/sequence plus the shared hashes).
 - Signatures cannot be mixed across different transactions because different input/output sets change the commitments and therefore change the sighash.
 
+### Why Session Splitting Attack is Impossible
+
+A user might attempt to split a multi-input transaction across separate sessions to bypass the accumulation bound:
+
+```text
+Attack attempt:
+  Transaction has 3 inputs (10 BTC each = 30 BTC total)
+  User tries to create 3 sessions, each signing 1 input
+  Hope: bypass accumulation bound by distributing across sessions
+```
+
+**This attack fails due to BIP143's cryptographic structure:**
+
+1. For signatures to combine into a valid Bitcoin transaction, they must ALL commit to the **same** `hashPrevouts` (hash of ALL inputs).
+
+2. The session ID is derived from commitments:
+   ```
+   session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+   ```
+
+3. If user provides correct `hashPrevouts` (all 3 inputs) for all sessions → **same session_id** → they collapse into ONE session.
+
+4. If user lies about `hashPrevouts` (different per session) → signatures commit to different input sets → **signatures are incompatible** and cannot form a valid Bitcoin transaction.
+
+**The cryptographic structure of BIP143 forces all inputs of one transaction into one session.** The accumulation bound is therefore always enforced across the complete input set.
+
 ---
 
-## Contract model (Solana) and security invariants
+## Contract Model (Solana)
 
-### Trust architecture
+### Trust Architecture
 
 ```text
 ┌──────────────────────────────────────────────────────────────────┐
@@ -182,7 +201,7 @@ Once `hashPrevouts`, `hashSequence`, and `hashOutputs` are fixed:
 │  • Compute/store hashOutputs from canonical output serialization │
 │  • Reserve user balance (fee + withdrawal) at session creation   │
 │  • Enforce input accumulation bound: sum(inputs) <= expected     │
-│  • Track pending outpoints and session state                     │
+│  • Track session state                                           │
 │  • Only then CPI to MPC signing contract                         │
 └───────────────────────────────┬──────────────────────────────────┘
                                 │ CPI (only if verification passes)
@@ -193,14 +212,15 @@ Once `hashPrevouts`, `hashSequence`, and `hashOutputs` are fixed:
 │  • Receives serialized per-input signing data                    │
 │  • Deterministically constructs BIP143 preimage + signs sighash  │
 │  • Observes Bitcoin for spends and reports confirmed results     │
+│  • Reports failure ONLY when UTXO deemed impossible to spend     │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Security invariants
+## Security Invariants
 
-### 1. Session ID is derived, never user-provided
+### 1. Session ID is Derived, Never User-Provided
 
 The `session_id` **must** be deterministically derived from the transaction commitment hashes:
 
@@ -210,16 +230,17 @@ session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
 
 **Why this matters:**
 
-- **Prevents session confusion attacks:** A user-provided session ID could collide with or reference another user's session, potentially hijacking signing state or causing accounting errors.
-- **Ensures deterministic verification:** Given the same commitments and user, the session ID is always the same. The DEX can verify any `sign_input` call references the correct session by recomputing the ID from stored commitments.
-- **Prevents replay across sessions:** Each unique transaction shape produces a unique session ID. Signatures and state cannot be misattributed across different withdrawal attempts.
+- **Prevents session confusion attacks:** A user-provided session ID could collide with or reference another user's session.
+- **Ensures deterministic verification:** Given the same commitments and user, the session ID is always the same.
+- **Prevents replay across sessions:** Each unique transaction shape produces a unique session ID.
 - **Idempotent session creation:** If a user calls `create_session` twice with identical parameters, they get the same session ID (reject duplicate or treat as no-op).
+- **Forces transaction integrity:** As shown above, this derivation makes session splitting attacks impossible.
 
 **Implementation note:** The session PDA seed should include this derived `session_id`, making it impossible to create conflicting sessions.
 
 ---
 
-### 2. Explicit fee declaration with optimistic balance reservation
+### 2. Explicit Fee Declaration with Optimistic Balance Reservation
 
 The session **must** include an explicit `declared_fee` amount. Balance is **reserved** (not just checked) at session creation, and input accumulation is strictly bounded.
 
@@ -275,21 +296,9 @@ require!(authorized_input_total + amount_sats <= expected_input_total,
 authorized_input_total += amount_sats
 ```
 
-**Why this prevents theft:**
-
-If user signs more inputs than `expected_input_total`:
-- Outputs are pinned (can't change)
-- Excess value goes to miners as implicit fee
-- User only reserved `user_cost`, but vault loses more
-
-By enforcing `sum(inputs) <= sum(outputs) + declared_fee`, we guarantee:
-- Fee cannot exceed what user declared
-- No "fee inflation" attack to drain vault to miners
-- User pays for exactly what they authorized
-
 ---
 
-### 3. Change output MUST go to vault address
+### 3. Change Output MUST Go to Vault Address
 
 The DEX **must** validate that the change output scriptPubKey matches a known vault address.
 
@@ -299,60 +308,83 @@ require!(outputs[1].script == KNOWN_VAULT_SCRIPT_PUBKEY,
          "Change must go to vault")
 ```
 
-**Why this is mathematically required (not just good hygiene):**
-
-The `user_cost` formula is `user_out + declared_fee`. It does NOT include `vault_change` because that value is supposed to return to the vault. If the user could direct change to themselves, they extract `vault_change` worth of value without paying for it.
-
-See the [Security Model](#why-change-address-validation-is-mathematically-required) section for the detailed proof and attack example.
-
 **Implementation:** DEX maintains the vault's scriptPubKey(s). Session creation fails if change output script doesn't match.
 
 ---
 
-### 4. Balance debit based on authorized inputs, not outputs
+### 4. Outpoint Reuse Across Sessions
 
-On session completion/confirmation, DEX debits based on what was **actually authorized** (`authorized_input_total`), not `sum(outputs)`.
+**Outpoints CAN be reused across multiple sessions.** The DEX does NOT lock outpoints globally.
 
-**Why this matters:**
+**Why this is allowed:**
 
-Bitcoin fee is implicit: `fee = sum(inputs) - sum(outputs)`.
+1. **Bitcoin consensus prevents double-spend:** Only ONE transaction using a given UTXO can ever confirm.
 
-If DEX debited based on outputs only:
-```
-Outputs = 5 BTC, Inputs signed = 10 BTC
-Fee = 5 BTC (implicit)
-DEX debits user: 5 BTC (based on outputs)
-Vault loses: 10 BTC of UTXOs
-Gap: 5 BTC subsidized by vault → leaked to miners
-```
+2. **Multiple sessions, one winner:** If user creates sessions A and B both using UTXO X:
+   - User reserves `user_cost_A` + `user_cost_B`
+   - User signs in both sessions
+   - User broadcasts one transaction (say, A)
+   - Transaction A confirms → Session A succeeds
+   - UTXO X is now spent → Session B becomes **impossible**
+   - Session B's reserved balance is **refunded**
 
-By debiting `authorized_input_total`:
-```
-DEX debits user: 10 BTC (what they signed)
-Vault loses: 10 BTC of UTXOs
-User receives: 5 BTC (outputs - change)
-Fee: 5 BTC (paid by user from their 10 BTC)
-Balance: correct
-```
+3. **User bears optionality cost:** Creating multiple sessions for the same UTXOs locks more capital. This is the user's choice and their cost.
 
-**Note:** With invariant #2, we already bound `authorized_input_total <= expected_input_total`. Combined with upfront reservation of `user_cost = user_out + declared_fee`, accounting is guaranteed correct.
+4. **No vault risk:** The invariant `vault_loss ≤ user_cost` holds per-session. Multiple sessions just mean multiple reservations; only one can succeed.
+
+**Use case:** User may want transaction flexibility (different fee levels, different output amounts) and prepare multiple options. They pay for this optionality via locked capital.
 
 ---
 
-### 5. Outputs are pinned once, then reused
+### 5. Session Lifecycle: No Time-Based Expiration
 
-Instead of passing `outputs` on every `sign_input`, the DEX pins the output commitment once:
+Sessions do **NOT** expire based on time. A session resolves only when its fate is determined on Bitcoin:
 
-1. User provides the intended `outputs` (usually 2 outputs).
-2. DEX validates scripts (user withdrawal address + vault change address).
-3. DEX recomputes `hashOutputs = sha256d(serialize(outputs))` and stores it in session.
-4. Each `sign_input` uses the stored `hashOutputs` (does not re-pass raw outputs).
+**Success path (transaction confirms):**
 
-This keeps per-input signing calls constant-size while maintaining a strong commitment to outputs.
+```text
+1. MPC observes UTXO spent on Bitcoin
+2. MPC verifies: sha256d(actual_outputs) == session.hashOutputs
+3. MPC calls confirm_success() on Solana with signed attestation
+4. DEX finalizes: reserved_balance → permanently spent
+5. Session closed
+```
+
+**Failure path (UTXO becomes impossible to spend):**
+
+```text
+1. MPC observes UTXO spent by a DIFFERENT transaction
+   (actual_outputs hash does NOT match session.hashOutputs)
+2. MPC calls confirm_impossible() on Solana with signed attestation
+3. DEX refunds: reserved_balance → available_balance
+4. Session closed
+```
+
+**Why no time-based expiration:**
+
+- **Simplifies the model:** Session fate is determined by Bitcoin state, not wall-clock time.
+- **No race conditions:** No timing attacks around expiration boundaries.
+- **Clear resolution:** Every session eventually resolves (UTXO is either spent by this tx, or by another).
+
+**User-initiated cancellation (before any signing):**
+
+```text
+1. User calls cancel_session()
+2. Only allowed if authorized_input_total == 0 (no signatures issued)
+3. DEX refunds: reserved_balance → available_balance
+4. Session closed
+```
+
+**Note:** Once signatures are issued, user cannot cancel. They must either broadcast and complete, or wait for the UTXO to be spent elsewhere (which triggers refund). This prevents griefing where user gets signatures then cancels.
+
+**Stuck session scenario:** If user signs but never broadcasts, and the UTXOs are vault-controlled (only spendable by vault), the session remains active indefinitely. However:
+- User's balance is locked (their problem)
+- User holds valid signatures and can complete anytime
+- This is economically equivalent to having an unconfirmed transaction pending
 
 ---
 
-### 6. MPC never signs a user-chosen digest
+### 6. MPC Never Signs a User-Chosen Digest
 
 The DEX should only ever ask the MPC to sign a **structured** BIP143 signing payload (fields that deterministically map to the BIP143 preimage). Do not allow any path where a user supplies an arbitrary 32-byte digest to be signed.
 
@@ -367,7 +399,7 @@ By requiring structured input (outpoint, amount, scriptCode, commitments), the M
 
 ---
 
-### 7. BIP143 amount commitment prevents lying about UTXO values
+### 7. BIP143 Amount Commitment Prevents Lying About UTXO Values
 
 BIP143's sighash preimage includes the input `amount` (field #6). This is a critical security property inherited from Bitcoin's SegWit design:
 
@@ -381,25 +413,9 @@ This property is why we can trust user-provided `amount_sats` for accounting pur
 
 ---
 
-### Attack prevention summary
+## Session + Per-Input Signing Flow
 
-| Attack / Failure Mode | Mitigation | Layer |
-|----------------------|------------|-------|
-| User-provided session ID collision | Derive `session_id = sha256(commitments \|\| user)` | Solana |
-| Fee inflation (drain vault to miners) | Explicit `declared_fee` + bound `sum(inputs) <= expected` | Solana |
-| Steal change output | Validate change scriptPubKey matches vault address | Solana |
-| Balance race condition | Reserve balance at session creation, not just check | Solana |
-| Debit mismatch (under-charge user) | Debit based on `authorized_input_total` | Solana |
-| Lying about `hashOutputs` | DEX recomputes from canonical serialization | Solana |
-| Lying about input amounts | BIP143 commits to amount; wrong = invalid signature | Bitcoin |
-| MPC as arbitrary signing oracle | Only structured BIP143 payloads accepted | MPC |
-| Serialization mismatch | Canonical BIP143 encoding rules + test vectors | MPC |
-
----
-
-## Session + per-input signing flow
-
-### 1) Create session (pin tx-wide fields + reserve balance)
+### 1) Create Session (Pin TX-Wide Fields + Reserve Balance)
 
 User calls `create_session` with transaction parameters:
 
@@ -461,7 +477,7 @@ Session {
 }
 ```
 
-### 2) Sign input (one Solana tx per BTC input)
+### 2) Sign Input (One Solana TX Per BTC Input)
 
 For each Bitcoin input, user calls `sign_input`:
 
@@ -481,11 +497,7 @@ require!(session.status == Active, "Session not active")
 require!(session.authorized_input_total + amount_sats <= session.expected_input_total,
          "Input total exceeds declared fee + outputs")
 
-// 3. Reserve outpoint (prevent double-signing)
-require!(!is_outpoint_reserved(outpoint), "Outpoint already reserved")
-reserve_outpoint(outpoint, session_id)
-
-// 4. Update accumulator
+// 3. Update accumulator
 session.authorized_input_total += amount_sats
 ```
 
@@ -514,7 +526,7 @@ SignInputPayload {
 
 MPC deterministically constructs the BIP143 preimage from this payload, computes `sha256d(preimage)`, and produces the ECDSA signature.
 
-### Canonical encoding rules (must be specified)
+### Canonical Encoding Rules
 
 To avoid "valid on Solana, invalid on Bitcoin" mismatches, the payload-to-preimage mapping must be exact:
 
@@ -525,78 +537,163 @@ To avoid "valid on Solana, invalid on Bitcoin" mismatches, the payload-to-preima
 
 ---
 
-## Data sizes
+## MPC Observation & Confirmation Callback
 
-### Session creation (one-time)
+After signing, MPC observes Bitcoin and reports session outcomes. The MPC acts as an oracle that attests to Bitcoin state changes.
 
-- Includes `outputs` (for `hashOutputs` verification), so output count is limited by Solana tx space.
-- Recommended: 2 outputs (recipient + vault change).
-
-### Per-input signing call (constant-size)
-
-Does **not** include raw outputs. Each per-input call is bounded by:
-
-- Shared commitments/constants: `hashPrevouts + hashSequence + hashOutputs + version + locktime + sighashType`
-- Unique per-input data: `outpoint + amount + sequence + scriptCode`
-
----
-
-## MPC observation & confirmation callback
-
-After signing, MPC observes Bitcoin and confirms each UTXO spend individually.
-
-### What MPC tracks (per watched outpoint)
-
-At minimum:
+### What MPC Tracks
 
 ```text
-WatchedUtxo {
-  outpoint:     (txid, vout)
-  session_id:   [u8; 32]   // or request_id, used to route callback
-  // Optional cache:
-  // hashOutputs: [u8; 32]
+WatchedOutpoint {
+  outpoint:      (txid, vout)
+  sessions:      Vec<session_id>   // Multiple sessions can reference same outpoint
+  hashOutputs:   [u8; 32]          // Per-session expected outputs
 }
 ```
 
-### Observation flow
+### Observation Flow
 
 ```text
 1) Watch outpoint (txid:vout) for being spent
 2) When spent, determine spending_txid
-3) Fetch spending tx, extract outputs
-4) Wait for confirmation (finality threshold)
-5) Call back to Solana with (outpoint, spending_txid, outputs, finality metadata) + MPC signature
+3) Fetch spending tx, extract actual outputs
+4) Compute actual_hashOutputs = sha256d(serialize(actual_outputs))
+5) Wait for finality (6 confirmations)
+6) For each session referencing this outpoint:
+   - If actual_hashOutputs == session.hashOutputs → SUCCESS
+   - If actual_hashOutputs != session.hashOutputs → IMPOSSIBLE (refund)
+7) Call back to Solana with signed attestation
 ```
-
-### Bitcoin RPC methods (example)
-
-- Check whether unspent: `gettxout <txid> <vout> [include_mempool=true]`  
-  - returns JSON if unspent, `null` if spent (or pruned/unknown depending on node configuration)
-- Find spender (Core 24+): `gettxspendingprevout`
-- Fetch tx details: `getrawtransaction <spending_txid> true`
-
-### What MPC signs (confirmation)
-
-MPC signs a domain-separated digest of the callback payload:
-
-```text
-MPC signs: (outpoint, spending_txid, outputs, block_hash/height/confirmations)
-signature = ECDSA_sign(MPC_key, keccak256(domain || payload))
-```
-
-### DEX callback handling
-
-On receiving a confirmation callback:
-
-1. Verify MPC signature (oracle authenticity).
-2. Look up the pending entry by `outpoint`.
-3. Recompute `sha256d(serialize(outputs))` and verify it matches the stored `hashOutputs` for the session.
-4. Clear `PendingUtxos[outpoint]` **for every confirmed outpoint**.
-5. Apply business logic once per `spending_txid` (dedup), but do not leave stale outpoints behind.
 
 ---
 
-## Example flow (withdrawal)
+### Success Conditions
+
+A session is marked **SUCCESS** when ALL of the following are true:
+
+| Condition | Verification | Why Required |
+|-----------|--------------|--------------|
+| UTXO is spent | `gettxout` returns null | Confirms transaction was mined |
+| 6+ confirmations | Block depth ≥ 6 | Bitcoin finality threshold; reorg probability < 0.1% |
+| Outputs match | `sha256d(actual_outputs) == session.hashOutputs` | Ensures correct withdrawal + change amounts |
+
+**Finality threshold rationale:**
+
+- **6 confirmations** is the Bitcoin ecosystem standard for high-value transactions
+- At 6 blocks deep, reversing the transaction requires > 50% hashrate sustained attack
+- For most practical purposes, 6 confirmations provides sufficient finality
+- MPC MAY use a configurable threshold (e.g., 3 for low-value, 6+ for high-value)
+
+**Success callback payload:**
+
+```text
+confirm_success {
+  session_id:     [u8; 32]
+  spending_txid:  [u8; 32]      // Bitcoin txid that spent the UTXO
+  block_hash:     [u8; 32]      // Block containing the transaction
+  block_height:   u64           // For reference/logging
+  confirmations:  u32           // Number of confirmations at callback time
+  signature:      Signature     // MPC attestation over all fields
+}
+```
+
+---
+
+### Failure Conditions (IMPOSSIBLE)
+
+A session is marked **IMPOSSIBLE** when the UTXO can no longer be spent by the session's intended transaction. This triggers a refund of reserved balance.
+
+| Condition | How Detected | Example |
+|-----------|--------------|---------|
+| **UTXO spent by different transaction** | `actual_hashOutputs != session.hashOutputs` | Another session's tx confirmed first; user broadcast different tx |
+| **UTXO spent with different outputs** | Outputs don't match expected | User manually spent UTXO outside the system |
+| **UTXO burned** | Output is OP_RETURN or unspendable | Rare edge case |
+
+**Important:** MPC only reports IMPOSSIBLE after **6 confirmations** of the conflicting transaction. This prevents false positives from temporary chain reorganizations.
+
+**What is NOT a failure condition:**
+
+| Situation | Status | Reason |
+|-----------|--------|--------|
+| UTXO unspent for a long time | Still ACTIVE | No time-based expiration; user may broadcast later |
+| Transaction in mempool but unconfirmed | Still ACTIVE | Wait for confirmations |
+| Low fee causing delayed confirmation | Still ACTIVE | Eventually confirms or gets evicted |
+| Transaction evicted from mempool | Still ACTIVE | User can rebroadcast; UTXO still unspent |
+
+**Failure callback payload:**
+
+```text
+confirm_impossible {
+  session_id:       [u8; 32]
+  spending_txid:    [u8; 32]      // Bitcoin txid that invalidated this session
+  block_hash:       [u8; 32]      // Block containing the conflicting tx
+  block_height:     u64
+  confirmations:    u32
+  reason:           FailureReason // Enum: UtxoSpentElsewhere, OutputsMismatch, etc.
+  signature:        Signature     // MPC attestation over all fields
+}
+```
+
+**FailureReason enum:**
+
+```text
+enum FailureReason {
+  UtxoSpentElsewhere,    // UTXO spent by tx with different hashOutputs
+  OutputsMismatch,       // Outputs don't match session expectations
+  UtxoBurned,            // UTXO sent to unspendable output (OP_RETURN)
+}
+```
+
+---
+
+### Multi-Session Outpoint Resolution
+
+When multiple sessions reference the same outpoint, MPC must resolve each session individually:
+
+```text
+Example:
+  Session A: expects hashOutputs = 0xabc...
+  Session B: expects hashOutputs = 0xdef...
+  Both reference UTXO X
+
+When UTXO X is spent:
+  actual_hashOutputs = sha256d(spending_tx.outputs)
+
+  If actual_hashOutputs == 0xabc...:
+    Session A → SUCCESS (balance finalized)
+    Session B → IMPOSSIBLE (balance refunded)
+
+  If actual_hashOutputs == 0xdef...:
+    Session A → IMPOSSIBLE (balance refunded)
+    Session B → SUCCESS (balance finalized)
+
+  If actual_hashOutputs == 0x999... (neither):
+    Session A → IMPOSSIBLE (balance refunded)
+    Session B → IMPOSSIBLE (balance refunded)
+```
+
+---
+
+### DEX Callback Handling
+
+On receiving a confirmation callback:
+
+1. **Verify MPC signature** — Recover signer address, compare against known MPC public key.
+2. **Verify confirmations** — Ensure `confirmations >= 6` (or configured threshold).
+3. **Load session** — Fetch session PDA by `session_id`.
+4. **Validate session state** — Must be ACTIVE; reject duplicate callbacks.
+5. **For SUCCESS:**
+   - Verify `sha256d(actual_outputs) == session.hashOutputs` (defense in depth)
+   - Finalize balance: `reserved_balance → permanently_spent`
+   - Mark session COMPLETED
+6. **For IMPOSSIBLE:**
+   - Refund balance: `reserved_balance → available_balance`
+   - Mark session FAILED
+7. **Emit event** — For indexers and user notification.
+
+---
+
+## Example Flow (Withdrawal)
 
 ```text
 User                     DEX Program                 MPC                 Bitcoin
@@ -622,228 +719,375 @@ User                     DEX Program                 MPC                 Bitcoin
   │ )                        │                        │                     │
   ├─────────────────────────►│                        │                     │
   │                          │ check: sum <= expected │                     │
-  │                          │ reserve outpoint_0     │                     │
   │                          │ authorized += amount_0 │                     │
   │                          │ CPI -> sign payload    ├────────────────────►│
   │◄──────── signature_0 ────┤                        │                     │
   │                          │                        │                     │
   │ sign_input(outpoint_1)   │                        │                     │
   ├─────────────────────────►│ check: sum <= expected │                     │
-  │                          │ reserve outpoint_1     │                     │
   │                          │ CPI -> sign payload    ├────────────────────►│
   │◄──────── signature_1 ────┤                        │                     │
   │                          │                        │                     │
   │ assemble + broadcast BTC tx ───────────────────────────────────────────►│
   │                          │                        │                     │
-  │                          │                        │ observe confirmed   │
-  │                          │                        │ spend               │
-  │                          │◄─── confirm(outpoint, txid, outputs) + sig ──┤
+  │                          │                        │ observe UTXO spent  │
+  │                          │                        │ verify outputs      │
+  │                          │◄─── confirm_success(session, txid) + sig ────┤
   │                          │ verify MPC signature   │                     │
-  │                          │ verify hashOutputs     │                     │
-  │                          │ finalize debit         │                     │
-  │                          │ clear pending          │                     │
-```
-
-### Key security checkpoints in this flow
-
-1. **Session creation:** Balance reserved immediately; session_id derived (not user-chosen)
-2. **Each sign_input:** `authorized_input_total + amount <= expected_input_total` enforced
-3. **Confirmation:** Only valid if outputs match pinned `hashOutputs`
-
----
-
-## Security Assessment
-
-### 1. Executive Summary
-
-This assessment evaluates the Parallel UTXO Signing Architecture against its stated threat model: **preventing users from extracting vault value beyond their reserved balance**.
-
-**Verdict: SECURE** — The design achieves the security goal through three interlocking mechanisms that together enforce the core invariant. No attack vector was identified that allows a user to extract more value than they reserve.
-
----
-
-### 2. Scope and Threat Model
-
-**In scope:**
-- User attempting to steal funds (extract more than their balance)
-- User attempting to drain vault (unauthorized value extraction)
-- User manipulating session state, outputs, fees, or inputs
-
-**Out of scope (explicitly not security concerns):**
-- Invalid signatures (user's problem — wasted gas)
-- Failed broadcasts (user's problem)
-- MPC compromise (trusted component, 5-of-8 threshold)
-- Solana program bugs (implementation, not design)
-- Bitcoin reorgs (operational concern, not theft vector)
-
-**Core invariant to verify:**
-
-```
-vault_value_spent ≤ user_balance_reserved
+  │                          │ finalize balance       │                     │
+  │                          │ close session          │                     │
 ```
 
 ---
 
-### 3. Attack Surface Analysis
+## Security Analysis
 
-| Component | User-Controlled Inputs | Trust Boundary |
-|-----------|----------------------|----------------|
-| `create_session` | outputs, declared_fee, hashPrevouts, hashSequence | DEX validates all |
-| `sign_input` | session_id, outpoint, amount_sats, sequence, scriptCode | DEX validates against session |
-| MPC signing | None (receives structured payload from DEX) | Trusted |
-| Bitcoin broadcast | Full transaction | User responsibility |
-| Confirmation callback | None (MPC-initiated) | MPC trusted |
+### Attack Vectors and Mitigations
+
+| Attack | Mitigation | Status |
+|--------|------------|--------|
+| Steal change by directing to user's address | DEX validates `outputs[1].script == VAULT_SCRIPT_PUBKEY` | ✅ Mitigated |
+| Inflate fee to drain vault to miners | DEX enforces `authorized_input_total ≤ expected_input_total` | ✅ Mitigated |
+| Race condition: withdraw balance after session | Balance **reserved** at session creation, not just checked | ✅ Mitigated |
+| Session ID collision/hijacking | `session_id` derived from commitments, never user-provided | ✅ Mitigated |
+| Split transaction across sessions | BIP143 commitments force same `session_id` for same tx | ✅ Impossible |
+| Lie about input amounts | BIP143 commits to amount; wrong amount = invalid signature | ✅ Self-defeating |
+| Lie about hashPrevouts/hashSequence | Wrong commitments = invalid signatures | ✅ Self-defeating |
+| Double-sign same outpoint across sessions | Bitcoin consensus prevents double-spend; losing session refunded | ✅ Safe by design |
+| MPC as signing oracle for arbitrary digests | MPC only accepts structured payload, constructs preimage itself | ✅ Mitigated |
+| Manipulate outputs after session creation | `hashOutputs` pinned at creation; signatures commit to it | ✅ Cryptographic binding |
 
 ---
 
-### 4. Attack Vector Enumeration and Analysis
+### Detailed Attack Analysis
 
-#### Attack 1: Steal change by directing to user's address
+#### Attack 1: Steal Change Output
 
-**Attack:** User sets `outputs[1]` to their own address instead of vault.
+**Goal:** User directs vault change to their own address, extracting more value than they paid for.
 
-**Analysis:**
+**Attack scenario:**
+
+```text
+User's balance: 10 BTC
+
+User creates session:
+  Output 0: 5 BTC → user's withdrawal address
+  Output 1: 4 BTC → user's SECOND address (fake "vault change")
+  declared_fee: 1 BTC
+
+  user_cost = 5 + 1 = 6 BTC (reserved from balance)
+
+User signs 10 BTC of inputs
+Transaction confirms:
+  User receives: 5 + 4 = 9 BTC
+  User paid: 6 BTC
+
+  Theft: 3 BTC
 ```
-user_cost = user_out + declared_fee  (does NOT include vault_change)
-If user steals vault_change:
-  user_receives = user_out + vault_change
-  user_pays = user_out + declared_fee
-  theft = vault_change
+
+**Mitigation:**
+
+```text
+require!(outputs[1].script == VAULT_SCRIPT_PUBKEY, "Change must go to vault")
 ```
 
-**Mitigation:** DEX validates `outputs[1].script == VAULT_SCRIPT_PUBKEY`
+DEX validates that the change output scriptPubKey matches a known vault address. Session creation fails if this check fails.
 
 **Status:** ✅ MITIGATED
 
 ---
 
-#### Attack 2: Inflate fee to drain vault
+#### Attack 2: Fee Inflation (Drain to Miners)
 
-**Attack:** User signs more inputs than `sum(outputs) + declared_fee`, excess goes to miners.
+**Goal:** User signs more inputs than declared, excess goes to miners as implicit fee.
 
-**Analysis:**
+**Attack scenario:**
+
+```text
+User creates session:
+  Output 0: 5 BTC → user
+  Output 1: 4 BTC → vault change
+  declared_fee: 1 BTC
+  expected_input_total = 5 + 4 + 1 = 10 BTC
+  user_cost = 5 + 1 = 6 BTC (reserved)
+
+Attack: User signs 15 BTC of inputs instead of 10 BTC
+
+Transaction on Bitcoin:
+  Inputs: 15 BTC
+  Outputs: 5 + 4 = 9 BTC
+  Implicit fee: 15 - 9 = 6 BTC (goes to miners!)
+
+Result:
+  User paid: 6 BTC
+  Vault lost: 15 - 4 = 11 BTC
+  Theft: 5 BTC (vault lost 11, user only paid 6)
 ```
-If authorized_input_total > expected_input_total:
-  actual_fee = authorized_input_total - sum(outputs)
-  actual_fee > declared_fee
-  Vault loses extra value to miners
+
+**Mitigation:**
+
+```text
+// At each sign_input call:
+require!(authorized_input_total + amount_sats <= expected_input_total,
+         "Input total exceeds declared fee + outputs")
 ```
 
-**Mitigation:** DEX enforces `authorized_input_total ≤ expected_input_total`
+After signing 10 BTC of inputs, the accumulation bound blocks further signing.
 
 **Status:** ✅ MITIGATED
 
 ---
 
-#### Attack 3: Race condition — withdraw balance after session creation
+#### Attack 3: Race Condition (Balance Drain)
 
-**Attack:**
-1. User creates session (balance check passes)
-2. User transfers balance elsewhere
-3. User completes signing with no backing funds
+**Goal:** Create session, then transfer balance elsewhere before signing completes.
 
-**Analysis:** If balance is only checked (not reserved), user can drain without funds.
+**Attack scenario:**
 
-**Mitigation:** Balance is **reserved** (moved to `reserved_balance`) at session creation, not just checked.
+```text
+1. User has 10 BTC balance
+2. User creates session (balance CHECK passes: 10 >= 6)
+3. User transfers 10 BTC to another account
+4. User completes signing
+5. Transaction confirms
+6. Vault lost 10 BTC, user's balance was 0
+
+Result: Vault drained without backing funds
+```
+
+**Mitigation:**
+
+Balance is **reserved** (not just checked) at session creation:
+
+```text
+require!(user.available_balance >= user_cost)
+user.available_balance -= user_cost    // Locked!
+user.reserved_balance  += user_cost
+```
+
+Step 3 would fail because `available_balance` is now 4 BTC (10 - 6 reserved).
 
 **Status:** ✅ MITIGATED
 
 ---
 
-#### Attack 4: Session ID collision/hijacking
+#### Attack 4: Session Splitting
 
-**Attack:** User provides crafted session_id to reference another user's session or create confusion.
+**Goal:** Split a multi-input transaction across sessions to bypass accumulation bound.
 
-**Analysis:** If session_id is user-provided:
-- Could collide with existing session
-- Could reference another user's session state
-- Could cause accounting errors
+**Attack scenario:**
 
-**Mitigation:** `session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)` — deterministically derived, never user-provided.
+```text
+Transaction needs 3 inputs (10 BTC each = 30 BTC total)
+User wants: 25 BTC output, 4 BTC change, 1 BTC fee
 
-**Status:** ✅ MITIGATED
-
----
-
-#### Attack 5: Lie about input amounts
-
-**Attack:** User claims UTXO is worth less than actual value to reduce reserved balance.
-
-**Analysis:**
-```
-If user claims 1 BTC but UTXO is actually 5 BTC:
-  MPC builds BIP143 preimage with amount = 1 BTC
-  Signature is INVALID on Bitcoin (amount committed in sighash)
+Instead of one session (would require 26 BTC reserved):
+  User creates 3 sessions, each signing 1 input
+  Each session has smaller accumulation bound
+  Total reserved: less than 26 BTC?
 ```
 
-**Mitigation:** BIP143 commits to input amount. Wrong amount = invalid signature (user's problem).
+**Why this FAILS:**
 
-**Status:** ✅ NOT A THREAT (self-defeating attack)
+For signatures to combine into a valid Bitcoin transaction:
+
+```text
+All signatures must commit to:
+  hashPrevouts = sha256d(input_0 || input_1 || input_2)  // ALL inputs
+```
+
+Session ID derivation:
+
+```text
+session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+```
+
+**Case A: User provides correct hashPrevouts (all 3 inputs)**
+
+```text
+Session 1: session_id = sha256(H_all_inputs || ... || user) = X
+Session 2: session_id = sha256(H_all_inputs || ... || user) = X  // SAME!
+Session 3: session_id = sha256(H_all_inputs || ... || user) = X  // SAME!
+```
+
+All three "sessions" are the same session. Accumulation bound applies to total.
+
+**Case B: User lies about hashPrevouts (different per session)**
+
+```text
+Session 1: hashPrevouts = sha256d(input_0 only)  → sig_0 commits to this
+Session 2: hashPrevouts = sha256d(input_1 only)  → sig_1 commits to this
+Session 3: hashPrevouts = sha256d(input_2 only)  → sig_2 commits to this
+```
+
+Actual transaction needs:
+
+```text
+hashPrevouts = sha256d(input_0 || input_1 || input_2)
+```
+
+None of the signatures are valid! They each commit to different (fictional) transactions.
+
+**Status:** ✅ IMPOSSIBLE (cryptographic structure prevents it)
 
 ---
 
-#### Attack 6: Lie about hashPrevouts/hashSequence
+#### Attack 5: Lie About Input Amounts
 
-**Attack:** User provides fraudulent commitment hashes.
+**Goal:** Claim UTXOs are worth less than actual value to reduce reserved balance.
 
-**Analysis:**
-- If commitments don't match actual inputs, signatures are invalid
-- User wastes their own gas
-- No vault funds at risk
+**Attack scenario:**
 
-**Mitigation:** Inherent in BIP143 — wrong commitments produce unusable signatures.
+```text
+Actual UTXO values: 10 BTC each
+User claims: 3 BTC each
 
-**Status:** ✅ NOT A THREAT (self-defeating attack)
+Session:
+  hashPrevouts includes 3 UTXOs
+  User claims total inputs = 9 BTC
+  Outputs: 5 BTC user + 3 BTC change + 1 BTC fee = 9 BTC
+  user_cost = 5 + 1 = 6 BTC (reserved)
+
+User signs with claimed amounts (3 BTC each)
+```
+
+**Why this FAILS:**
+
+BIP143 sighash preimage includes `amount` field (#6):
+
+```text
+MPC builds preimage with amount = 3 BTC (user's claim)
+Actual UTXO on Bitcoin = 10 BTC
+
+Sighash = sha256d(preimage with amount=3BTC)
+Signature is INVALID on Bitcoin network!
+```
+
+Bitcoin nodes verify the amount in the sighash matches the actual UTXO value. Mismatched amounts produce invalid signatures.
+
+**Result:** User wasted gas, got unusable signatures. Vault is fine.
+
+**Status:** ✅ SELF-DEFEATING (user only hurts themselves)
 
 ---
 
-#### Attack 7: Double-sign same outpoint across sessions
+#### Attack 6: Double-Sign Outpoint Across Sessions
 
-**Attack:** User creates two sessions including the same UTXO, signs it in both.
+**Goal:** Create multiple sessions using same UTXO, extract value multiple times.
 
-**Analysis:**
-- Bitcoin consensus prevents double-spend
-- Only one transaction can confirm
-- Second session's signatures are useless
-- User may over-reserve balance (their problem)
+**Attack scenario:**
 
-**Mitigation:** Bitcoin's double-spend protection. Optionally, DEX can track global outpoint reservations for UX.
+```text
+UTXO X = 10 BTC
 
-**Status:** ✅ NOT A THREAT (Bitcoin consensus)
+Session A: UTXO X → 5 BTC user + 4 BTC vault + 1 BTC fee
+           user_cost_A = 6 BTC reserved
+
+Session B: UTXO X → 8 BTC user + 1 BTC vault + 1 BTC fee
+           user_cost_B = 9 BTC reserved
+
+Total reserved: 15 BTC
+
+User signs both, broadcasts both...
+```
+
+**Why this is SAFE:**
+
+1. **Bitcoin consensus:** Only ONE transaction spending UTXO X can confirm
+2. **MPC observation:** When UTXO X is spent:
+   - If by Session A's tx → Session A SUCCESS, Session B IMPOSSIBLE (refund 9 BTC)
+   - If by Session B's tx → Session B SUCCESS, Session A IMPOSSIBLE (refund 6 BTC)
+
+```text
+Maximum extraction:
+  Session A succeeds: user gets 5 BTC, paid 6 BTC → vault OK
+  Session B refunded: 9 BTC returned to available_balance
+
+OR
+
+  Session B succeeds: user gets 8 BTC, paid 9 BTC → vault OK
+  Session A refunded: 6 BTC returned to available_balance
+```
+
+**Result:** User over-reserved capital (inefficient for them), but vault invariant holds.
+
+**Status:** ✅ SAFE BY DESIGN
 
 ---
 
-#### Attack 8: MPC as signing oracle for arbitrary digests
+#### Attack 7: MPC as Arbitrary Signing Oracle
 
-**Attack:** User somehow gets MPC to sign arbitrary 32-byte digest.
+**Goal:** Get MPC to sign arbitrary digest for unauthorized transaction.
 
-**Analysis:** If MPC signed arbitrary digests, user could craft any transaction.
+**Attack scenario:**
 
-**Mitigation:** MPC only accepts structured `SignInputPayload` and constructs BIP143 preimage itself. No code path for arbitrary digest signing.
+```text
+Attacker computes sighash for malicious transaction:
+  malicious_digest = sha256d(evil_preimage)
+
+Attacker somehow submits malicious_digest to MPC
+MPC signs it
+Attacker now has valid signature for unauthorized tx
+```
+
+**Mitigation:**
+
+MPC **never** signs raw digests. It only accepts structured `SignInputPayload`:
+
+```text
+SignInputPayload {
+  hashPrevouts, hashSequence, hashOutputs,  // Commitments
+  outpoint, amount, sequence, scriptCode,   // Per-input data
+  nVersion, nLockTime, sighashType          // Constants
+}
+```
+
+MPC **constructs** the BIP143 preimage itself from these fields, then computes sighash:
+
+```text
+preimage = build_bip143_preimage(payload)
+sighash = sha256d(preimage)
+signature = ecdsa_sign(key, sighash)
+```
+
+There is no code path to sign an arbitrary 32-byte value.
 
 **Status:** ✅ MITIGATED (by design)
 
 ---
 
-#### Attack 9: Manipulate outputs after session creation
+#### Attack 8: Manipulate Outputs After Session Creation
 
-**Attack:** User creates session with valid outputs, then changes them before signing.
+**Goal:** Create session with valid outputs, then change outputs before signing.
 
-**Analysis:** `hashOutputs` is pinned at session creation. Signatures commit to this hash. Changed outputs = invalid signatures.
+**Attack scenario:**
 
-**Mitigation:** Inherent in BIP143 — outputs are cryptographically committed.
+```text
+Session creation:
+  outputs = [5 BTC user, 4 BTC vault]
+  hashOutputs = sha256d(serialize(outputs)) = 0xabc...
+  user_cost = 6 BTC reserved
 
-**Status:** ✅ NOT A THREAT (cryptographic binding)
+Before signing, user wants to change to:
+  outputs = [8 BTC user, 1 BTC vault]  // More for user!
+```
+
+**Why this FAILS:**
+
+1. `hashOutputs` is pinned at session creation and stored in session PDA
+2. Every signature commits to `hashOutputs` via BIP143 preimage
+3. User cannot change stored `hashOutputs`
+4. If user builds transaction with different outputs:
+   - `sha256d(new_outputs) != session.hashOutputs`
+   - Signatures are invalid for the new transaction
+
+**Status:** ✅ CRYPTOGRAPHIC BINDING
 
 ---
 
-### 5. Formal Verification of Core Invariant
+### Core Invariant Proof
 
-**Claim:** `vault_loss ≤ user_cost` always holds.
-
-**Proof:**
-
-```
+```text
 Definitions:
   user_cost            = user_out + declared_fee
   expected_input_total = user_out + vault_change + declared_fee
@@ -873,33 +1117,7 @@ All three dependencies are enforced by the design. The proof holds.
 
 ---
 
-### 6. Edge Cases and Assumptions
-
-| Edge Case | Handling |
-|-----------|----------|
-| User creates session but never signs | Balance stays reserved; session expires (needs expiration mechanism) |
-| User signs fewer inputs than expected | Transaction may fail or have lower fee; user's problem |
-| User's balance decreases during signing | Already reserved; other operations fail, not this session |
-| Multiple concurrent sessions | Each reserves its own balance; total can't exceed available |
-| Session with 0 vault_change | Valid; user pays `user_out + fee`, vault gets no change back |
-| Session with 0 declared_fee | Valid but transaction may not relay; user's problem |
-
-**Assumption:** MPC is honest (or Byzantine-fault-tolerant with 5-of-8 threshold). If MPC is fully compromised, it could sign arbitrary transactions regardless of DEX constraints.
-
----
-
-### 7. Residual Risks
-
-| Risk | Severity | Notes |
-|------|----------|-------|
-| MPC compromise | Critical | Out of scope; mitigated by threshold cryptography |
-| Solana program bugs | High | Implementation risk, not design flaw |
-| Session state bloat | Low | Need expiration/cleanup mechanism |
-| Bitcoin reorg after confirmation | Medium | Operational; could double-credit if not handled |
-
----
-
-### 8. Conclusion
+## Conclusion
 
 The Parallel UTXO Signing Architecture is **secure against its stated threat model**.
 
@@ -911,8 +1129,489 @@ The core invariant `vault_value_spent ≤ user_balance_reserved` is mathematical
 
 Each mechanism is necessary; removing any one breaks the invariant. Together, they form a complete defense against user theft and vault drain.
 
-**Recommendation:** Proceed with implementation, ensuring:
-- All three mechanisms are implemented atomically
-- Session expiration/cleanup is added for operational hygiene
-- Comprehensive test coverage for each attack vector
-- MPC threshold security is maintained (5-of-8)
+**Key design properties:**
+
+- **No time-based expiration:** Sessions resolve based on Bitcoin state (success or impossible).
+- **Outpoint reuse allowed:** Multiple sessions can reference the same UTXO; Bitcoin consensus ensures only one succeeds, others are refunded.
+- **Session splitting impossible:** BIP143 cryptographic structure forces all inputs of one transaction into one session via the `session_id` derivation.
+
+**Assumption:** MPC is honest (or Byzantine-fault-tolerant with threshold cryptography). If MPC is fully compromised, it could sign arbitrary transactions regardless of DEX constraints.
+
+---
+---
+
+# Deposit Flow
+
+## Goal
+
+Enable users to transfer Bitcoin from their **unique derived address** (MPC-controlled, per-user) to the **main vault address**, crediting their Solana balance upon confirmation.
+
+```text
+External World → User's Derived Address → Vault Address → Solana Balance Credit
+                 (MPC controlled)         (MPC controlled)
+```
+
+The same parallel UTXO signing architecture applies—users may have multiple UTXOs at their derived address that need consolidation into a single deposit transaction.
+
+---
+
+## The Fundamental Asymmetry: Deposit vs Withdrawal
+
+| Aspect | Withdrawal | Deposit |
+|--------|------------|---------|
+| Source of funds | Vault (shared pool) | User's derived address (per-user) |
+| Funds already credited on Solana? | **YES** | **NO** |
+| Who loses if change is misdirected? | Vault (theft) | User only (their choice) |
+| Who loses if fee is inflated? | Vault (drained to miners) | User only (less credit) |
+| Balance reservation required? | **YES** (critical) | **NO** |
+| Change validation required? | **YES** (critical) | **NO** |
+| Accumulation bound required? | **YES** (critical) | **NO** |
+| Input ownership validation required? | **NO** (vault inputs) | **YES** (critical) |
+
+**Key insight:** At the user's derived address, the BTC exists but is **not yet credited** to their Solana balance. The credit only happens when funds arrive at the vault. Until then, the user is spending "their own uncredited money."
+
+---
+
+## Deposit Threat Model
+
+**Primary invariant:** A user must not be able to credit their Solana balance with more than they actually deposited to the vault.
+
+```text
+solana_balance_credited ≤ btc_actually_received_by_vault
+```
+
+**Secondary invariant:** A user must not be able to spend funds from another user's derived address.
+
+```text
+inputs_spent ⊆ user's_own_derived_utxos
+```
+
+**Not security concerns (user's problem):**
+
+- User sends less than intended (partial deposit)
+- User overpays fees (less credit)
+- User sends change to external address (their choice)
+- Transaction doesn't confirm (no credit given)
+
+---
+
+## Deposit Security Model
+
+### Why the Invariants Hold
+
+**Primary invariant proof:**
+
+```text
+At deposit confirmation:
+  credit_amount = sum(outputs where script == VAULT_SCRIPT_PUBKEY)
+
+The credit is derived from ACTUAL vault outputs on Bitcoin,
+not from user claims or session parameters.
+
+Therefore: credit ≤ actual_vault_receipt  (always, by construction)
+```
+
+**Secondary invariant proof:**
+
+```text
+At sign_deposit_input:
+  DEX validates: scriptCode.derives_from(user_derived_script)
+
+At Bitcoin broadcast (if DEX validation bypassed):
+  BIP143 sighash commits to scriptCode in preimage
+  Actual UTXO has different scriptPubKey → sighash mismatch → invalid signature
+
+Therefore: only user's own UTXOs produce valid signatures  ∎
+```
+
+### Two Mechanisms Enforce Security
+
+| Mechanism | What it prevents | Why it's required |
+|-----------|------------------|-------------------|
+| **Input ownership validation** | User stealing from other users' derived addresses | Without this, user A could spend user B's UTXOs |
+| **Credit from actual output** | User claiming more than deposited | Without this, user could claim arbitrary credit |
+
+---
+
+## Deposit Security Invariants
+
+### 1. Input Ownership Validation (CRITICAL)
+
+All inputs in a deposit transaction **must** belong to the requesting user's derived address path.
+
+**DEX-level validation:**
+
+```text
+// At sign_deposit_input:
+user_derived_script = derive_scriptPubKey(MPC_root, user.derivation_path)
+require!(scriptCode.derives_from(user_derived_script),
+         "Input not from user's derived address")
+```
+
+**scriptCode validation for SegWit variants:**
+
+```text
+For P2WPKH:
+  scriptPubKey = OP_0 <20-byte-pubkey-hash>
+  scriptCode   = OP_DUP OP_HASH160 <20-byte-pubkey-hash> OP_EQUALVERIFY OP_CHECKSIG
+  Validation:  Extract hash from scriptCode, compare to HASH160(derived_pubkey)
+
+For P2WSH:
+  scriptPubKey = OP_0 <32-byte-script-hash>
+  scriptCode   = <actual witness script>
+  Validation:  SHA256(scriptCode) must equal script-hash, and script must be vault-controlled
+
+For P2SH-P2WPKH (nested):
+  scriptPubKey = OP_HASH160 <20-byte-script-hash> OP_EQUAL
+  scriptCode   = OP_DUP OP_HASH160 <20-byte-pubkey-hash> OP_EQUALVERIFY OP_CHECKSIG
+  Validation:  Same as P2WPKH, extract and compare pubkey hash
+```
+
+---
+
+### 2. Credit Equals Actual Vault Output
+
+The Solana balance credit **must** equal the actual Bitcoin received by the vault, not any user-provided claim.
+
+```text
+on_deposit_confirmed(session_id, spending_tx):
+  vault_outputs = spending_tx.outputs.filter(o => o.script == VAULT_SCRIPT_PUBKEY)
+  credit_amount = sum(vault_outputs.map(o => o.amount))
+
+  user.solana_balance += credit_amount
+```
+
+---
+
+### 3. Confirmation Threshold (6 Blocks)
+
+Same as withdrawal—credit only after 6 confirmations to prevent reorg-based attacks.
+
+---
+
+### 4. No Double-Credit
+
+Bitcoin consensus prevents double-spending the same UTXO. Explicit tracking provides defense in depth:
+
+```text
+for each input in confirmed_deposit:
+  require!(!deposited_utxos.contains(input.outpoint))
+  deposited_utxos.insert(input.outpoint)
+```
+
+---
+
+## Deposit Session Flow
+
+### 1) Create Deposit Session
+
+```text
+create_deposit_session {
+  hashPrevouts: [u8; 32],
+  hashSequence: [u8; 32],
+  outputs: [
+    { script: VAULT_SCRIPT_PUBKEY, amount: deposit_amount },
+    { script: change_address,      amount: change_amount }  // Optional, any address
+  ],
+  nVersion:  u32,
+  nLockTime: u32
+}
+```
+
+**DEX validation:**
+
+```text
+// 1. Verify at least one output goes to vault
+vault_output = outputs.find(o => o.script == VAULT_SCRIPT_PUBKEY)
+require!(vault_output.is_some(), "No vault output in deposit")
+
+// 2. Compute hashOutputs and derive session ID
+hashOutputs = sha256d(serialize(outputs))
+session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+
+// 3. Create session (NO balance reservation needed)
+```
+
+### 2) Sign Deposit Input
+
+```text
+sign_deposit_input(session_id, outpoint, amount_sats, sequence, scriptCode)
+```
+
+**DEX validation:**
+
+```text
+// 1. Load session and verify ownership
+session = load_session(session_id)
+require!(session.user == caller)
+
+// 2. Validate input belongs to user's derived path (CRITICAL)
+user_derived_script = derive_scriptPubKey(MPC_root, user.derivation_path)
+require!(scriptCode.derives_from(user_derived_script))
+
+// 3. NO accumulation bound check needed
+
+// 4. Construct signing payload and CPI to MPC
+```
+
+### 3) Deposit Confirmation
+
+```text
+confirm_deposit(session_id, spending_txid, actual_outputs, signature)
+```
+
+**DEX handling:**
+
+```text
+// 1. Verify MPC signature
+// 2. Verify 6+ confirmations
+
+// 3. Calculate actual deposit from Bitcoin state
+actual_vault_outputs = actual_outputs.filter(o => o.script == VAULT_SCRIPT_PUBKEY)
+actual_deposit = sum(actual_vault_outputs.map(o => o.amount))
+
+// 4. Credit user (based on ACTUAL receipt, not session expectation)
+user.solana_balance += actual_deposit
+
+// 5. Track deposited UTXOs and close session
+for input in session.inputs:
+  deposited_utxos.insert(input.outpoint)
+session.status = Completed
+```
+
+---
+
+## Deposit Attack Analysis
+
+### Attack 1: Steal From Other Users' Derived Addresses
+
+**Goal:** Spend UTXOs belonging to another user's derived address.
+
+**Scenario:**
+
+```text
+User A's derived address: has 10 BTC (UTXO X)
+User B (attacker): wants to steal User A's funds
+
+User B creates deposit session and calls sign_deposit_input:
+  outpoint: UTXO X (User A's)
+  scriptCode: User A's scriptPubKey
+  amount: 10 BTC
+```
+
+**Why this fails - Layer 1 (DEX validation):**
+
+```text
+user_derived_script = derive_scriptPubKey(MPC_root, user_B.derivation_path)
+
+// User B's derived script ≠ User A's scriptCode
+require!(scriptCode.derives_from(user_derived_script))  // FAILS
+```
+
+**Why this fails - Layer 2 (BIP143, if DEX bypassed):**
+
+If attacker somehow bypasses DEX and provides their OWN scriptCode to pass validation:
+
+```text
+User B provides:
+  outpoint: UTXO X (User A's UTXO)
+  scriptCode: User B's scriptPubKey (passes DEX check!)
+
+MPC signs with User B's scriptCode in BIP143 preimage.
+
+On Bitcoin broadcast:
+  Bitcoin nodes compute sighash using ACTUAL UTXO's scriptPubKey (User A's)
+  MPC signature was computed using User B's scriptCode
+  Sighash mismatch → signature INVALID → transaction REJECTED
+```
+
+BIP143's design ensures the scriptCode in the preimage MUST match the actual scriptPubKey being spent.
+
+**Status:** ✅ MITIGATED (two-layer defense: DEX validation + BIP143 cryptographic binding)
+
+---
+
+### Attack 2: Claim More Credit Than Deposited
+
+**Goal:** Get Solana balance credit exceeding actual vault receipt.
+
+**Scenario:**
+
+```text
+User creates deposit session:
+  outputs: [{ vault, 100 BTC }]  // Claims 100 BTC
+
+User actually broadcasts transaction:
+  Output: 1 BTC to vault
+  Output: 99 BTC to user's external address
+```
+
+**Why this fails:**
+
+```text
+// At confirmation, DEX observes ACTUAL Bitcoin outputs:
+actual_deposit = sum(confirmed_tx.outputs
+                     .filter(o => o.script == VAULT_SCRIPT_PUBKEY)
+                     .map(o => o.amount))
+               = 1 BTC
+
+user.balance += actual_deposit  // Credits 1 BTC, not 100 BTC
+```
+
+Credit is based on observation, not claims.
+
+**Status:** ✅ MITIGATED (credit from observation)
+
+---
+
+### Attack 3: Double-Credit via Session Collision
+
+**Goal:** Create two sessions for same UTXO, get credited twice.
+
+**Scenario:**
+
+```text
+Session A: UTXO X → 5 BTC to vault (hashOutputs = 0xabc...)
+Session B: UTXO X → 5 BTC to vault (same inputs, same outputs)
+```
+
+**Why this fails:**
+
+```text
+session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+
+Both sessions have identical:
+  - hashPrevouts (same inputs)
+  - hashSequence (same sequences)
+  - hashOutputs (same outputs)
+  - user_pubkey (same user)
+
+Therefore: session_id_A == session_id_B
+
+Sessions collapse into ONE session. Only one credit possible.
+```
+
+**Status:** ✅ MITIGATED (cryptographic session identity)
+
+---
+
+### Attack 4: Double-Credit via Different Outputs
+
+**Goal:** Create two sessions for same UTXO with different outputs, get credited for both.
+
+**Scenario:**
+
+```text
+Session A: UTXO X → 5 BTC to vault (hashOutputs = 0xabc...)
+Session B: UTXO X → 8 BTC to vault (hashOutputs = 0xdef...)
+
+User signs both sessions, broadcasts one transaction.
+```
+
+**Why this fails:**
+
+```text
+Only ONE transaction spending UTXO X can confirm (Bitcoin consensus).
+
+When UTXO X is spent:
+  actual_hashOutputs = sha256d(spending_tx.outputs)
+
+  If actual_hashOutputs == 0xabc...:
+    Session A → SUCCESS (credit 5 BTC)
+    Session B → IMPOSSIBLE (UTXO spent differently, no credit)
+
+  If actual_hashOutputs == 0xdef...:
+    Session A → IMPOSSIBLE (no credit)
+    Session B → SUCCESS (credit 8 BTC)
+```
+
+Only the matching session gets credited. Bitcoin consensus prevents double-spend.
+
+**Status:** ✅ MITIGATED (Bitcoin consensus + hashOutputs matching)
+
+---
+
+### Attack 5: Replay Confirmation Callback
+
+**Goal:** Replay old deposit confirmation to get credited again.
+
+**Scenario:**
+
+```text
+1. User deposits 10 BTC, session confirmed, credited
+2. Attacker replays confirm_deposit(session_id, ...) callback
+3. Attacker expects another 10 BTC credit
+```
+
+**Why this fails:**
+
+```text
+// At first confirmation:
+session.status = Completed
+
+// At replay attempt:
+require!(session.status == Active)  // FAILS - session already completed
+
+// Additionally, deposited UTXOs are tracked:
+require!(!deposited_utxos.contains(outpoint))  // FAILS - already recorded
+```
+
+**Status:** ✅ MITIGATED (session state machine + UTXO tracking)
+
+---
+
+### Attack 6: Front-Running / MEV
+
+**Goal:** Front-run user's deposit transaction to steal funds.
+
+**Scenario:**
+
+```text
+Attacker sees user's deposit transaction in Bitcoin mempool.
+Attacker tries to front-run with their own transaction spending the same UTXO.
+```
+
+**Why this fails:**
+
+```text
+The deposit transaction spends from user's derived address.
+Only the user (via MPC with their derivation path) can produce valid signatures.
+Attacker cannot sign for user's derived address.
+```
+
+**Status:** ✅ NOT POSSIBLE (MPC key derivation)
+
+---
+
+### Non-Attacks (User's Choice, Not Threats)
+
+The following scenarios are explicitly **NOT security concerns**—they represent user choices that only affect the user:
+
+| Scenario | Outcome | Why it's not a threat |
+|----------|---------|----------------------|
+| **Partial deposit** | User deposits 5 BTC of 10 BTC, keeps 5 BTC as change | Credit = 5 BTC (what reached vault). User chose this. |
+| **Fee overpayment** | User pays 8 BTC fee on 10 BTC input, 2 BTC to vault | Credit = 2 BTC. Vault received 2 BTC, credited 2 BTC. User's loss. |
+| **Redirect to external** | User sends all funds to external address, none to vault | Credit = 0 BTC. User moved their own uncredited money. |
+
+In all cases: `vault_credit == vault_receipt`. The invariant holds.
+
+---
+
+## Deposit Conclusion
+
+The deposit flow is **significantly simpler** than withdrawal because the user is converting **uncredited external value** into **credited internal balance**.
+
+**Two mechanisms provide complete security:**
+
+1. **Input ownership validation** — enforced by DEX + BIP143 cryptographic binding
+2. **Credit from observation** — credit equals actual vault receipt, not user claims
+
+**Why deposit doesn't need withdrawal's protections:**
+
+| Mechanism | Withdrawal | Deposit | Reason |
+|-----------|------------|---------|--------|
+| Balance reservation | ✅ Required | ❌ Not needed | No pre-existing balance to protect |
+| Accumulation bound | ✅ Required | ❌ Not needed | Over-fee only hurts user |
+| Change validation | ✅ Required | ❌ Not needed | User's uncredited funds |
+
+**The only critical validation** is input ownership—ensuring users can only spend from their own derived addresses.
