@@ -738,21 +738,26 @@ Step 3 fails because `balance.amount` is now 4 BTC (10 - 6 decremented).
 
 ### 8.4 Attack 4: Session Splitting
 
-**Goal:** Bypass the accumulation bound by splitting inputs across multiple sessions.
+**Goal:** Withdraw more than the user's balance by splitting inputs across multiple sessions.
 
 **Attack scenario:**
 
 ```text
+User's balance: 20 BTC
 Attacker wants to withdraw 25 BTC using 3 vault UTXOs (10 BTC each = 30 BTC total).
-Honest session would require: user_cost = 25 + 1 (fee) = 26 BTC decremented.
+
+Honest approach:
+  Single session: user_cost = 25 (withdrawal) + 1 (fee) = 26 BTC
+  Balance check: 20 < 26 → REJECTED (insufficient balance)
 
 Attack attempt:
-  Create Session A for input_0 only → decrement 10 BTC
-  Create Session B for input_1 only → decrement 10 BTC
-  Create Session C for input_2 only → decrement 10 BTC
-  Total decremented: 30 BTC
+  Create 3 separate sessions, each appearing to use only 1 input:
+    Session A: hashPrevouts=H(input_0), user_cost = 6 BTC → balance: 20 - 6 = 14 ✓
+    Session B: hashPrevouts=H(input_1), user_cost = 6 BTC → balance: 14 - 6 = 8  ✓
+    Session C: hashPrevouts=H(input_2), user_cost = 6 BTC → balance: 8 - 6 = 2   ✓
+  Total decremented: 18 BTC (within 20 BTC balance)
 
-  Then somehow combine signatures into one 30 BTC → 25 BTC + 4 BTC change tx?
+  Then combine all 3 signatures into one Bitcoin tx spending 30 BTC → 25 BTC withdrawal?
 ```
 
 **Why this is cryptographically impossible:**
