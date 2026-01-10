@@ -155,13 +155,22 @@ An attacker might attempt to split a multi-input transaction across separate ses
 
 ## 5. Withdrawal Protocol: Security Invariants
 
-### 5.1 Session ID Derivation
+### 5.1 Session Key Derivation
 
-The `session_id` **must** be deterministically derived from the transaction commitment hashes:
+Session keys are derived deterministically from the BIP143 transaction commitments:
 
 ```text
-session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+Vault (Solana contract):
+  session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+
+MPC (internal tracking):
+  mpc_session_key = sha256(hashPrevouts || hashSequence || hashOutputs)
 ```
+
+**Why the difference:**
+
+- **Vault includes `user_pubkey`:** Ensures per-user session isolation on Solana. Two users with identical transaction parameters get different session PDAs.
+- **MPC excludes `user_pubkey`:** MPC tracks sessions by transaction shape only. The same Bitcoin transaction (same commitments) maps to one MPC session regardless of which Solana user initiated it.
 
 **Rationale:**
 
@@ -453,14 +462,18 @@ MPC tracks session commitments during signing and observes Bitcoin to determine 
 
 ### 7.1 MPC Session Tracking
 
-During each `sign_withdraw_btc_input` call, MPC receives the signing payload containing `hashPrevouts`, `hashOutputs`, and the input's `outpoint`. MPC maintains an internal mapping:
+During each `sign_withdraw_btc_input` call, MPC receives the signing payload containing `hashPrevouts`, `hashSequence`, `hashOutputs`, and the input's `outpoint`. MPC maintains an internal mapping keyed by the transaction commitment:
 
 ```text
+MPC session key derivation (no user_pubkey):
+  mpc_session_key = sha256(hashPrevouts || hashSequence || hashOutputs)
+
 MPC Internal State:
-  watched_sessions: Map<hashPrevouts, WatchedSession>
+  watched_sessions: Map<mpc_session_key, WatchedSession>
 
 WatchedSession {
   hashPrevouts:  [u8; 32]           // Session's input commitment
+  hashSequence:  [u8; 32]           // Session's sequence commitment
   hashOutputs:   [u8; 32]           // Session's output commitment
   outpoints:     Set<(txid, vout)>  // All outpoints signed for this session
 }
@@ -470,7 +483,10 @@ WatchedSession {
 
 ```text
 on_sign_request(payload: SignWithdrawBtcInputPayload):
-  session = watched_sessions.get_or_create(payload.hashPrevouts)
+  mpc_key = sha256(payload.hashPrevouts || payload.hashSequence || payload.hashOutputs)
+  session = watched_sessions.get_or_create(mpc_key)
+  session.hashPrevouts = payload.hashPrevouts
+  session.hashSequence = payload.hashSequence
   session.hashOutputs = payload.hashOutputs
   session.outpoints.add((payload.outpoint_txid, payload.outpoint_vout))
 ```
@@ -481,8 +497,9 @@ MPC emits a binary outcome attestation for each session:
 
 ```text
 SessionOutcomeAttestation {
-  session_hashPrevouts:  [u8; 32]   // Identifies the session
-  session_hashOutputs:   [u8; 32]   // Expected outputs
+  session_hashPrevouts:  [u8; 32]   // Session's input commitment
+  session_hashSequence:  [u8; 32]   // Session's sequence commitment
+  session_hashOutputs:   [u8; 32]   // Session's output commitment
   success:               bool       // true = confirmed, false = failed
   spending_txid:         [u8; 32]   // Bitcoin tx that spent the input(s)
   block_height:          u64        // Confirmation height
@@ -490,7 +507,7 @@ SessionOutcomeAttestation {
 }
 ```
 
-MPC creates attestations after 6+ confirmation
+MPC creates attestations after 6+ confirmations.
 
 ### 7.3 MPC Observation Logic
 
@@ -498,21 +515,24 @@ MPC creates attestations after 6+ confirmation
 on_bitcoin_block(block):
   for tx in block.transactions:
     tx_hashPrevouts = compute_bip143_hashPrevouts(tx)
+    tx_hashSequence = compute_bip143_hashSequence(tx)
     tx_hashOutputs = compute_bip143_hashOutputs(tx)
 
     for input in tx.inputs:
       outpoint = (input.prev_txid, input.prev_vout)
 
       // Check if this outpoint belongs to any watched session
-      for session in watched_sessions.values():
+      for (mpc_key, session) in watched_sessions:
         if outpoint in session.outpoints:
 
           // Determine outcome: does spending tx match session?
           success = (tx_hashPrevouts == session.hashPrevouts) AND
+                    (tx_hashSequence == session.hashSequence) AND
                     (tx_hashOutputs == session.hashOutputs)
 
           emit SessionOutcomeAttestation {
             session_hashPrevouts: session.hashPrevouts,
+            session_hashSequence: session.hashSequence,
             session_hashOutputs:  session.hashOutputs,
             success:              success,
             spending_txid:        tx.txid(),
@@ -520,7 +540,7 @@ on_bitcoin_block(block):
           }
 
           // Session resolved, stop watching
-          watched_sessions.remove(session.hashPrevouts)
+          watched_sessions.remove(mpc_key)
           break
 ```
 
@@ -537,6 +557,7 @@ complete_withdraw_btc_session(session_id, attestation)
 
 3. Verify attestation matches session:
    require!(attestation.session_hashPrevouts == session.hashPrevouts)
+   require!(attestation.session_hashSequence == session.hashSequence)
    require!(attestation.session_hashOutputs == session.hashOutputs)
 
 4. Apply outcome:
@@ -717,62 +738,64 @@ Step 3 fails because `balance.amount` is now 4 BTC (10 - 6 decremented).
 
 ### 8.4 Attack 4: Session Splitting
 
-**Goal:** Split a multi-input transaction across sessions to bypass accumulation bound.
+**Goal:** Bypass the accumulation bound by splitting inputs across multiple sessions.
 
-**Scenario:**
-
-```text
-Transaction needs 3 inputs (10 BTC each = 30 BTC total)
-User wants: 25 BTC output, 4 BTC change, 1 BTC fee
-
-Instead of one session (would require 26 BTC decremented):
-  User creates 3 sessions, each signing 1 input
-  Each session has smaller accumulation bound
-  Total decremented: less than 26 BTC?
-```
-
-**Why this fails:**
-
-For signatures to combine into a valid Bitcoin transaction:
+**Attack scenario:**
 
 ```text
-All signatures must commit to:
-  hashPrevouts = sha256d(input_0 || input_1 || input_2)  // ALL inputs
+Attacker wants to withdraw 25 BTC using 3 vault UTXOs (10 BTC each = 30 BTC total).
+Honest session would require: user_cost = 25 + 1 (fee) = 26 BTC decremented.
+
+Attack attempt:
+  Create Session A for input_0 only → decrement 10 BTC
+  Create Session B for input_1 only → decrement 10 BTC
+  Create Session C for input_2 only → decrement 10 BTC
+  Total decremented: 30 BTC
+
+  Then somehow combine signatures into one 30 BTC → 25 BTC + 4 BTC change tx?
 ```
 
-Session ID derivation:
+**Why this is cryptographically impossible:**
+
+BIP143 signatures commit to `hashPrevouts`, which is a hash of ALL inputs:
 
 ```text
-session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+hashPrevouts = sha256d(outpoint_0 || outpoint_1 || outpoint_2)
 ```
 
-**Case A: User provides correct hashPrevouts (all 3 inputs)**
+For three signatures to be valid in the same Bitcoin transaction, they must ALL commit to the same `hashPrevouts` value.
 
-```text
-Session 1: session_id = sha256(H_all_inputs || ... || user) = X
-Session 2: session_id = sha256(H_all_inputs || ... || user) = X  // SAME
-Session 3: session_id = sha256(H_all_inputs || ... || user) = X  // SAME
-```
+**The dilemma:**
 
-All three "sessions" are the same session. Accumulation bound applies to total.
+1. **If attacker uses correct hashPrevouts (all 3 inputs) for each session:**
 
-**Case B: User provides different hashPrevouts per session**
+   ```text
+   Session A: session_id = sha256(H_all || hashSeq || hashOut || user)
+   Session B: session_id = sha256(H_all || hashSeq || hashOut || user)  // IDENTICAL
+   Session C: session_id = sha256(H_all || hashSeq || hashOut || user)  // IDENTICAL
+   ```
 
-```text
-Session 1: hashPrevouts = sha256d(input_0 only)  → sig_0 commits to this
-Session 2: hashPrevouts = sha256d(input_1 only)  → sig_1 commits to this
-Session 3: hashPrevouts = sha256d(input_2 only)  → sig_2 commits to this
-```
+   All three calls create/update the SAME session PDA. The accumulation bound applies to the total: after signing 30 BTC of inputs, bound is reached.
 
-Actual transaction needs:
+2. **If attacker uses different hashPrevouts per session:**
 
-```text
-hashPrevouts = sha256d(input_0 || input_1 || input_2)
-```
+   ```text
+   Session A: hashPrevouts = sha256d(outpoint_0)        → sig_0 commits to this
+   Session B: hashPrevouts = sha256d(outpoint_1)        → sig_1 commits to this
+   Session C: hashPrevouts = sha256d(outpoint_2)        → sig_2 commits to this
+   ```
 
-None of the signatures are valid. They each commit to different (fictional) transactions.
+   Each signature commits to a different `hashPrevouts`. The actual transaction requires:
 
-**Status:** ✅ IMPOSSIBLE (cryptographic structure prevents it)
+   ```text
+   hashPrevouts = sha256d(outpoint_0 || outpoint_1 || outpoint_2)
+   ```
+
+   None of the signatures are valid for this transaction. Bitcoin rejects the tx.
+
+**Conclusion:** The attacker cannot have it both ways. Either all signatures use the same `hashPrevouts` (forcing same session, accumulation bound applies), or signatures use different `hashPrevouts` (invalid on Bitcoin).
+
+**Status:** ✅ IMPOSSIBLE
 
 ## 9. Deposit Protocol
 
