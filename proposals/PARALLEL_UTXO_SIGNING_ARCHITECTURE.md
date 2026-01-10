@@ -503,11 +503,12 @@ SessionOutcomeAttestation {
   success:               bool       // true = confirmed, false = failed
   spending_txid:         [u8; 32]   // Bitcoin tx that spent the input(s)
   block_height:          u64        // Confirmation height
+  actual_outputs:        Vec<TxOut> // MPC-observed outputs from Bitcoin
   signature:             Signature  // MPC signature over all fields
 }
 ```
 
-MPC creates attestations after 6+ confirmations.
+MPC creates attestations after 6+ confirmations. The `actual_outputs` field contains the outputs MPC observed on Bitcoin, used by deposits to calculate credit amount.
 
 ### 7.3 MPC Observation Logic
 
@@ -952,27 +953,22 @@ require!(scriptCode.derives_from(user_derived_script))
 
 **3) Claim Deposit:**
 
-After the deposit transaction confirms on Bitcoin:
-
-1. MPC observes the transaction and calls `respond_bidirectional()` on ChainSignatures
-2. ChainSignatures emits `RespondBidirectionalEvent`
-3. Client observes the event and calls `claim_deposit_btc_session` on Vault
+Resolution follows the same attestation flow as withdrawals (see **Section 7**). The attestation includes `actual_outputs` observed by MPC from Bitcoin.
 
 ```text
-claim_deposit_btc_session(session_id, serialized_output, signature)
+claim_deposit_btc_session(session_id, attestation)
 ```
 
 **Vault handling:**
 
 ```text
-// 1. Verify MPC signature (same as claim_btc pattern)
-// 2. Verify 6+ confirmations
+// 1. Verify attestation (same as Section 7.4)
 
-// 3. Calculate actual deposit from Bitcoin state
-actual_vault_outputs = actual_outputs.filter(o => o.script == VAULT_SCRIPT_PUBKEY)
-actual_deposit = sum(actual_vault_outputs.map(o => o.amount))
+// 2. Calculate deposit from MPC-attested outputs
+vault_outputs = attestation.actual_outputs.filter(o => o.script == VAULT_SCRIPT_PUBKEY)
+actual_deposit = sum(vault_outputs.map(o => o.amount))
 
-// 4. Credit user (based on ACTUAL receipt, not session expectation)
+// 3. Credit user based on MPC-attested receipt
 user.solana_balance += actual_deposit
 
 session.status = Completed
