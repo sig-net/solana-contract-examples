@@ -4,11 +4,12 @@ import * as bitcoin from "bitcoinjs-lib";
 import ECPairFactory from "ecpair";
 import * as ecc from "tiny-secp256k1";
 import { CryptoUtils } from "fakenet-signer";
-import BN from "bn.js";
 import {
   applySignaturesToPsbt,
+  bnToBigInt,
   buildSignatureMap,
   buildWithdrawalPlan,
+  buildWithdrawalPsbt,
   computeSignatureRequestIds,
   createFundedAuthority,
   executeSyntheticDeposit,
@@ -24,10 +25,7 @@ import { CONFIG } from "../../utils/envConfig";
 
 const ECPair = ECPairFactory(ecc);
 
-const bnToBigInt = (value: BN | number | bigint): bigint =>
-  BN.isBN(value) ? BigInt(value.toString()) : BigInt(value);
-
-describe.only("BTC Withdrawal Double-Spend Conflict", () => {
+describe("BTC Withdrawal Double-Spend Conflict", () => {
   before(async function () {
     await setupBitcoinTestContext();
   });
@@ -39,8 +37,7 @@ describe.only("BTC Withdrawal Double-Spend Conflict", () => {
   it("refunds balance when withdrawal UTXOs are double-spent", async function () {
     this.timeout(30_000);
 
-    const { provider, program, btcUtils, bitcoinAdapter } =
-      getBitcoinTestContext();
+    const { provider, program, bitcoinAdapter } = getBitcoinTestContext();
 
     // Step 1: Create a funded authority and deposit BTC to get a balance
     const authority = await createFundedAuthority();
@@ -84,7 +81,7 @@ describe.only("BTC Withdrawal Double-Spend Conflict", () => {
       const withdrawTx = await program.methods
         .withdrawBtc(
           planRequestIdBytes(withdrawalPlan),
-          withdrawalPlan.inputs,
+          withdrawalPlan.btcInputs,
           withdrawalPlan.amount,
           withdrawalPlan.recipient.address,
           withdrawalPlan.txParams
@@ -110,7 +107,7 @@ describe.only("BTC Withdrawal Double-Spend Conflict", () => {
       // Step 5: Wait for MPC signatures
       console.log("  ⏳ Waiting for MPC signatures...");
       const signatureEvents = await events.waitForSignatures(
-        withdrawalPlan.inputs.length
+        withdrawalPlan.btcInputs.length
       );
       const signatureMap = buildSignatureMap(
         signatureEvents,
@@ -121,21 +118,7 @@ describe.only("BTC Withdrawal Double-Spend Conflict", () => {
       );
 
       // Step 6: Build the withdrawal PSBT but do NOT broadcast it
-      const psbt = btcUtils.buildPSBT(
-        withdrawalPlan.inputs.map((input) => ({
-          txid: Buffer.from(input.txid).toString("hex"),
-          vout: input.vout,
-          value: input.value,
-          scriptPubkey: withdrawalPlan.globalVault.script,
-        })),
-        [
-          {
-            script: withdrawalPlan.recipient.script,
-            value: withdrawalPlan.amount,
-          },
-          // Change output (if any) would go back to vault
-        ]
-      );
+      const psbt = buildWithdrawalPsbt(withdrawalPlan);
 
       applySignaturesToPsbt(
         psbt,
@@ -148,7 +131,7 @@ describe.only("BTC Withdrawal Double-Spend Conflict", () => {
 
       // Step 7: Craft a conflicting spend of the global vault UTXOs
       console.log("  ⚔️ Creating conflicting transaction...");
-      const conflictingInput = withdrawalPlan.inputs[0];
+      const conflictingInput = withdrawalPlan.btcInputs[0];
       const inputValue = bnToBigInt(conflictingInput.value);
       const conflictFee = BigInt(500);
       const conflictOutputValue = inputValue - conflictFee;

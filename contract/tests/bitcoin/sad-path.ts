@@ -7,6 +7,7 @@ import {
   computeMessageHash,
   expectAnchorError,
   executeSyntheticDeposit,
+  fetchUserBalance,
   getBitcoinTestContext,
   planRequestIdBytes,
   setupBitcoinTestContext,
@@ -212,22 +213,22 @@ describe("BTC Sad Path", () => {
       inputValue: 2_000,
     });
 
-    if (!withdrawPlan.inputs.length) {
+    if (!withdrawPlan.btcInputs.length) {
       throw new Error("Mock withdrawal plan should include at least one input");
     }
-    withdrawPlan.inputs = [
+    withdrawPlan.btcInputs = [
       {
-        ...withdrawPlan.inputs[0],
+        ...withdrawPlan.btcInputs[0],
         value: new BN(500),
       },
-      ...withdrawPlan.inputs.slice(1),
+      ...withdrawPlan.btcInputs.slice(1),
     ];
 
     await expectAnchorError(
       program.methods
         .withdrawBtc(
           planRequestIdBytes(withdrawPlan),
-          withdrawPlan.inputs,
+          withdrawPlan.btcInputs,
           withdrawPlan.amount,
           withdrawPlan.recipient.address,
           withdrawPlan.txParams
@@ -259,7 +260,7 @@ describe("BTC Sad Path", () => {
       program.methods
         .withdrawBtc(
           planRequestIdBytes(withdrawPlan),
-          withdrawPlan.inputs,
+          withdrawPlan.btcInputs,
           withdrawPlan.amount,
           withdrawPlan.recipient.address,
           withdrawPlan.txParams
@@ -279,16 +280,9 @@ describe("BTC Sad Path", () => {
     const { provider, program } = getBitcoinTestContext();
     await executeSyntheticDeposit(7_500);
 
-    const { amount: balanceBefore } =
-      await program.account.userBtcBalance.fetch(
-        anchor.web3.PublicKey.findProgramAddressSync(
-          [
-            Buffer.from("user_btc_balance"),
-            provider.wallet.publicKey.toBuffer(),
-          ],
-          program.programId
-        )[0]
-      );
+    const { amount: balanceBefore } = await fetchUserBalance(
+      provider.wallet.publicKey
+    );
 
     const withdrawPlan = await buildWithdrawalPlan({
       mode: "mock",
@@ -300,7 +294,7 @@ describe("BTC Sad Path", () => {
     const withdrawTx = await program.methods
       .withdrawBtc(
         planRequestIdBytes(withdrawPlan),
-        withdrawPlan.inputs,
+        withdrawPlan.btcInputs,
         withdrawPlan.amount,
         withdrawPlan.recipient.address,
         withdrawPlan.txParams
@@ -328,11 +322,8 @@ describe("BTC Sad Path", () => {
       .rpc();
     await provider.connection.confirmTransaction(completeTx);
 
-    const { amount: balanceAfter } = await program.account.userBtcBalance.fetch(
-      anchor.web3.PublicKey.findProgramAddressSync(
-        [Buffer.from("user_btc_balance"), provider.wallet.publicKey.toBuffer()],
-        program.programId
-      )[0]
+    const { amount: balanceAfter } = await fetchUserBalance(
+      provider.wallet.publicKey
     );
 
     expect(balanceAfter.toString()).to.equal(balanceBefore.toString());

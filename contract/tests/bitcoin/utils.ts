@@ -119,13 +119,45 @@ const requireContext = (): BitcoinTestContext => {
   return { provider, program, btcUtils, bitcoinAdapter, server };
 };
 
+// Bitcoin conversion
 export const SATS_PER_BTC = 100_000_000;
+
+// Bitcoin transaction constants
+const BTC_TX_VERSION = 2;
+const BTC_SEQUENCE_FINAL = 0xffffffff;
+const DEFAULT_LOCK_TIME = 0;
+
+// Deposit/withdrawal amounts and fees
 export const DEFAULT_DEPOSIT_AMOUNT = 5_000;
-const MULTI_INPUT_TARGET = 4;
 export const WITHDRAW_FEE_BUDGET = 500;
 export const SYNTHETIC_TX_FEE = 200;
-// Keep change outputs above dust threshold to satisfy Bitcoin Core relay rules.
 const MIN_WITHDRAW_CHANGE_SATS = 600;
+
+// Multi-input deposit configuration
+const MULTI_INPUT_TARGET = 4;
+const MULTI_INPUT_BASE_FEE = 400;
+const MULTI_INPUT_CHANGE_DIVISOR = 4;
+
+// Mock transaction defaults
+const DEFAULT_MOCK_FEE = 25;
+
+// UTXO funding configuration
+const DEFAULT_FUNDING_SATS = 60_000;
+const FUNDING_INCREMENT_SATS = 10_000;
+const MIN_FUNDING_SATS = 10_000;
+const MAX_UTXO_FUNDING_ATTEMPTS = 5;
+const UTXO_POLL_INTERVAL_MS = 2_000;
+
+// Authority funding configuration
+const FUNDED_AUTHORITY_SOL = 0.005;
+const MAX_FUNDING_ATTEMPTS = 3;
+const FUNDING_RETRY_DELAY_MS = 500;
+
+// Public key format constants
+const UNCOMPRESSED_PUBKEY_LENGTH = 65;
+const UNCOMPRESSED_PUBKEY_PREFIX = 0x04;
+const COMPRESSED_PUBKEY_EVEN_PREFIX = 0x02;
+const COMPRESSED_PUBKEY_ODD_PREFIX = 0x03;
 
 export const getBitcoinTestContext = (): BitcoinTestContext => requireContext();
 
@@ -219,7 +251,8 @@ export type DepositPlan = {
 };
 
 export type WithdrawalPlan = {
-  inputs: BtcInput[];
+  btcInputs: BtcInput[];
+  btcOutputs: BtcOutput[];
   amount: BN;
   fee: BN;
   recipient: BtcDestination;
@@ -282,7 +315,7 @@ type VaultContext = GlobalVaultContext & {
   vaultAuthority: BtcTarget;
 };
 
-const bnToBigInt = (value: BN | number | bigint): bigint =>
+export const bnToBigInt = (value: BN | number | bigint): bigint =>
   BN.isBN(value) ? BigInt(value.toString()) : BigInt(value);
 
 const bufferFromBytes = (value: Buffer | number[] | Uint8Array): Buffer =>
@@ -298,7 +331,7 @@ const bufferFromBytes = (value: Buffer | number[] | Uint8Array): Buffer =>
 const buildTransaction = (
   inputs: BtcInput[],
   outputs: BtcOutput[],
-  lockTime = 0,
+  lockTime = DEFAULT_LOCK_TIME,
   requestIdParams: {
     sender: string;
     caip2Id: string;
@@ -310,11 +343,15 @@ const buildTransaction = (
   requestIdHex: Hex;
 } => {
   const tx = new bitcoin.Transaction();
-  tx.version = 2;
+  tx.version = BTC_TX_VERSION;
   tx.locktime = lockTime;
   inputs.forEach((input) => {
     const txidBytes = bufferFromBytes(input.txid);
-    tx.addInput(Buffer.from(txidBytes).reverse(), input.vout, 0xffffffff);
+    tx.addInput(
+      Buffer.from(txidBytes).reverse(),
+      input.vout,
+      BTC_SEQUENCE_FINAL
+    );
   });
   outputs.forEach((output) => {
     tx.addOutput(output.scriptPubkey, bnToBigInt(output.value));
@@ -345,6 +382,7 @@ export const planRequestIdBytes = (plan: { requestIdHex: string }): number[] =>
 /**
  * Builds a fully-resolved deposit plan: tx params, request id, credited amount, and destination metadata used by tests.
  * Throws if the request id cannot be deterministically recomputed.
+ * Note: lockTime is always 0 and caip2Id is always CONFIG.BITCOIN_CAIP2_ID for Bitcoin deposits.
  */
 export const composeDepositPlan = (params: {
   requester: anchor.web3.PublicKey;
@@ -355,19 +393,13 @@ export const composeDepositPlan = (params: {
   globalVault: BtcTarget;
   changeScript?: Buffer;
 }): DepositPlan => {
-  const txParams: BtcDepositParams = {
-    lockTime: 0,
-    caip2Id: CONFIG.BITCOIN_CAIP2_ID,
-    vaultScriptPubkey: params.globalVault.script,
-  };
-
   const { txidExplorerHex, requestIdHex } = buildTransaction(
     params.btcInputs,
     params.btcOutputs,
-    txParams.lockTime,
+    0, // lockTime is always 0
     {
       sender: params.vaultAuthority.pda.toString(),
-      caip2Id: txParams.caip2Id,
+      caip2Id: CONFIG.BITCOIN_CAIP2_ID,
       path: params.path,
     }
   );
@@ -375,14 +407,18 @@ export const composeDepositPlan = (params: {
   if (!requestIdHex) {
     throw new Error("Failed to compute deposit request id");
   }
-  const vaultScriptHex = Buffer.from(txParams.vaultScriptPubkey).toString(
-    "hex"
-  );
+
+  const vaultScriptHex = params.globalVault.script.toString("hex");
   const creditedAmount = params.btcOutputs.reduce((acc, output) => {
     const scriptHex = Buffer.from(output.scriptPubkey).toString("hex");
-    // Check if the script pubkey is the same as the global vault script pubkey, if yes increment the credited amount
     return scriptHex === vaultScriptHex ? acc.add(output.value) : acc;
   }, new BN(0));
+
+  const txParams: BtcDepositParams = {
+    lockTime: 0,
+    caip2Id: CONFIG.BITCOIN_CAIP2_ID,
+    vaultScriptPubkey: params.globalVault.script,
+  };
 
   return {
     requester: params.requester,
@@ -402,25 +438,18 @@ export const composeDepositPlan = (params: {
 /**
  * Compose a withdrawal plan with derived change, request id, and tx params validated against provided inputs.
  * Computes the deterministic request id for signature collection.
+ * Note: lockTime is always 0 and caip2Id is always CONFIG.BITCOIN_CAIP2_ID for Bitcoin withdrawals.
  */
-export const composeWithdrawalPlan = (
-  params: {
-    inputs: BtcInput[];
-    amount: BN;
-    fee: BN;
-    recipient: BtcDestination;
-    vaultScript: Buffer;
-    caip2Id: string;
-    lockTime: number;
-    globalVault: BtcTarget;
-  },
-  metadata: {
-    globalVault: BtcTarget;
-    selectedUtxos: UTXO[];
-    feeBudget: number;
-  }
-): WithdrawalPlan => {
-  const totalInputValue = params.inputs.reduce(
+export const composeWithdrawalPlan = (params: {
+  btcInputs: BtcInput[];
+  amount: BN;
+  fee: BN;
+  recipient: BtcDestination;
+  globalVault: BtcTarget;
+  selectedUtxos: UTXO[];
+  feeBudget: number;
+}): WithdrawalPlan => {
+  const totalInputValue = params.btcInputs.reduce(
     (acc, cur) => acc.add(cur.value),
     new BN(0)
   );
@@ -429,20 +458,23 @@ export const composeWithdrawalPlan = (
     throw new Error("Provided inputs do not cover amount + fee");
   }
 
-  const outputs: BtcOutput[] = [
+  const btcOutputs: BtcOutput[] = [
     { scriptPubkey: params.recipient.script, value: params.amount },
   ];
   if (changeValue.gt(new BN(0))) {
-    outputs.push({ scriptPubkey: params.vaultScript, value: changeValue });
+    btcOutputs.push({
+      scriptPubkey: params.globalVault.script,
+      value: changeValue,
+    });
   }
 
   const { txidExplorerHex, requestIdHex } = buildTransaction(
-    params.inputs,
-    outputs,
-    params.lockTime,
+    params.btcInputs,
+    btcOutputs,
+    0, // lockTime is always 0
     {
       sender: params.globalVault.pda.toString(),
-      caip2Id: params.caip2Id,
+      caip2Id: CONFIG.BITCOIN_CAIP2_ID,
       path: CONFIG.BITCOIN_WITHDRAW_PATH,
     }
   );
@@ -452,24 +484,33 @@ export const composeWithdrawalPlan = (
   }
 
   const txParams: BtcWithdrawParams = {
-    lockTime: params.lockTime,
-    caip2Id: params.caip2Id,
-    vaultScriptPubkey: params.vaultScript,
+    lockTime: 0,
+    caip2Id: CONFIG.BITCOIN_CAIP2_ID,
+    vaultScriptPubkey: params.globalVault.script,
     recipientScriptPubkey: params.recipient.script,
     fee: params.fee,
   };
 
   return {
-    inputs: params.inputs,
+    btcInputs: params.btcInputs,
+    btcOutputs,
     amount: params.amount,
     fee: params.fee,
     recipient: params.recipient,
     txParams,
     txidExplorerHex,
     requestIdHex,
-    ...metadata,
+    globalVault: params.globalVault,
+    selectedUtxos: params.selectedUtxos,
+    feeBudget: params.feeBudget,
   };
 };
+
+// Constants for Bitcoin Chain Signatures
+const CHAIN_SIG_KEY_VERSION = 0;
+const CHAIN_SIG_ALGO = "ECDSA";
+const CHAIN_SIG_DEST = "bitcoin";
+const CHAIN_SIG_PARAMS = "";
 
 type RequestIdComputationParams = {
   sender: string;
@@ -477,10 +518,6 @@ type RequestIdComputationParams = {
   inputCount: number;
   caip2Id: string;
   path: string;
-  keyVersion?: number;
-  algo?: string;
-  dest?: string;
-  params?: string;
 };
 
 const computePerInputRequestIds = ({
@@ -489,10 +526,6 @@ const computePerInputRequestIds = ({
   inputCount,
   caip2Id,
   path,
-  keyVersion = 0,
-  algo = "ECDSA",
-  dest = "bitcoin",
-  params = "",
 }: RequestIdComputationParams): string[] => {
   const txidBytes = Buffer.from(txidExplorerHex, "hex");
   const ids: string[] = [];
@@ -506,11 +539,11 @@ const computePerInputRequestIds = ({
       sender,
       Array.from(txData),
       caip2Id,
-      keyVersion,
+      CHAIN_SIG_KEY_VERSION,
       path,
-      algo,
-      dest,
-      params
+      CHAIN_SIG_ALGO,
+      CHAIN_SIG_DEST,
+      CHAIN_SIG_PARAMS
     );
 
     ids.push(requestId);
@@ -530,7 +563,7 @@ export function computeSignatureRequestIds(
     ? plan.vaultAuthority.pda.toString()
     : plan.globalVault.pda.toString();
   const path = isDeposit ? plan.path : CONFIG.BITCOIN_WITHDRAW_PATH;
-  const inputCount = isDeposit ? plan.btcInputs.length : plan.inputs.length;
+  const inputCount = plan.btcInputs.length;
 
   return computePerInputRequestIds({
     sender,
@@ -620,9 +653,10 @@ export const buildDepositPlan = async (
         (acc, utxo) => acc + utxo.value,
         0
       );
-      const baseFee = 400;
-      const changeValue = Math.floor(totalInputValue / 4);
-      const vaultValue = totalInputValue - baseFee - changeValue;
+      const changeValue = Math.floor(
+        totalInputValue / MULTI_INPUT_CHANGE_DIVISOR
+      );
+      const vaultValue = totalInputValue - MULTI_INPUT_BASE_FEE - changeValue;
 
       if (vaultValue <= 0) {
         throw new Error("Computed vault value is non-positive");
@@ -659,7 +693,7 @@ export const buildDepositPlan = async (
     case "mock": {
       const requester = options.requester ?? provider.wallet.publicKey;
       const amount = options.amount ?? DEFAULT_DEPOSIT_AMOUNT;
-      const inputValue = options.inputValue ?? amount + 500;
+      const inputValue = options.inputValue ?? amount + WITHDRAW_FEE_BUDGET;
 
       const { path, vaultAuthority, globalVault } =
         deriveVaultContext(requester);
@@ -753,28 +787,21 @@ export const buildWithdrawalPlan = async (
       );
 
       // Change is guaranteed to be zero or above the dust threshold.
-      return composeWithdrawalPlan(
-        {
-          inputs: btcInputs,
-          amount: withdrawAmountBn,
-          fee: new BN(feeBudget),
-          recipient,
-          vaultScript: globalVault.script,
-          caip2Id: CONFIG.BITCOIN_CAIP2_ID,
-          lockTime: 0,
-          globalVault,
-        },
-        {
-          globalVault,
-          selectedUtxos,
-          feeBudget,
-        }
-      );
+      return composeWithdrawalPlan({
+        btcInputs,
+        amount: withdrawAmountBn,
+        fee: new BN(feeBudget),
+        recipient,
+        globalVault,
+        selectedUtxos,
+        feeBudget,
+      });
     }
     case "mock": {
       const amountValue = options.amount ?? 2_000;
-      const feeValue = options.fee ?? 25;
-      const inputValue = options.inputValue ?? amountValue + feeValue + 25;
+      const feeValue = options.fee ?? DEFAULT_MOCK_FEE;
+      const inputValue =
+        options.inputValue ?? amountValue + feeValue + DEFAULT_MOCK_FEE;
 
       const { globalVault } = deriveGlobalVaultContext();
 
@@ -790,23 +817,15 @@ export const buildWithdrawalPlan = async (
         },
       ];
 
-      return composeWithdrawalPlan(
-        {
-          inputs: btcInputs,
-          amount: new BN(amountValue),
-          fee: new BN(feeValue),
-          recipient,
-          vaultScript: globalVault.script,
-          caip2Id: CONFIG.BITCOIN_CAIP2_ID,
-          lockTime: 0,
-          globalVault,
-        },
-        {
-          globalVault,
-          selectedUtxos: [],
-          feeBudget: feeValue,
-        }
-      );
+      return composeWithdrawalPlan({
+        btcInputs,
+        amount: new BN(amountValue),
+        fee: new BN(feeValue),
+        recipient,
+        globalVault,
+        selectedUtxos: [],
+        feeBudget: feeValue,
+      });
     }
   }
 };
@@ -847,7 +866,7 @@ export async function executeSyntheticDeposit(
   amount: number,
   requester?: anchor.web3.PublicKey
 ): Promise<number> {
-  const { provider, program, btcUtils, bitcoinAdapter } = requireContext();
+  const { provider, program, bitcoinAdapter } = requireContext();
   const depositRequester = requester ?? provider.wallet.publicKey;
 
   const preparedPlan = await buildDepositPlan({
@@ -891,18 +910,7 @@ export async function executeSyntheticDeposit(
       signatureRequestIds
     );
 
-    const psbt = btcUtils.buildPSBT(
-      preparedPlan.btcInputs.map((input) => ({
-        txid: Buffer.from(input.txid).toString("hex"),
-        vout: input.vout,
-        value: input.value,
-        scriptPubkey: preparedPlan.vaultAuthority.script,
-      })),
-      preparedPlan.btcOutputs.map((output) => ({
-        script: output.scriptPubkey,
-        value: output.value,
-      }))
-    );
+    const psbt = buildDepositPsbt(preparedPlan);
 
     applySignaturesToPsbt(
       psbt,
@@ -1018,13 +1026,13 @@ const sleep = (ms: number) =>
  * Creates a throwaway keypair and funds it with SOL from the provider wallet, retrying on transient blockhash errors.
  */
 export async function createFundedAuthority(
-  lamports = Math.floor(0.005 * anchor.web3.LAMPORTS_PER_SOL)
+  lamports = Math.floor(FUNDED_AUTHORITY_SOL * anchor.web3.LAMPORTS_PER_SOL)
 ): Promise<anchor.web3.Keypair> {
   const { provider } = requireContext();
   const authority = anchor.web3.Keypair.generate();
   let lastError: unknown;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < MAX_FUNDING_ATTEMPTS; attempt++) {
     const tx = new anchor.web3.Transaction().add(
       anchor.web3.SystemProgram.transfer({
         fromPubkey: provider.wallet.publicKey,
@@ -1047,7 +1055,7 @@ export async function createFundedAuthority(
             attempt + 1
           }), retrying...`
         );
-        await sleep(500);
+        await sleep(FUNDING_RETRY_DELAY_MS);
         continue;
       }
 
@@ -1099,7 +1107,11 @@ type EnsureUtxoOptions = {
 const ensureUtxos = async (
   adapter: IBitcoinAdapter,
   address: string,
-  { minCount = 1, minValue, fundingSats = 60_000 }: EnsureUtxoOptions
+  {
+    minCount = 1,
+    minValue,
+    fundingSats = DEFAULT_FUNDING_SATS,
+  }: EnsureUtxoOptions
 ): Promise<UTXO[]> => {
   let utxos = (await adapter.getAddressUtxos(address)) ?? [];
   let attempt = 0;
@@ -1108,14 +1120,14 @@ const ensureUtxos = async (
     utxos.length < minCount ||
     (minValue !== undefined && !utxos.some((utxo) => utxo.value >= minValue));
 
-  while (needsFunding() && attempt < 5) {
+  while (needsFunding() && attempt < MAX_UTXO_FUNDING_ATTEMPTS) {
     if (!adapter.fundAddress) {
       break;
     }
 
     const satsToSend = Math.max(
-      fundingSats + attempt * 10_000,
-      minValue ?? 10_000
+      fundingSats + attempt * FUNDING_INCREMENT_SATS,
+      minValue ?? MIN_FUNDING_SATS
     );
 
     await adapter.fundAddress(address, satsToSend / SATS_PER_BTC);
@@ -1126,7 +1138,13 @@ const ensureUtxos = async (
         ? Math.min(minCount, currentCount + 1)
         : currentCount + 1;
 
-    utxos = await waitForUtxoCount(adapter, address, targetCount, 5, 2_000);
+    utxos = await waitForUtxoCount(
+      adapter,
+      address,
+      targetCount,
+      MAX_UTXO_FUNDING_ATTEMPTS,
+      UTXO_POLL_INTERVAL_MS
+    );
 
     attempt += 1;
   }
@@ -1176,38 +1194,39 @@ const selectUtxosForTarget = (
 };
 
 /**
+ * Derives Bitcoin key material (address, script, compressed pubkey) from a PDA and derivation path.
+ */
+const deriveBtcTarget = (
+  pda: anchor.web3.PublicKey,
+  path: string
+): BtcTarget => {
+  const { btcUtils } = requireContext();
+  const uncompressedPubkey = signetUtils.cryptography.deriveChildPublicKey(
+    CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+    pda.toString(),
+    path,
+    CONFIG.SOLANA_CHAIN_ID
+  );
+  const compressedPubkey = btcUtils.compressPublicKey(uncompressedPubkey);
+  return {
+    pda,
+    address: btcUtils.getAddressFromPubkey(compressedPubkey),
+    script: btcUtils.createP2WPKHScript(compressedPubkey),
+    compressedPubkey,
+  };
+};
+
+/**
  * Derives the static global vault PDA and its corresponding Bitcoin address/script/key material.
  */
 const deriveGlobalVaultContext = (): GlobalVaultContext => {
-  const { program, btcUtils } = requireContext();
-
-  const [globalVault] = anchor.web3.PublicKey.findProgramAddressSync(
+  const { program } = requireContext();
+  const [globalVaultPda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("global_vault_authority")],
     program.programId
   );
-
-  const globalVaultPubkey = signetUtils.cryptography.deriveChildPublicKey(
-    CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-    globalVault.toString(),
-    CONFIG.BITCOIN_WITHDRAW_PATH,
-    CONFIG.SOLANA_CHAIN_ID
-  );
-  const compressedGlobalVaultPubkey =
-    btcUtils.compressPublicKey(globalVaultPubkey);
-  const globalVaultScript = btcUtils.createP2WPKHScript(
-    compressedGlobalVaultPubkey
-  );
-  const globalVaultAddress = btcUtils.getAddressFromPubkey(
-    compressedGlobalVaultPubkey
-  );
-
   return {
-    globalVault: {
-      pda: globalVault,
-      address: globalVaultAddress,
-      script: globalVaultScript,
-      compressedPubkey: compressedGlobalVaultPubkey,
-    },
+    globalVault: deriveBtcTarget(globalVaultPda, CONFIG.BITCOIN_WITHDRAW_PATH),
   };
 };
 
@@ -1218,41 +1237,16 @@ const deriveVaultContext = (
   requester: anchor.web3.PublicKey,
   pathOverride?: string
 ): VaultContext => {
-  const { program, btcUtils } = requireContext();
-
+  const { program } = requireContext();
   const path = pathOverride ?? requester.toString();
-
-  const [vaultAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+  const [vaultAuthorityPda] = anchor.web3.PublicKey.findProgramAddressSync(
     [Buffer.from("vault_authority"), requester.toBuffer()],
     program.programId
   );
-
-  const vaultAuthorityPubkey = signetUtils.cryptography.deriveChildPublicKey(
-    CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-    vaultAuthority.toString(),
-    path,
-    CONFIG.SOLANA_CHAIN_ID
-  );
-  const compressedVaultAuthorityPubkey =
-    btcUtils.compressPublicKey(vaultAuthorityPubkey);
-  const vaultAuthorityScript = btcUtils.createP2WPKHScript(
-    compressedVaultAuthorityPubkey
-  );
-  const vaultAuthorityAddress = btcUtils.getAddressFromPubkey(
-    compressedVaultAuthorityPubkey
-  );
-
-  const globalContext = deriveGlobalVaultContext();
-
   return {
     path,
-    vaultAuthority: {
-      pda: vaultAuthority,
-      address: vaultAuthorityAddress,
-      script: vaultAuthorityScript,
-      compressedPubkey: compressedVaultAuthorityPubkey,
-    },
-    ...globalContext,
+    vaultAuthority: deriveBtcTarget(vaultAuthorityPda, path),
+    ...deriveGlobalVaultContext(),
   };
 };
 
@@ -1264,17 +1258,7 @@ const deriveChangeScript = (
   path: string
 ): Buffer => {
   const changePath = `${path}::change`;
-  const changePubkeyUncompressed =
-    signetUtils.cryptography.deriveChildPublicKey(
-      CONFIG.BASE_PUBLIC_KEY as `04${string}`,
-      vaultAuthority.pda.toString(),
-      changePath,
-      CONFIG.SOLANA_CHAIN_ID
-    );
-  const compressedChangePubkey = btcUtils.compressPublicKey(
-    changePubkeyUncompressed
-  );
-  return btcUtils.createP2WPKHScript(compressedChangePubkey);
+  return deriveBtcTarget(vaultAuthority.pda, changePath).script;
 };
 
 /**
@@ -1295,15 +1279,25 @@ const buildExternalDestination = (): BtcDestination => {
 };
 
 /**
+ * Derives the user BTC balance PDA for a given authority.
+ */
+export const deriveUserBalancePda = (
+  authority: anchor.web3.PublicKey
+): anchor.web3.PublicKey => {
+  const { program } = requireContext();
+  const [pda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("user_btc_balance"), authority.toBuffer()],
+    program.programId
+  );
+  return pda;
+};
+
+/**
  * Fetches (or lazily initializes to zero) a user's BTC balance account on-chain.
  */
 export const fetchUserBalance = async (authority: anchor.web3.PublicKey) => {
   const { program } = requireContext();
-
-  const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("user_btc_balance"), authority.toBuffer()],
-    program.programId
-  );
+  const userBalancePda = deriveUserBalancePda(authority);
 
   try {
     const account = await program.account.userBtcBalance.fetch(userBalancePda);
@@ -1339,15 +1333,21 @@ class BitcoinUtils {
   compressPublicKey(uncompressedHex: string): Buffer {
     const uncompressed = Buffer.from(uncompressedHex, "hex");
 
-    if (uncompressed.length !== 65 || uncompressed[0] !== 0x04) {
+    if (
+      uncompressed.length !== UNCOMPRESSED_PUBKEY_LENGTH ||
+      uncompressed[0] !== UNCOMPRESSED_PUBKEY_PREFIX
+    ) {
       throw new Error("Invalid uncompressed public key");
     }
 
     const x = uncompressed.slice(1, 33);
-    const y = uncompressed.slice(33, 65);
+    const y = uncompressed.slice(33, UNCOMPRESSED_PUBKEY_LENGTH);
 
     // Check if y is even or odd
-    const prefix = y[y.length - 1] % 2 === 0 ? 0x02 : 0x03;
+    const prefix =
+      y[y.length - 1] % 2 === 0
+        ? COMPRESSED_PUBKEY_EVEN_PREFIX
+        : COMPRESSED_PUBKEY_ODD_PREFIX;
 
     return Buffer.concat([Buffer.from([prefix]), x]);
   }
@@ -1423,6 +1423,41 @@ class BitcoinUtils {
     return psbt;
   }
 }
+
+/**
+ * Builds a PSBT from plan inputs/outputs with a given input script.
+ */
+const buildPlanPsbt = (
+  btcInputs: BtcInput[],
+  btcOutputs: BtcOutput[],
+  inputScript: Buffer
+): bitcoin.Psbt => {
+  const { btcUtils } = requireContext();
+  return btcUtils.buildPSBT(
+    btcInputs.map((input) => ({
+      txid: Buffer.from(input.txid).toString("hex"),
+      vout: input.vout,
+      value: input.value,
+      scriptPubkey: inputScript,
+    })),
+    btcOutputs.map((output) => ({
+      script: output.scriptPubkey,
+      value: output.value,
+    }))
+  );
+};
+
+/**
+ * Builds a PSBT for a deposit transaction from a DepositPlan.
+ */
+export const buildDepositPsbt = (plan: DepositPlan): bitcoin.Psbt =>
+  buildPlanPsbt(plan.btcInputs, plan.btcOutputs, plan.vaultAuthority.script);
+
+/**
+ * Builds a PSBT for a withdrawal transaction from a WithdrawalPlan.
+ */
+export const buildWithdrawalPsbt = (plan: WithdrawalPlan): bitcoin.Psbt =>
+  buildPlanPsbt(plan.btcInputs, plan.btcOutputs, plan.globalVault.script);
 
 /**
  * Idempotently initializes the on-chain vault_config account with the MPC root signer address expected by tests.

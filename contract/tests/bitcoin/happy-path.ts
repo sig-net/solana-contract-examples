@@ -4,13 +4,17 @@ import { expect } from "chai";
 import {
   applySignaturesToPsbt,
   buildDepositPlan,
+  buildDepositPsbt,
   buildSignatureMap,
   buildWithdrawalPlan,
+  buildWithdrawalPsbt,
   cleanupEventListeners,
   computeSignatureRequestIds,
   createFundedAuthority,
+  deriveUserBalancePda,
   executeSyntheticDeposit,
   extractSignature,
+  fetchUserBalance,
   getBitcoinTestContext,
   planRequestIdBytes,
   prepareSignatureWitness,
@@ -30,8 +34,7 @@ describe("BTC Happy Path", () => {
   });
 
   it("processes a single-input BTC deposit end-to-end", async function () {
-    const { provider, program, btcUtils, bitcoinAdapter } =
-      getBitcoinTestContext();
+    const { provider, program, bitcoinAdapter } = getBitcoinTestContext();
 
     const singleRequester = anchor.web3.Keypair.generate();
     const plan = await buildDepositPlan({
@@ -52,20 +55,10 @@ describe("BTC Happy Path", () => {
     console.log("  • inputs:", plan.btcInputs.length);
     console.log("  • outputs:", plan.btcOutputs.length);
 
-    const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("user_btc_balance"), singleRequester.publicKey.toBuffer()],
-      program.programId
+    const userBalancePda = deriveUserBalancePda(singleRequester.publicKey);
+    const { amount: initialBalance } = await fetchUserBalance(
+      singleRequester.publicKey
     );
-
-    let initialBalance = new BN(0);
-    try {
-      const balanceAccount = await program.account.userBtcBalance.fetch(
-        userBalancePda
-      );
-      initialBalance = balanceAccount.amount;
-    } catch {
-      // account doesn't exist yet
-    }
 
     const signatureRequestIds = computeSignatureRequestIds(plan);
     const events = await setupEventListeners(
@@ -103,18 +96,7 @@ describe("BTC Happy Path", () => {
       );
 
       console.log("📍 Step 4: Building/signing PSBT");
-      const psbt = btcUtils.buildPSBT(
-        plan.btcInputs.map((input) => ({
-          txid: Buffer.from(input.txid).toString("hex"),
-          vout: input.vout,
-          value: input.value,
-          scriptPubkey: plan.vaultAuthority.script,
-        })),
-        plan.btcOutputs.map((output) => ({
-          script: output.scriptPubkey,
-          value: output.value,
-        }))
-      );
+      const psbt = buildDepositPsbt(plan);
 
       applySignaturesToPsbt(
         psbt,
@@ -155,8 +137,7 @@ describe("BTC Happy Path", () => {
   });
 
   it("processes a multi-input BTC deposit and only credits vault-directed value", async function () {
-    const { provider, program, btcUtils, bitcoinAdapter } =
-      getBitcoinTestContext();
+    const { provider, program, bitcoinAdapter } = getBitcoinTestContext();
 
     const secondaryRequester = anchor.web3.Keypair.generate();
     const plan = await buildDepositPlan({
@@ -181,23 +162,10 @@ describe("BTC Happy Path", () => {
       plan.requestIdHex
     );
 
-    const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("user_btc_balance"),
-        secondaryRequester.publicKey.toBuffer(),
-      ],
-      program.programId
+    const userBalancePda = deriveUserBalancePda(secondaryRequester.publicKey);
+    const { amount: initialBalance } = await fetchUserBalance(
+      secondaryRequester.publicKey
     );
-
-    let initialBalance = new BN(0);
-    try {
-      const balanceAccount = await program.account.userBtcBalance.fetch(
-        userBalancePda
-      );
-      initialBalance = balanceAccount.amount;
-    } catch {
-      // user has no prior deposits
-    }
 
     try {
       console.log("📍 Step 2: Submitting deposit ix");
@@ -227,18 +195,7 @@ describe("BTC Happy Path", () => {
         computeSignatureRequestIds(plan)
       );
 
-      const psbt = btcUtils.buildPSBT(
-        plan.btcInputs.map((input) => ({
-          txid: Buffer.from(input.txid).toString("hex"),
-          vout: input.vout,
-          value: input.value,
-          scriptPubkey: plan.vaultAuthority.script,
-        })),
-        plan.btcOutputs.map((output) => ({
-          script: output.scriptPubkey,
-          value: output.value,
-        }))
-      );
+      const psbt = buildDepositPsbt(plan);
 
       applySignaturesToPsbt(
         psbt,
@@ -276,22 +233,17 @@ describe("BTC Happy Path", () => {
   });
 
   it("processes a BTC withdrawal end-to-end", async function () {
-    const { provider, program, btcUtils, bitcoinAdapter } =
-      getBitcoinTestContext();
+    const { provider, program, bitcoinAdapter } = getBitcoinTestContext();
 
     const depositor = await createFundedAuthority();
     await executeSyntheticDeposit(7_500, depositor.publicKey);
 
     const feeBudget = WITHDRAW_FEE_BUDGET;
 
-    const [userBalancePda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("user_btc_balance"), depositor.publicKey.toBuffer()],
-      program.programId
+    const userBalancePda = deriveUserBalancePda(depositor.publicKey);
+    const { amount: startingBalance } = await fetchUserBalance(
+      depositor.publicKey
     );
-    const balanceAccount = await program.account.userBtcBalance.fetch(
-      userBalancePda
-    );
-    const startingBalance = balanceAccount.amount;
 
     if (startingBalance.lte(new BN(0))) {
       throw new Error("❌ No BTC balance available for withdrawal");
@@ -309,7 +261,7 @@ describe("BTC Happy Path", () => {
     console.log("=".repeat(60));
     console.log("📍 Step 1: Plan ready");
     console.log("  • requester:", depositor.publicKey.toString());
-    console.log("  • inputs:", plan.inputs.length);
+    console.log("  • inputs:", plan.btcInputs.length);
     console.log("  • amount:", plan.amount.toString());
     console.log("  • fee:", plan.fee.toString());
     console.log("  • recipient:", plan.recipient.address);
@@ -348,7 +300,7 @@ describe("BTC Happy Path", () => {
     const withdrawTx = await program.methods
       .withdrawBtc(
         planRequestIdBytes(plan),
-        plan.inputs,
+        plan.btcInputs,
         plan.amount,
         plan.recipient.address,
         plan.txParams
@@ -384,34 +336,7 @@ describe("BTC Happy Path", () => {
       );
     }
 
-    const totalInputValue = plan.selectedUtxos.reduce(
-      (acc, utxo) => acc.add(new BN(utxo.value)),
-      new BN(0)
-    );
-    const changeValue = totalInputValue.sub(totalDebitBn);
-    if (changeValue.isNeg()) {
-      throw new Error("Selected inputs no longer cover withdrawal + fee");
-    }
-
-    const withdrawPsbt = btcUtils.buildPSBT(
-      plan.selectedUtxos.map((utxo) => ({
-        txid: utxo.txid,
-        vout: utxo.vout,
-        value: utxo.value,
-        scriptPubkey: plan.globalVault.script,
-      })),
-      [
-        { script: plan.recipient.script, value: plan.amount },
-        ...(changeValue.gt(new BN(0))
-          ? [
-              {
-                script: plan.globalVault.script,
-                value: changeValue,
-              },
-            ]
-          : []),
-      ]
-    );
+    const withdrawPsbt = buildWithdrawalPsbt(plan);
 
     signatures.forEach((sig, idx) => {
       const { witness } = prepareSignatureWitness(
