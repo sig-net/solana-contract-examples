@@ -1,6 +1,10 @@
+import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { handleDeposit } from '@/lib/relayer/handlers';
+
+export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,21 +18,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    handleDeposit({
-      userAddress,
-      erc20Address,
-      ethereumAddress,
-    })
-      .then(result => {
+    after(async () => {
+      try {
+        const result = await handleDeposit({
+          userAddress,
+          erc20Address,
+          ethereumAddress,
+        });
         if (!result.ok) {
           console.error('Deposit processing failed:', result.error);
         } else {
           console.log('Deposit processed successfully:', result.requestId);
         }
-      })
-      .catch(error => {
+      } catch (error) {
         console.error('Deposit processing error:', error);
-      });
+      }
+    });
 
     return NextResponse.json({ accepted: true }, { status: 202 });
   } catch (error) {

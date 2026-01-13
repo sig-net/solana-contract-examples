@@ -23,31 +23,23 @@ import { getTokenInfo } from '@/lib/utils/token-formatting';
 import { buildErc20TransferTx } from '@/lib/evm/tx-builder';
 import { generateRequestId, evmParamsToProgram } from '@/lib/program/utils';
 import { BridgeContract } from '@/lib/contracts/bridge-contract';
-import { TokenBalanceService } from '@/lib/services/token-balance-service';
-import { RelayerService } from '@/lib/services/relayer-service';
+import { notifyWithdrawal } from '@/lib/services/relayer-service';
 import {
   VAULT_ETHEREUM_ADDRESS,
   GLOBAL_VAULT_AUTHORITY_PDA,
 } from '@/lib/constants/addresses';
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
-import { getAlchemyProvider, getEthereumProvider } from '@/lib/rpc';
+import { getEthereumProvider } from '@/lib/rpc';
 
 /**
  * WithdrawalService handles ERC20 withdrawal initiation.
  * The relayer handles withdrawal completion automatically.
  */
 export class WithdrawalService {
-  private relayerService: RelayerService;
-  private alchemy = getAlchemyProvider();
   private heliusConnection: Connection | null = null;
   private heliusBridgeContract: BridgeContract | null = null;
 
-  constructor(
-    private bridgeContract: BridgeContract,
-    private tokenBalanceService: TokenBalanceService,
-  ) {
-    this.relayerService = new RelayerService();
-  }
+  constructor(private bridgeContract: BridgeContract) {}
 
   /**
    * Get or create a Helius connection for withdrawals
@@ -222,7 +214,7 @@ export class WithdrawalService {
 
       const requestIdBytes = Array.from(toBytes(requestId));
 
-      await this.relayerService.notifyWithdrawal({
+      await notifyWithdrawal({
         requestId,
         erc20Address,
         transactionParams: {

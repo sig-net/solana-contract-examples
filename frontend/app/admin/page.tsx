@@ -2,7 +2,7 @@
 
 import { Buffer } from 'buffer';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
@@ -26,20 +26,18 @@ export default function AdminPage() {
   const [mpcAddress, setMpcAddress] = useState('');
   const [loading, setLoading] = useState<'idle' | 'init' | 'update'>('idle');
 
-  const provider = useMemo(() => {
-    if (!anchorWallet) return null;
-    return new AnchorProvider(connection, anchorWallet, {
-      commitment: 'confirmed',
-      skipPreflight: true,
-    });
-  }, [connection, anchorWallet]);
+  const provider = anchorWallet
+    ? new AnchorProvider(connection, anchorWallet, {
+        commitment: 'confirmed',
+        skipPreflight: true,
+      })
+    : null;
 
-  const program = useMemo(() => {
-    if (!provider) return null;
-    return new Program(IDL as unknown as SolDexIDL, provider);
-  }, [provider]);
+  const program = provider
+    ? new Program(IDL as unknown as SolDexIDL, provider)
+    : null;
 
-  const onInitialize = useCallback(async () => {
+  async function onInitialize() {
     if (!program || !anchorWallet?.publicKey) {
       toast.error('Connect your wallet');
       return;
@@ -64,14 +62,15 @@ export default function AdminPage() {
         .rpc();
 
       toast.success('Initialized config: ' + sig);
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to initialize');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed to initialize';
+      toast.error(message);
     } finally {
       setLoading('idle');
     }
-  }, [program, anchorWallet, mpcAddress]);
+  }
 
-  const onUpdate = useCallback(async () => {
+  async function onUpdate() {
     if (!program || !anchorWallet?.publicKey) {
       toast.error('Connect your wallet');
       return;
@@ -93,12 +92,13 @@ export default function AdminPage() {
         .rpc();
 
       toast.success('Updated config: ' + sig);
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to update');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed to update';
+      toast.error(message);
     } finally {
       setLoading('idle');
     }
-  }, [program, anchorWallet, mpcAddress]);
+  }
 
   return (
     <div className='mx-auto max-w-xl space-y-6 p-4'>
