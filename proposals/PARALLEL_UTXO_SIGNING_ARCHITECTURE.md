@@ -849,6 +849,140 @@ For three signatures to be valid in the same Bitcoin transaction, they must ALL 
 
 **Status:** ✅ IMPOSSIBLE
 
+---
+
+### 8.5 Open Problem: Poison Outpoint Refund Oracle
+
+#### Problem
+
+The current design allows the MPC to "watch" (and later attest about) **any outpoint that was signed** during a session. However, the protocol does not currently prove that every signed/watched outpoint is actually part of the committed input set represented by `hashPrevouts` (and `hashSequence`).
+
+This enables a **refund oracle**: the user can obtain a valid withdrawal on Bitcoin *and* a refund on Solana by injecting a signed outpoint that is **not included** in the committed `hashPrevouts`.
+
+#### Attack: Poison Outpoint → Forced Failure Attestation While Withdrawal Still Succeeds
+
+**Goal:** Force `success=false` attestation (refund) without preventing the "real" withdrawal transaction from confirming.
+
+**Scenario:**
+
+1. User creates a withdrawal session with a legitimate commitment:
+   - `hashPrevouts/hashSequence` correspond to the **real input list** `L` that will be used in the final Bitcoin transaction.
+2. User obtains signatures for every input in `L` (so the final withdrawal transaction is fully signable).
+3. User additionally requests a signature for a **poison outpoint** `P` that is *not* included in `L` (and therefore not included in `hashPrevouts/hashSequence`).
+4. User causes `P` to be spent in an unrelated Bitcoin transaction.
+5. MPC observes `P` spent and emits a **failure attestation** (`success=false`) because the spending transaction's commitments do not match the session commitments.
+6. User submits `complete_withdraw_btc_session(..., success=false attestation ...)` and receives a refund on Solana.
+7. User broadcasts the real withdrawal transaction using `L`. It confirms on Bitcoin.
+
+**Result:** User receives BTC on Bitcoin and is refunded on Solana → vault loss without user cost.
+
+**Root cause:** The session's "watched outpoints" are not provably equal to the committed outpoints implied by `hashPrevouts/hashSequence`.
+
+---
+
+#### Proposed Solution: On-Chain Input Manifest + Commitment Verification Gate
+
+To make **refunds safe**, the Vault must ensure that **every signed/watched outpoint is a member of the committed input list** (the list hashed into `hashPrevouts` and `hashSequence`).
+
+This is achieved by storing an **input manifest** in the session PDA and requiring the manifest to match the commitments before allowing any failure-based refund.
+
+##### Additive Requirements (Poison-Outpoint Mitigation Only)
+
+**A) User declares number of inputs**
+
+At session creation, the user provides:
+
+```text
+num_inputs: u32
+```
+
+This is the expected length `N` of the committed input list.
+
+**B) Each signed input is stored in the session**
+
+On each `sign_withdraw_btc_input`, the Vault stores the input identifier in the session manifest:
+
+- `outpoint = (txid, vout)` (36 bytes)
+- `sequence` (4 bytes)
+
+To avoid relying on Solana transaction ordering, the signing call provides a stable index:
+
+```text
+input_index: u32   // 0 <= input_index < num_inputs
+```
+
+This allows inputs to be signed in any order while keeping a deterministic BIP143 input ordering for hashing.
+
+**C) Refunds require manifest verification**
+
+Failure resolution (refund) is only allowed after the Vault verifies that the stored manifest hashes to the committed `hashPrevouts` and `hashSequence`.
+
+---
+
+##### Session Fields (Stored in `WithdrawBtcSession` PDA)
+
+```text
+num_inputs:       u32
+inputs_filled:    u32
+inputs_verified:  bool
+
+// Manifest (zero-copy friendly):
+// outpoints[i] = txid[32] || vout[4]
+// sequences[i] = u32
+outpoints:  [u8; 36 * num_inputs]
+sequences:  [u8; 4  * num_inputs]
+```
+
+##### Vault Logic (Pseudocode)
+
+**On `sign_withdraw_btc_input(session_id, input_index, outpoint, sequence, ...)`:**
+
+```text
+require!(input_index < session.num_inputs, "Index out of range")
+
+// Store (or enforce consistency if already stored)
+if manifest_slot[input_index] is empty:
+  manifest_slot[input_index] = (outpoint, sequence)
+  session.inputs_filled += 1
+else:
+  require!(manifest_slot[input_index] == (outpoint, sequence), "Input mismatch")
+
+// Once all inputs are present, verify commitments exactly once
+if session.inputs_filled == session.num_inputs and !session.inputs_verified:
+  computed_hashPrevouts = sha256d(outpoints[0] || outpoints[1] || ... || outpoints[N-1])
+  computed_hashSequence = sha256d(sequences[0] || sequences[1] || ... || sequences[N-1])
+
+  require!(computed_hashPrevouts == session.hashPrevouts, "hashPrevouts mismatch")
+  require!(computed_hashSequence == session.hashSequence, "hashSequence mismatch")
+
+  session.inputs_verified = true
+```
+
+**On `complete_withdraw_btc_session(session_id, attestation)`:**
+
+```text
+verify_mpc_signature(attestation)
+require!(attestation.txCommit == session.txCommit)
+
+// Poison-outpoint mitigation gate:
+if attestation.success == false:
+  require!(session.inputs_verified, "Inputs not verified; refund blocked")
+
+// Apply existing success/failure handling unchanged
+```
+
+##### Why This Fix Works
+
+With this gate in place:
+
+1. The Vault will only accept a failure refund after it has proven that the session's committed input set (`hashPrevouts/hashSequence`) corresponds exactly to the stored manifest.
+2. Therefore, any outpoint that MPC watches (because it was signed under this session) must be one of the committed outpoints.
+3. A user can no longer introduce an "extra" signed outpoint to trigger a failure attestation while still broadcasting a successful withdrawal transaction.
+
+**Effect:** The poison outpoint refund oracle becomes impossible.
+
+**Status:** 🔶 PROPOSED FIX (requires implementation)
+
 ## 9. Deposit Protocol
 
 ### 9.1 Overview
