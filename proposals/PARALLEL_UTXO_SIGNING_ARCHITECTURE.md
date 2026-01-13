@@ -12,13 +12,16 @@ Solana transactions are limited to approximately 1,232 bytes. Bitcoin transactio
 
 Leverage BIP143's SegWit v0 sighash structure to sign each input independently in separate Solana transactions, while ensuring all signatures commit to the same Bitcoin inputs and outputs.
 
-**Key insight:** In BIP143 with `SIGHASH_ALL`, the sighash preimage contains three transaction-wide 32-byte commitments that remain constant for all inputs:
+**Key insight:** In BIP143 with `SIGHASH_ALL`, the sighash preimage contains transaction-wide fields that remain constant for all inputs:
 
+- `nVersion` — transaction version
 - `hashPrevouts` — commits to all input outpoints
 - `hashSequence` — commits to all input sequences
 - `hashOutputs` — commits to all outputs
+- `nLockTime` — transaction lock time
+- `sighashType` — signature hash type
 
-Instead of transmitting a full PSBT, the system passes only these commitments plus per-input fields.
+These fields are combined into a single `txCommit = sha256(DOMAIN || nVersion || nLockTime || sighashType || hashPrevouts || hashSequence || hashOutputs)` that uniquely identifies the transaction shape. Instead of transmitting a full PSBT, the system passes only these commitments plus per-input fields.
 
 ### 1.3 Scope and Assumptions
 
@@ -121,7 +124,7 @@ Once `hashPrevouts`, `hashSequence`, and `hashOutputs` are fixed:
 An attacker might attempt to split a multi-input transaction across separate sessions to bypass the accumulation bound. This attack is cryptographically impossible due to BIP143's structure:
 
 - All signatures must commit to the same `hashPrevouts` (hash of ALL inputs)
-- The `session_id` is derived from `hashPrevouts || hashSequence || hashOutputs || user_pubkey`
+- The `session_id` is derived from all tx-wide sighash fields via `txCommit` (see Section 5.1)
 - Identical commitments produce identical session IDs (accumulation bound applies)
 - Different commitments produce incompatible signatures (invalid on Bitcoin)
 
@@ -157,28 +160,41 @@ An attacker might attempt to split a multi-input transaction across separate ses
 
 ### 5.1 Session Key Derivation
 
-Session keys are derived deterministically from the BIP143 transaction commitments:
+Session keys are derived deterministically from **all tx-wide BIP143 sighash fields** via a `txCommit` intermediate hash:
 
 ```text
+DOMAIN = "signet:btc:v1"
+
+txCommit = sha256(
+  DOMAIN       ||    // Domain separation (prevents cross-protocol collisions)
+  nVersion     ||    // 4 bytes LE
+  nLockTime    ||    // 4 bytes LE
+  sighashType  ||    // 4 bytes LE (SIGHASH_ALL = 0x01)
+  hashPrevouts ||    // 32 bytes
+  hashSequence ||    // 32 bytes
+  hashOutputs       // 32 bytes
+)
+
 Vault (Solana contract):
-  session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+  session_id = sha256(txCommit || user_pubkey)
 
 MPC (internal tracking):
-  mpc_session_key = sha256(hashPrevouts || hashSequence || hashOutputs)
+  mpc_session_key = txCommit
 ```
 
-**Why the difference:**
+**Why Vault and MPC differ:**
 
 - **Vault includes `user_pubkey`:** Ensures per-user session isolation on Solana. Two users with identical transaction parameters get different session PDAs.
-- **MPC excludes `user_pubkey`:** MPC tracks sessions by transaction shape only. The same Bitcoin transaction (same commitments) maps to one MPC session regardless of which Solana user initiated it.
+- **MPC uses `txCommit` directly:** MPC tracks sessions by transaction shape only. The same Bitcoin transaction maps to one MPC session regardless of which Solana user initiated it.
 
 **Rationale:**
 
 - **Prevents session confusion attacks:** A user-provided session ID could collide with or reference another user's session.
-- **Ensures deterministic verification:** Given the same commitments and user, the session ID is always identical.
+- **Ensures deterministic verification:** Given the same tx params and user, the session ID is always identical.
 - **Prevents replay across sessions:** Each unique transaction shape produces a unique session ID.
-- **Idempotent session creation:** If a user calls `create_withdraw_btc_session` twice with identical parameters, they receive the same session ID.
+- **Idempotent session creation:** Calling `create_withdraw_btc_session` twice with identical parameters returns the same session ID.
 - **Enforces transaction integrity:** This derivation makes session splitting attacks impossible.
+- **Auditability:** All sighash-relevant fields are explicit in the commitment, making debugging straightforward.
 
 **Implementation note:** The session PDA seed should include this derived `session_id`, making it impossible to create conflicting sessions.
 
@@ -363,9 +379,10 @@ create_withdraw_btc_session {
   hashPrevouts: [u8; 32],
   hashSequence: [u8; 32],
 
-  // Transaction constants
-  nVersion:  u32,
-  nLockTime: u32
+  // Transaction constants (all included in txCommit)
+  nVersion:    u32,
+  nLockTime:   u32,
+  sighashType: u32   // SIGHASH_ALL = 0x01
 }
 ```
 
@@ -381,8 +398,17 @@ sum_outputs = user_out_sats + vault_change_sats
 expected_input_total = sum_outputs + declared_fee
 user_cost = user_out_sats + declared_fee
 
-// 3. Derive session ID (NEVER user-provided)
-session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+// 3. Compute txCommit and derive session ID (NEVER user-provided)
+txCommit = sha256(
+  "signet:btc:v1" ||
+  nVersion        ||
+  nLockTime       ||
+  sighashType     ||
+  hashPrevouts    ||
+  hashSequence    ||
+  hashOutputs
+)
+session_id = sha256(txCommit || user_pubkey)
 
 // 4. Optimistically decrement balance (prevents race conditions)
 require!(balance.amount >= user_cost, "Insufficient balance")
@@ -391,12 +417,14 @@ balance.amount -= user_cost  // follows withdraw_btc pattern
 // 5. Create WithdrawBtcSession PDA with derived session_id as seed
 WithdrawBtcSession {
   session_id,
+  txCommit,                     // stored for attestation verification
   user: user_pubkey,
   hashPrevouts,
   hashSequence,
   hashOutputs,
   nVersion,
   nLockTime,
+  sighashType,
   declared_fee,
   expected_input_total,
   user_cost,                    // stored for potential refund
@@ -433,15 +461,15 @@ session.authorized_input_total += amount_sats
 
 ```text
 SignWithdrawBtcInputPayload {
-  session_id:    [u8; 32]
+  txCommit:      [u8; 32]   // session's txCommit (MPC uses as session key)
 
-  // tx-wide commitments (from session)
+  // tx-wide commitments (from session, for BIP143 preimage construction)
   hashPrevouts:  [u8; 32]
   hashSequence:  [u8; 32]
   hashOutputs:   [u8; 32]
   nVersion:      u32
   nLockTime:     u32
-  sighashType:   u32        // SIGHASH_ALL = 0x01
+  sighashType:   u32        // from session (SIGHASH_ALL = 0x01)
 
   // per-input fields (from call)
   outpoint_txid: [u8; 32]
@@ -452,7 +480,7 @@ SignWithdrawBtcInputPayload {
 }
 ```
 
-MPC deterministically constructs the BIP143 preimage from this payload, computes `sha256d(preimage)`, and produces the ECDSA signature.
+MPC deterministically constructs the BIP143 preimage from this payload, computes `sha256d(preimage)`, and produces the ECDSA signature. MPC uses `txCommit` as its session key for tracking.
 
 ---
 
@@ -462,19 +490,23 @@ MPC tracks session commitments during signing and observes Bitcoin to determine 
 
 ### 7.1 MPC Session Tracking
 
-During each `sign_withdraw_btc_input` call, MPC receives the signing payload containing `hashPrevouts`, `hashSequence`, `hashOutputs`, and the input's `outpoint`. MPC maintains an internal mapping keyed by the transaction commitment:
+During each `sign_withdraw_btc_input` call, MPC receives the signing payload containing `txCommit` and per-input fields. MPC uses `txCommit` directly as its session key (includes all tx-wide sighash fields):
 
 ```text
-MPC session key derivation (no user_pubkey):
-  mpc_session_key = sha256(hashPrevouts || hashSequence || hashOutputs)
+MPC session key (from payload):
+  mpc_session_key = payload.txCommit   // Already computed by Vault
 
 MPC Internal State:
-  watched_sessions: Map<mpc_session_key, WatchedSession>
+  watched_sessions: Map<txCommit, WatchedSession>
 
 WatchedSession {
-  hashPrevouts:  [u8; 32]           // Session's input commitment
-  hashSequence:  [u8; 32]           // Session's sequence commitment
-  hashOutputs:   [u8; 32]           // Session's output commitment
+  txCommit:      [u8; 32]           // Full transaction commitment
+  nVersion:      u32                // For verification/debugging
+  nLockTime:     u32                // For verification/debugging
+  sighashType:   u32                // For verification/debugging
+  hashPrevouts:  [u8; 32]           // For Bitcoin observation matching
+  hashSequence:  [u8; 32]           // For Bitcoin observation matching
+  hashOutputs:   [u8; 32]           // For Bitcoin observation matching
   outpoints:     Set<(txid, vout)>  // All outpoints signed for this session
 }
 ```
@@ -483,8 +515,11 @@ WatchedSession {
 
 ```text
 on_sign_request(payload: SignWithdrawBtcInputPayload):
-  mpc_key = sha256(payload.hashPrevouts || payload.hashSequence || payload.hashOutputs)
-  session = watched_sessions.get_or_create(mpc_key)
+  session = watched_sessions.get_or_create(payload.txCommit)
+  session.txCommit = payload.txCommit
+  session.nVersion = payload.nVersion
+  session.nLockTime = payload.nLockTime
+  session.sighashType = payload.sighashType
   session.hashPrevouts = payload.hashPrevouts
   session.hashSequence = payload.hashSequence
   session.hashOutputs = payload.hashOutputs
@@ -493,13 +528,11 @@ on_sign_request(payload: SignWithdrawBtcInputPayload):
 
 ### 7.2 Attestation Structure
 
-MPC emits a binary outcome attestation for each session:
+MPC emits a binary outcome attestation for each session, keyed by `txCommit`:
 
 ```text
 SessionOutcomeAttestation {
-  session_hashPrevouts:  [u8; 32]   // Session's input commitment
-  session_hashSequence:  [u8; 32]   // Session's sequence commitment
-  session_hashOutputs:   [u8; 32]   // Session's output commitment
+  txCommit:              [u8; 32]   // Full session commitment (includes all tx-wide fields)
   success:               bool       // true = confirmed, false = failed
   spending_txid:         [u8; 32]   // Bitcoin tx that spent the input(s)
   block_height:          u64        // Confirmation height
@@ -510,11 +543,14 @@ SessionOutcomeAttestation {
 
 MPC creates attestations after 6+ confirmations. The `actual_outputs` field contains the outputs MPC observed on Bitcoin, used by deposits to calculate credit amount.
 
+**Why `txCommit` instead of separate hashes:** The attestation uses the same commitment structure as session creation, ensuring unambiguous matching. Vault verifies `attestation.txCommit == session.txCommit`.
+
 ### 7.3 MPC Observation Logic
 
 ```text
 on_bitcoin_block(block):
   for tx in block.transactions:
+    // Compute BIP143 commitments from observed transaction
     tx_hashPrevouts = compute_bip143_hashPrevouts(tx)
     tx_hashSequence = compute_bip143_hashSequence(tx)
     tx_hashOutputs = compute_bip143_hashOutputs(tx)
@@ -523,29 +559,38 @@ on_bitcoin_block(block):
       outpoint = (input.prev_txid, input.prev_vout)
 
       // Check if this outpoint belongs to any watched session
-      for (mpc_key, session) in watched_sessions:
+      for (txCommit, session) in watched_sessions:
         if outpoint in session.outpoints:
 
+          // Compute txCommit for observed transaction (using session's constants)
+          tx_txCommit = sha256(
+            "signet:btc:v1"       ||
+            session.nVersion     ||   // Use session's expected values
+            session.nLockTime    ||
+            session.sighashType  ||
+            tx_hashPrevouts      ||   // From observed tx
+            tx_hashSequence      ||   // From observed tx
+            tx_hashOutputs            // From observed tx
+          )
+
           // Determine outcome: does spending tx match session?
-          success = (tx_hashPrevouts == session.hashPrevouts) AND
-                    (tx_hashSequence == session.hashSequence) AND
-                    (tx_hashOutputs == session.hashOutputs)
+          success = (tx_txCommit == session.txCommit)
 
           emit SessionOutcomeAttestation {
-            session_hashPrevouts: session.hashPrevouts,
-            session_hashSequence: session.hashSequence,
-            session_hashOutputs:  session.hashOutputs,
-            success:              success,
-            spending_txid:        tx.txid(),
-            block_height:         block.height,
+            txCommit:       session.txCommit,
+            success:        success,
+            spending_txid:  tx.txid(),
+            block_height:   block.height,
+            actual_outputs: tx.outputs,
           }
 
           // Session resolved, stop watching
-          watched_sessions.remove(mpc_key)
-          break
+          watched_sessions.remove(txCommit)
 ```
 
 **Key property:** MPC emits an attestation whenever ANY outpoint from a session is spent, regardless of whether the spending transaction matches the session. This ensures sessions always resolve (success or failure) rather than getting stuck.
+
+**Success determination:** The observed transaction's `txCommit` must exactly match the session's `txCommit`. This validates all tx-wide fields (nVersion, nLockTime, sighashType, hashPrevouts, hashSequence, hashOutputs) in a single comparison.
 
 ### 7.4 Resolution Logic
 
@@ -556,10 +601,8 @@ complete_withdraw_btc_session(session_id, attestation)
 
 2. Load session PDA
 
-3. Verify attestation matches session:
-   require!(attestation.session_hashPrevouts == session.hashPrevouts)
-   require!(attestation.session_hashSequence == session.hashSequence)
-   require!(attestation.session_hashOutputs == session.hashOutputs)
+3. Verify attestation matches session (single comparison):
+   require!(attestation.txCommit == session.txCommit)
 
 4. Apply outcome:
    if attestation.success:
@@ -584,9 +627,10 @@ User/Client              Vault Program          ChainSignatures         MPC     
   ├─────────────────────────►│                        │                  │                     │
   │                          │ 1. validate change     │                  │                     │
   │                          │ 2. compute hashOutputs │                  │                     │
-  │                          │ 3. derive session_id   │                  │                     │
-  │                          │ 4. decrement balance   │                  │                     │
-  │                          │ 5. store session PDA   │                  │                     │
+  │                          │ 3. compute txCommit    │                  │                     │
+  │                          │ 4. derive session_id   │                  │                     │
+  │                          │ 5. decrement balance   │                  │                     │
+  │                          │ 6. store session PDA   │                  │                     │
   │◄──────── session_id ─────┤                        │                  │                     │
   │                          │                        │                  │                     │
   │ sign_withdraw_btc_input()│                        │                  │                     │
@@ -596,8 +640,7 @@ User/Client              Vault Program          ChainSignatures         MPC     
   │                          │                        │ emit SignBidirectionalEvent            │
   │                          │                        │ ────────────────►│                     │
   │                          │                        │                  │ 1. record outpoint  │
-  │                          │                        │                  │    in watched_      │
-  │                          │                        │                  │    sessions map     │
+  │                          │                        │                  │    keyed by txCommit│
   │                          │                        │                  │ 2. sign(payload)    │
   │                          │                        │◄── respond() ────┤                     │
   │                          │                        │ emit SignatureRespondedEvent           │
@@ -610,7 +653,7 @@ User/Client              Vault Program          ChainSignatures         MPC     
   │                          │                        │                  │   observe (6 conf)  │
   │                          │                        │                  │   for each input:   │
   │                          │                        │                  │     find session    │
-  │                          │                        │                  │     compute hashes  │
+  │                          │                        │                  │     compute txCommit│
   │                          │                        │                  │     success = match?│
   │                          │                        │                  │   sign attestation  │
   │                          │                        │◄─ respond_bidirectional(attestation) ──┤
@@ -620,8 +663,8 @@ User/Client              Vault Program          ChainSignatures         MPC     
   │ complete_withdraw_btc_session(session_id, attestation)               │                     │
   ├─────────────────────────►│                        │                  │                     │
   │                          │ 1. verify MPC sig      │                  │                     │
-  │                          │ 2. verify hashes match │                  │                     │
-  │                          │    session PDA         │                  │                     │
+  │                          │ 2. verify txCommit     │                  │                     │
+  │                          │    matches session     │                  │                     │
   │                          │ 3. if success: done    │                  │                     │
   │                          │    else: refund        │                  │                     │
   │                          │ 4. close session PDA   │                  │                     │
@@ -776,9 +819,12 @@ For three signatures to be valid in the same Bitcoin transaction, they must ALL 
 1. **If attacker uses correct hashPrevouts (all 3 inputs) for each session:**
 
    ```text
-   Session A: session_id = sha256(H_all || hashSeq || hashOut || user)
-   Session B: session_id = sha256(H_all || hashSeq || hashOut || user)  // IDENTICAL
-   Session C: session_id = sha256(H_all || hashSeq || hashOut || user)  // IDENTICAL
+   txCommit_all = sha256(DOMAIN || nVersion || nLockTime || sighashType ||
+                         H_all_prevouts || hashSeq || hashOut)
+
+   Session A: session_id = sha256(txCommit_all || user)
+   Session B: session_id = sha256(txCommit_all || user)  // IDENTICAL
+   Session C: session_id = sha256(txCommit_all || user)  // IDENTICAL
    ```
 
    All three calls create/update the SAME session PDA. The accumulation bound applies to the total: after signing 30 BTC of inputs, bound is reached.
@@ -786,12 +832,12 @@ For three signatures to be valid in the same Bitcoin transaction, they must ALL 
 2. **If attacker uses different hashPrevouts per session:**
 
    ```text
-   Session A: hashPrevouts = sha256d(outpoint_0)        → sig_0 commits to this
-   Session B: hashPrevouts = sha256d(outpoint_1)        → sig_1 commits to this
-   Session C: hashPrevouts = sha256d(outpoint_2)        → sig_2 commits to this
+   Session A: hashPrevouts = sha256d(outpoint_0)        → txCommit_A → sig_0 commits to this
+   Session B: hashPrevouts = sha256d(outpoint_1)        → txCommit_B → sig_1 commits to this
+   Session C: hashPrevouts = sha256d(outpoint_2)        → txCommit_C → sig_2 commits to this
    ```
 
-   Each signature commits to a different `hashPrevouts`. The actual transaction requires:
+   Each signature commits to a different `hashPrevouts` (and therefore different `txCommit`). The actual transaction requires:
 
    ```text
    hashPrevouts = sha256d(outpoint_0 || outpoint_1 || outpoint_2)
@@ -799,7 +845,7 @@ For three signatures to be valid in the same Bitcoin transaction, they must ALL 
 
    None of the signatures are valid for this transaction. Bitcoin rejects the tx.
 
-**Conclusion:** The attacker cannot have it both ways. Either all signatures use the same `hashPrevouts` (forcing same session, accumulation bound applies), or signatures use different `hashPrevouts` (invalid on Bitcoin).
+**Conclusion:** The attacker cannot have it both ways. Either all signatures use the same `txCommit` (forcing same session, accumulation bound applies), or signatures use different `txCommit` values (invalid on Bitcoin).
 
 **Status:** ✅ IMPOSSIBLE
 
@@ -910,8 +956,9 @@ create_deposit_btc_session {
     { script: VAULT_SCRIPT_PUBKEY, amount: deposit_amount },
     { script: change_address,      amount: change_amount }  // Optional, any address
   ],
-  nVersion:  u32,
-  nLockTime: u32
+  nVersion:    u32,
+  nLockTime:   u32,
+  sighashType: u32   // SIGHASH_ALL = 0x01
 }
 ```
 
@@ -922,11 +969,32 @@ create_deposit_btc_session {
 vault_output = outputs.find(o => o.script == VAULT_SCRIPT_PUBKEY)
 require!(vault_output.is_some(), "No vault output in deposit")
 
-// 2. Compute hashOutputs and derive session ID
+// 2. Compute hashOutputs, txCommit, and derive session ID
 hashOutputs = sha256d(serialize(outputs))
-session_id = sha256(hashPrevouts || hashSequence || hashOutputs || user_pubkey)
+txCommit = sha256(
+  "signet:btc:v1" ||
+  nVersion        ||
+  nLockTime       ||
+  sighashType     ||
+  hashPrevouts    ||
+  hashSequence    ||
+  hashOutputs
+)
+session_id = sha256(txCommit || user_pubkey)
 
 // 3. Create session (NO balance decrement needed for deposits)
+DepositBtcSession {
+  session_id,
+  txCommit,
+  user: user_pubkey,
+  hashPrevouts,
+  hashSequence,
+  hashOutputs,
+  nVersion,
+  nLockTime,
+  sighashType,
+  status: Active
+}
 ```
 
 **2) Sign Deposit Input:**
@@ -949,6 +1017,20 @@ require!(scriptCode.derives_from(user_derived_script))
 // 3. NO accumulation bound check needed
 
 // 4. Construct signing payload and CPI to MPC
+SignDepositBtcInputPayload {
+  txCommit:      session.txCommit,
+  hashPrevouts:  session.hashPrevouts,
+  hashSequence:  session.hashSequence,
+  hashOutputs:   session.hashOutputs,
+  nVersion:      session.nVersion,
+  nLockTime:     session.nLockTime,
+  sighashType:   session.sighashType,
+  outpoint_txid: outpoint.txid,
+  outpoint_vout: outpoint.vout,
+  amount_sats:   amount_sats,
+  sequence:      sequence,
+  scriptCode:    scriptCode,
+}
 ```
 
 **3) Claim Deposit:**
@@ -962,13 +1044,16 @@ claim_deposit_btc_session(session_id, attestation)
 **Vault handling:**
 
 ```text
-// 1. Verify attestation (same as Section 7.4)
+// 1. Verify MPC signature over attestation
 
-// 2. Calculate deposit from MPC-attested outputs
+// 2. Verify attestation matches session (single comparison)
+require!(attestation.txCommit == session.txCommit)
+
+// 3. Calculate deposit from MPC-attested outputs
 vault_outputs = attestation.actual_outputs.filter(o => o.script == VAULT_SCRIPT_PUBKEY)
 actual_deposit = sum(vault_outputs.map(o => o.amount))
 
-// 3. Credit user based on MPC-attested receipt
+// 4. Credit user based on MPC-attested receipt
 user.solana_balance += actual_deposit
 
 session.status = Completed
