@@ -1,10 +1,7 @@
 'use client';
 
-import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import {
-  ConnectionProvider,
-  WalletProvider,
-} from '@solana/wallet-adapter-react';
+import { AppProvider } from '@solana/connector/react';
+import { getDefaultConfig } from '@solana/connector/headless';
 import { WagmiProvider } from 'wagmi';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
@@ -12,8 +9,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { wagmiConfig } from '@/lib/wagmi/config';
 import { queryClient } from '@/lib/query-client';
 import { getAlchemySolanaDevnetRpcUrl } from '@/lib/rpc';
-
-import '@solana/wallet-adapter-react-ui/styles.css';
+import { ConnectionProvider } from './connection-context';
 
 const endpoint = getAlchemySolanaDevnetRpcUrl();
 
@@ -22,6 +18,12 @@ const connectionConfig = {
   disableRetryOnRateLimit: false,
   confirmTransactionInitialTimeout: 30000,
 };
+
+const connectorConfig = getDefaultConfig({
+  appName: 'Signet Bridge',
+  network: 'devnet',
+  autoConnect: true,
+});
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -32,9 +34,9 @@ export function Providers({ children }: ProvidersProps) {
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={wagmiConfig}>
         <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
-          <WalletProvider wallets={[]} autoConnect>
-            <WalletModalProvider>{children}</WalletModalProvider>
-          </WalletProvider>
+          <AppProvider connectorConfig={connectorConfig}>
+            {children}
+          </AppProvider>
         </ConnectionProvider>
       </WagmiProvider>
       <ReactQueryDevtools initialIsOpen={false} />

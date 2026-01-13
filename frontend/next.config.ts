@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
 
   reactStrictMode: true,
 
+  // Server-only packages excluded from bundling (avoid Turbopack conflicts)
+  serverExternalPackages: ['fakenet-signer', 'bitcoin-core'],
+
   // Configure module transpilation
   transpilePackages: [
     '@solana/wallet-adapter-react',

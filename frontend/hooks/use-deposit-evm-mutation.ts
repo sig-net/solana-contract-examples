@@ -1,7 +1,8 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
+import { PublicKey } from '@solana/web3.js';
 
 import { queryKeys } from '@/lib/query-client';
 import { DepositService } from '@/lib/services/deposit-service';
@@ -9,8 +10,10 @@ import { DepositService } from '@/lib/services/deposit-service';
 const depositService = new DepositService();
 
 export function useDepositEvmMutation() {
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
   const queryClient = useQueryClient();
+
+  const publicKey = isConnected && account ? new PublicKey(account) : null;
 
   return useMutation({
     mutationFn: async ({
@@ -39,24 +42,24 @@ export function useDepositEvmMutation() {
       );
     },
     onSuccess: () => {
-      if (publicKey) {
+      if (account) {
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.userBalances(publicKey.toString()),
+          queryKey: queryKeys.solana.userBalances(account),
         });
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.unclaimedBalances(publicKey.toString()),
+          queryKey: queryKeys.solana.unclaimedBalances(account),
         });
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.incomingDeposits(publicKey.toString()),
+          queryKey: queryKeys.solana.incomingDeposits(account),
         });
       }
     },
     onError: error => {
       console.error('Deposit EVM mutation failed:', error);
 
-      if (publicKey) {
+      if (account) {
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.incomingDeposits(publicKey.toString()),
+          queryKey: queryKeys.solana.incomingDeposits(account),
         });
       }
     },

@@ -1,7 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
+import { PublicKey } from '@solana/web3.js';
 
 import { queryKeys } from '@/lib/query-client';
 
@@ -17,8 +18,10 @@ export interface TransferEvent {
 }
 
 export function useIncomingTransfers() {
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
   const bridgeContract = useBridgeContract();
+
+  const publicKey = isConnected && account ? new PublicKey(account) : null;
 
   const query = useQuery({
     queryKey: publicKey

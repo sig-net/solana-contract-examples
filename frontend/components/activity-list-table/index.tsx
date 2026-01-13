@@ -1,4 +1,4 @@
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { ExternalLink } from 'lucide-react';
@@ -62,7 +62,7 @@ function buildTransactionsList(
   incomingTransfers: ReturnType<typeof useIncomingTransfers>['data'],
   outgoingTransfers: ReturnType<typeof useOutgoingTransfers>['data'],
   solanaTxs: ReturnType<typeof useSolanaTransactions>['data'],
-  publicKey: ReturnType<typeof useWallet>['publicKey'],
+  account: string | null,
 ): ActivityTransaction[] {
   const allTransactions: ActivityTransaction[] = [];
 
@@ -113,7 +113,7 @@ function buildTransactionsList(
         status: transfer.status,
         transactionHash: transfer.transactionHash,
         explorerUrl: transfer.transactionHash
-          ? getTransactionExplorerUrl(transfer.transactionHash, 'sepolia')
+          ? getTransactionExplorerUrl(transfer.transactionHash)
           : undefined,
       };
     });
@@ -165,7 +165,7 @@ function buildTransactionsList(
         status: transfer.status,
         transactionHash: transfer.transactionHash,
         explorerUrl: transfer.transactionHash
-          ? getTransactionExplorerUrl(transfer.transactionHash, 'sepolia')
+          ? getTransactionExplorerUrl(transfer.transactionHash)
           : undefined,
       };
     });
@@ -174,7 +174,7 @@ function buildTransactionsList(
 
   // Include Solana wallet transactions
   if (solanaTxs && solanaTxs.length > 0) {
-    const solanaAddress = publicKey?.toBase58() ?? '';
+    const solanaAddress = account ?? '';
     const walletTxs: ActivityTransaction[] = solanaTxs.map(tx => {
       const formattedAmount = formatTokenBalanceSync(
         tx.amount,
@@ -234,7 +234,7 @@ function buildTransactionsList(
 }
 
 export function ActivityListTable({ className }: ActivityListTableProps) {
-  const { connected, publicKey } = useWallet();
+  const { isConnected, account } = useWallet();
   const { data: depositAddress } = useDepositAddress();
   const {
     data: incomingTransfers,
@@ -289,7 +289,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
     incomingTransfers,
     outgoingTransfers,
     solanaTxs,
-    publicKey,
+    account,
   );
 
   const displayTransactions = realTransactions.slice(0, 5);
@@ -380,7 +380,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
           ) : (
             <TableRow>
               <TableCell colSpan={5} className='py-8 text-center text-gray-500'>
-                {connected
+                {isConnected
                   ? 'No transactions found. Send ERC20 tokens to your deposit address to see activity.'
                   : 'Connect your wallet to view transaction activity.'}
               </TableCell>

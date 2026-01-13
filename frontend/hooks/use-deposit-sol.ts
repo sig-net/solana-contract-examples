@@ -1,12 +1,12 @@
 'use client';
 
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
 
 export function useDepositSol() {
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
 
   return {
-    depositAddress: publicKey?.toString() ?? '',
-    canDeposit: !!publicKey,
+    depositAddress: account ?? '',
+    canDeposit: isConnected && !!account,
   };
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
 
 import {
   Dialog,
@@ -15,7 +15,7 @@ import { useDepositEvmMutation } from '@/hooks/use-deposit-evm-mutation';
 
 import { TokenSelection } from './token-selection';
 import { DepositAddress } from './deposit-address';
-import { LoadingState } from './loading-state';
+import { DepositGeneratingState } from './deposit-generating-state';
 
 interface DepositDialogProps {
   open: boolean;
@@ -29,7 +29,7 @@ enum DepositStep {
 }
 
 export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
   const [step, setStep] = useState<DepositStep>(DepositStep.SELECT_TOKEN);
   const [selectedToken, setSelectedToken] = useState<TokenMetadata | null>(
     null,
@@ -50,7 +50,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   };
 
   const handleNotifyRelayer = async () => {
-    if (!publicKey || !selectedToken || !selectedNetwork) return;
+    if (!isConnected || !account || !selectedToken || !selectedNetwork) return;
 
     // For Solana assets, no relayer notification is needed; user deposits directly to own wallet
     if (selectedNetwork.chain === 'solana') {
@@ -83,7 +83,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
     if (!selectedNetwork) return;
 
     // For Solana network, we already have the user's own wallet address; no generation needed
-    if (selectedNetwork.chain === 'solana' && publicKey) {
+    if (selectedNetwork.chain === 'solana' && isConnected && account) {
       setStep(DepositStep.SHOW_ADDRESS);
       return;
     }
@@ -91,7 +91,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
     if (depositAddress && !isGeneratingAddress) {
       setStep(DepositStep.SHOW_ADDRESS);
     }
-  }, [step, selectedNetwork, publicKey, depositAddress, isGeneratingAddress]);
+  }, [step, selectedNetwork, isConnected, account, depositAddress, isGeneratingAddress]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -108,7 +108,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
         )}
 
         {step === DepositStep.GENERATING_ADDRESS && selectedToken && (
-          <LoadingState token={selectedToken} network={selectedNetwork!} />
+          <DepositGeneratingState token={selectedToken} network={selectedNetwork!} />
         )}
 
         {step === DepositStep.SHOW_ADDRESS &&

@@ -1,19 +1,33 @@
 'use client';
 
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useTransactionSigner } from '@solana/connector/react';
+import { PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import type { Wallet } from '@coral-xyz/anchor';
 
 export function useAnchorWallet(): Wallet | null {
-  const wallet = useWallet();
+  const { account, isConnected } = useWallet();
+  const { signer, ready } = useTransactionSigner();
 
-  if (!wallet.publicKey) {
+  if (!isConnected || !account || !ready || !signer) {
     return null;
   }
 
+  const publicKey = new PublicKey(account);
+
   return {
-    publicKey: wallet.publicKey,
-    signTransaction: wallet.signTransaction,
-    signAllTransactions: wallet.signAllTransactions,
-    payer: { publicKey: wallet.publicKey },
+    publicKey,
+    signTransaction: async <T extends Transaction | VersionedTransaction>(
+      tx: T,
+    ): Promise<T> => {
+      const signed = await signer.signTransaction(tx);
+      return signed as T;
+    },
+    signAllTransactions: async <T extends Transaction | VersionedTransaction>(
+      txs: T[],
+    ): Promise<T[]> => {
+      const signed = await signer.signAllTransactions(txs);
+      return signed as T[];
+    },
+    payer: { publicKey },
   } as Wallet;
 }

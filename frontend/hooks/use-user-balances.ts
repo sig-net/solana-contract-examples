@@ -1,15 +1,18 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
+import { PublicKey } from '@solana/web3.js';
 
 import { queryKeys } from '@/lib/query-client';
 
 import { useTokenBalanceService } from './use-token-balance-service';
 
 export function useUserBalances() {
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
   const tokenBalanceService = useTokenBalanceService();
+
+  const publicKey = isConnected && account ? new PublicKey(account) : null;
 
   return useQuery({
     queryKey: publicKey

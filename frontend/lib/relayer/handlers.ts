@@ -14,8 +14,17 @@ import {
   derivePendingDepositPda,
   derivePendingWithdrawalPda,
 } from '@/lib/constants/addresses';
+import { withEmbeddedSigner } from '@/lib/relayer/embedded-signer';
 
 export async function handleDeposit(args: {
+  userAddress: string;
+  erc20Address: string;
+  ethereumAddress: string;
+}) {
+  return withEmbeddedSigner(() => executeDeposit(args));
+}
+
+async function executeDeposit(args: {
   userAddress: string;
   erc20Address: string;
   ethereumAddress: string;
@@ -133,6 +142,14 @@ export async function handleWithdrawal(args: {
   erc20Address: string;
   transactionParams: EvmTransactionRequest;
 }) {
+  return withEmbeddedSigner(() => executeWithdrawal(args));
+}
+
+async function executeWithdrawal(args: {
+  requestId: string;
+  erc20Address: string;
+  transactionParams: EvmTransactionRequest;
+}) {
   const { requestId, erc20Address, transactionParams } = args;
   const { orchestrator } = await initializeRelayerSetup({
     operationName: 'WITHDRAW',
@@ -187,9 +204,10 @@ async function monitorTokenBalance(
     ['function balanceOf(address owner) view returns (uint256)'],
     provider,
   );
+  const balanceOf = erc20Contract.getFunction('balanceOf');
   while (Date.now() < deadline) {
     try {
-      const balance = await erc20Contract.balanceOf(address);
+      const balance = await balanceOf(address);
       if (balance > BigInt(0)) return balance;
     } catch {
       // swallow and retry

@@ -34,9 +34,4 @@ export const queryKeys = {
     incomingDeposits: (publicKey: string) =>
       [...queryKeys.solana.all, 'incomingDeposits', publicKey] as const,
   },
-  ethereum: {
-    all: ['ethereum'] as const,
-    incomingTransfers: (depositAddress: string) =>
-      [...queryKeys.ethereum.all, 'incomingTransfers', depositAddress] as const,
-  },
 } as const;

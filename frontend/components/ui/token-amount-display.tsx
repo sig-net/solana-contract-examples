@@ -38,9 +38,6 @@ export function TokenAmountDisplay({
   placeholder = '0.00',
   disabled = false,
 }: TokenAmountDisplayProps) {
-  // Expect pre-formatted balance from callers to avoid duplication
-  const formatBalance = (balance: string) => balance;
-
   const handleMaxClick = () => {
     if (selectedToken) {
       onChange(selectedToken.balance);
@@ -125,7 +122,7 @@ export function TokenAmountDisplay({
           {selectedToken && (
             <div className='flex items-center'>
               <span className='text-dark-neutral-300 text-xs font-medium'>
-                Available: {formatBalance(selectedToken.balance)}{' '}
+                Available: {selectedToken.balance}{' '}
                 {selectedToken.symbol}
               </span>
             </div>

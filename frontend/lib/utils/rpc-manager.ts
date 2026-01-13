@@ -297,38 +297,6 @@ class RPCManager {
       },
     );
   }
-
-  /**
-   * Clear cache for specific method or all
-   */
-  clearCache(method?: string): void {
-    if (method) {
-      const keysToDelete: string[] = [];
-      for (const key of this.cache.keys()) {
-        if (key.startsWith(`${method}:`)) {
-          keysToDelete.push(key);
-        }
-      }
-      keysToDelete.forEach(key => this.cache.delete(key));
-    } else {
-      this.cache.clear();
-    }
-  }
-
-  /**
-   * Get cache statistics
-   */
-  getCacheStats(): {
-    size: number;
-    pendingRequests: number;
-    hitRate: number;
-  } {
-    return {
-      size: this.cache.size,
-      pendingRequests: this.pendingRequests.size,
-      hitRate: 0, // Would need to track hits/misses for accurate rate
-    };
-  }
 }
 
 // Singleton instance per connection

@@ -23,6 +23,11 @@ const clientEnvSchema = z.object({
 // Server-side only environment variables
 const serverEnvSchema = z.object({
   RELAYER_PRIVATE_KEY: z.string().min(1, 'Relayer private key is required'),
+  MPC_ROOT_KEY: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/, 'MPC root key must be 0x-prefixed 64-char hex')
+    .optional(),
+  SOLANA_RPC_URL: z.string().url().optional(),
 });
 
 // Full environment schema (client + server)
@@ -83,6 +88,8 @@ export function getFullEnv(): FullEnv {
     NEXT_PUBLIC_RESPONDER_ADDRESS: process.env.NEXT_PUBLIC_RESPONDER_ADDRESS,
     NEXT_PUBLIC_BASE_PUBLIC_KEY: process.env.NEXT_PUBLIC_BASE_PUBLIC_KEY,
     RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY,
+    MPC_ROOT_KEY: process.env.MPC_ROOT_KEY,
+    SOLANA_RPC_URL: process.env.SOLANA_RPC_URL,
   };
 
   try {
@@ -96,22 +103,4 @@ export function getFullEnv(): FullEnv {
     }
     throw error;
   }
-}
-
-/**
- * Get environment variables for SST Lambda configuration
- * Only returns env vars that Lambda functions actually need
- * (NOTIFY URLs are outputs from SST, not inputs)
- */
-export function getEnvForSST(): Record<string, string> {
-  return {
-    NEXT_PUBLIC_ALCHEMY_API_KEY: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY ?? '',
-    NEXT_PUBLIC_HELIUS_RPC_URL: process.env.NEXT_PUBLIC_HELIUS_RPC_URL ?? '',
-    NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID:
-      process.env.NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID ?? '',
-    NEXT_PUBLIC_RESPONDER_ADDRESS:
-      process.env.NEXT_PUBLIC_RESPONDER_ADDRESS ?? '',
-    NEXT_PUBLIC_BASE_PUBLIC_KEY: process.env.NEXT_PUBLIC_BASE_PUBLIC_KEY ?? '',
-    RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY ?? '',
-  };
 }

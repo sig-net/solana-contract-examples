@@ -1,7 +1,6 @@
 'use client';
 
-import { useConnection } from '@solana/wallet-adapter-react';
-
+import { useConnection } from '@/providers/connection-context';
 import { BridgeContract } from '@/lib/contracts/bridge-contract';
 
 import { useAnchorWallet } from './use-anchor-wallet';

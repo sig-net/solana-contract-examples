@@ -1,9 +1,11 @@
 'use client';
 
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
+import { PublicKey } from '@solana/web3.js';
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { useConnection } from '@/providers/connection-context';
 import {
   BRIDGE_PROGRAM_ID,
   deriveUserBalancePda,
@@ -12,7 +14,7 @@ import {
 import { getAllErc20Tokens } from '@/lib/constants/token-metadata';
 import { queryKeys } from '@/lib/query-client';
 
-function buildUserBalancePdaSet(publicKey: ReturnType<typeof useWallet>['publicKey']) {
+function buildUserBalancePdaSet(publicKey: PublicKey | null) {
   if (!publicKey) return new Set<string>();
   const set = new Set<string>();
   for (const token of getAllErc20Tokens()) {
@@ -25,7 +27,7 @@ function buildUserBalancePdaSet(publicKey: ReturnType<typeof useWallet>['publicK
   return set;
 }
 
-function getRequesterPdaBase58(publicKey: ReturnType<typeof useWallet>['publicKey']) {
+function getRequesterPdaBase58(publicKey: PublicKey | null) {
   if (!publicKey) return null;
   try {
     const [pda] = deriveVaultAuthorityPda(publicKey);
@@ -45,9 +47,10 @@ function getRequesterPdaBase58(publicKey: ReturnType<typeof useWallet>['publicKe
  */
 export function useBridgeAutoRefetch() {
   const { connection } = useConnection();
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
   const queryClient = useQueryClient();
 
+  const publicKey = isConnected && account ? new PublicKey(account) : null;
   const userBalancePdaSet = buildUserBalancePdaSet(publicKey);
   const requesterPdaBase58 = getRequesterPdaBase58(publicKey);
 

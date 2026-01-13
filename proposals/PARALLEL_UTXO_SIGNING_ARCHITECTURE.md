@@ -379,6 +379,9 @@ create_withdraw_btc_session {
   hashPrevouts: [u8; 32],
   hashSequence: [u8; 32],
 
+  // Number of inputs (for manifest allocation)
+  num_inputs: u32,
+
   // Transaction constants (all included in txCommit)
   nVersion:    u32,
   nLockTime:   u32,
@@ -429,6 +432,14 @@ WithdrawBtcSession {
   expected_input_total,
   user_cost,                    // stored for potential refund
   authorized_input_total: 0,
+
+  // Input manifest (for poison-outpoint mitigation, see Section 8.5)
+  num_inputs,
+  inputs_filled: 0,
+  inputs_verified: false,
+  outpoints: [u8; 36 * num_inputs],  // txid[32] || vout[4] per input
+  sequences: [u8; 4 * num_inputs],   // sequence per input
+
   status: Active
 }
 ```
@@ -438,7 +449,7 @@ WithdrawBtcSession {
 For each Bitcoin input, user calls `sign_withdraw_btc_input`:
 
 ```text
-sign_withdraw_btc_input(session_id, outpoint, amount_sats, sequence, scriptCode)
+sign_withdraw_btc_input(session_id, input_index, outpoint, amount_sats, sequence, scriptCode)
 ```
 
 **Vault validation:**
@@ -448,20 +459,40 @@ sign_withdraw_btc_input(session_id, outpoint, amount_sats, sequence, scriptCode)
 session = load_session(session_id)
 require!(session.user == caller, "Not session owner")
 require!(session.status == Active, "Session not active")
+require!(input_index < session.num_inputs, "Index out of range")
 
-// 2. Check input accumulation bound (CRITICAL for theft prevention)
+// 2. Store in manifest (or verify consistency if already stored)
+if session.outpoints[input_index] is empty:
+  session.outpoints[input_index] = outpoint
+  session.sequences[input_index] = sequence
+  session.inputs_filled += 1
+else:
+  require!(session.outpoints[input_index] == outpoint, "Outpoint mismatch")
+  require!(session.sequences[input_index] == sequence, "Sequence mismatch")
+
+// 3. Check input accumulation bound (CRITICAL for theft prevention)
 require!(session.authorized_input_total + amount_sats <= session.expected_input_total,
          "Input total exceeds declared fee + outputs")
 
-// 3. Update accumulator
+// 4. Update accumulator
 session.authorized_input_total += amount_sats
+
+// 5. Once all inputs are filled, verify commitments (CRITICAL for poison-outpoint mitigation)
+if session.inputs_filled == session.num_inputs and !session.inputs_verified:
+  computed_hashPrevouts = sha256d(session.outpoints[0] || ... || session.outpoints[N-1])
+  computed_hashSequence = sha256d(session.sequences[0] || ... || session.sequences[N-1])
+
+  require!(computed_hashPrevouts == session.hashPrevouts, "hashPrevouts mismatch")
+  require!(computed_hashSequence == session.hashSequence, "hashSequence mismatch")
+
+  session.inputs_verified = true
 ```
 
 **Vault constructs MPC signing payload:**
 
 ```text
 SignWithdrawBtcInputPayload {
-  txCommit:      [u8; 32]   // session's txCommit (MPC uses as session key)
+  txCommit:      [u8; 32]   // session's txCommit
 
   // tx-wide commitments (from session, for BIP143 preimage construction)
   hashPrevouts:  [u8; 32]
@@ -480,70 +511,51 @@ SignWithdrawBtcInputPayload {
 }
 ```
 
-MPC deterministically constructs the BIP143 preimage from this payload, computes `sha256d(preimage)`, and produces the ECDSA signature. MPC uses `txCommit` as its session key for tracking.
+MPC deterministically constructs the BIP143 preimage from this payload, computes `sha256d(preimage)`, and produces the ECDSA signature. MPC adds the outpoint to its watch set.
 
 ---
 
 ## 7. MPC Attestation and Vault Resolution
 
-MPC tracks session commitments during signing and observes Bitcoin to determine session outcomes. When any outpoint from a tracked session is spent, MPC attests to whether the session succeeded or failed.
+MPC tracks signed outpoints and observes Bitcoin to determine when they are spent. When a watched outpoint is spent, MPC attests to the spending transaction's commitment. The Vault is responsible for matching this attestation to sessions.
 
-### 7.1 MPC Session Tracking
+### 7.1 MPC Outpoint Tracking
 
-During each `sign_withdraw_btc_input` call, MPC receives the signing payload containing `txCommit` and per-input fields. MPC uses `txCommit` directly as its session key (includes all tx-wide sighash fields):
+During each `sign_withdraw_btc_input` call, MPC receives the signing payload and records the outpoint in its watch set. MPC does **not** track sessions—only outpoints.
 
 ```text
-MPC session key (from payload):
-  mpc_session_key = payload.txCommit   // Already computed by Vault
-
 MPC Internal State:
-  watched_sessions: Map<txCommit, WatchedSession>
-
-WatchedSession {
-  txCommit:      [u8; 32]           // Full transaction commitment
-  nVersion:      u32                // For verification/debugging
-  nLockTime:     u32                // For verification/debugging
-  sighashType:   u32                // For verification/debugging
-  hashPrevouts:  [u8; 32]           // For Bitcoin observation matching
-  hashSequence:  [u8; 32]           // For Bitcoin observation matching
-  hashOutputs:   [u8; 32]           // For Bitcoin observation matching
-  outpoints:     Set<(txid, vout)>  // All outpoints signed for this session
-}
+  watched_outpoints: Set<(txid, vout)>
 ```
 
 **Recording flow:**
 
 ```text
 on_sign_request(payload: SignWithdrawBtcInputPayload):
-  session = watched_sessions.get_or_create(payload.txCommit)
-  session.txCommit = payload.txCommit
-  session.nVersion = payload.nVersion
-  session.nLockTime = payload.nLockTime
-  session.sighashType = payload.sighashType
-  session.hashPrevouts = payload.hashPrevouts
-  session.hashSequence = payload.hashSequence
-  session.hashOutputs = payload.hashOutputs
-  session.outpoints.add((payload.outpoint_txid, payload.outpoint_vout))
+  watched_outpoints.add((payload.outpoint_txid, payload.outpoint_vout))
 ```
+
+**Design rationale:** By tracking only outpoints (not sessions), MPC state is simplified and the same attestation can resolve multiple sessions that included the same outpoint.
 
 ### 7.2 Attestation Structure
 
-MPC emits a binary outcome attestation for each session, keyed by `txCommit`:
+MPC emits an **outpoint-centric** spend attestation when a watched outpoint is spent:
 
 ```text
-SessionOutcomeAttestation {
-  txCommit:              [u8; 32]   // Full session commitment (includes all tx-wide fields)
-  success:               bool       // true = confirmed, false = failed
-  spending_txid:         [u8; 32]   // Bitcoin tx that spent the input(s)
-  block_height:          u64        // Confirmation height
-  actual_outputs:        Vec<TxOut> // MPC-observed outputs from Bitcoin
-  signature:             Signature  // MPC signature over all fields
+OutpointSpentAttestation {
+  outpoint_txid:      [u8; 32]   // The spent outpoint's txid
+  outpoint_vout:      u32        // The spent outpoint's vout
+  spending_txid:      [u8; 32]   // Bitcoin tx that spent the outpoint
+  spending_txCommit:  [u8; 32]   // txCommit derived from spending tx
+  block_height:       u64        // Confirmation height
+  actual_outputs:     Vec<TxOut> // MPC-observed outputs from Bitcoin
+  signature:          Signature  // MPC signature over DOMAIN || all fields
 }
 ```
 
 MPC creates attestations after 6+ confirmations. The `actual_outputs` field contains the outputs MPC observed on Bitcoin, used by deposits to calculate credit amount.
 
-**Why `txCommit` instead of separate hashes:** The attestation uses the same commitment structure as session creation, ensuring unambiguous matching. Vault verifies `attestation.txCommit == session.txCommit`.
+**Key property:** This attestation is **reusable**—the same outpoint may appear in multiple sessions, and all sessions can use the same attestation for resolution.
 
 ### 7.3 MPC Observation Logic
 
@@ -555,92 +567,94 @@ on_bitcoin_block(block):
     tx_hashSequence = compute_bip143_hashSequence(tx)
     tx_hashOutputs = compute_bip143_hashOutputs(tx)
 
+    // Derive txCommit for the spending transaction
+    spending_txCommit = sha256(
+      "signet:btc:v1"   ||
+      tx.nVersion       ||
+      tx.nLockTime      ||
+      SIGHASH_ALL       ||
+      tx_hashPrevouts   ||
+      tx_hashSequence   ||
+      tx_hashOutputs
+    )
+
     for input in tx.inputs:
       outpoint = (input.prev_txid, input.prev_vout)
 
-      // Check if this outpoint belongs to any watched session
-      for (txCommit, session) in watched_sessions:
-        if outpoint in session.outpoints:
+      if outpoint in watched_outpoints:
+        emit OutpointSpentAttestation {
+          outpoint_txid:     outpoint.txid,
+          outpoint_vout:     outpoint.vout,
+          spending_txid:     tx.txid(),
+          spending_txCommit: spending_txCommit,
+          block_height:      block.height,
+          actual_outputs:    tx.outputs,
+        }
 
-          // Compute txCommit for observed transaction (using session's constants)
-          tx_txCommit = sha256(
-            "signet:btc:v1"       ||
-            session.nVersion     ||   // Use session's expected values
-            session.nLockTime    ||
-            session.sighashType  ||
-            tx_hashPrevouts      ||   // From observed tx
-            tx_hashSequence      ||   // From observed tx
-            tx_hashOutputs            // From observed tx
-          )
-
-          // Determine outcome: does spending tx match session?
-          success = (tx_txCommit == session.txCommit)
-
-          emit SessionOutcomeAttestation {
-            txCommit:       session.txCommit,
-            success:        success,
-            spending_txid:  tx.txid(),
-            block_height:   block.height,
-            actual_outputs: tx.outputs,
-          }
-
-          // Session resolved, stop watching
-          watched_sessions.remove(txCommit)
+        // Outpoint resolved, stop watching
+        watched_outpoints.remove(outpoint)
 ```
 
-**Key property:** MPC emits an attestation whenever ANY outpoint from a session is spent, regardless of whether the spending transaction matches the session. This ensures sessions always resolve (success or failure) rather than getting stuck.
-
-**Success determination:** The observed transaction's `txCommit` must exactly match the session's `txCommit`. This validates all tx-wide fields (nVersion, nLockTime, sighashType, hashPrevouts, hashSequence, hashOutputs) in a single comparison.
+**Key property:** MPC emits an attestation whenever ANY watched outpoint is spent, providing the spending transaction's `txCommit`. The Vault determines success/failure by comparing this to the session's expected `txCommit`.
 
 ### 7.4 Resolution Logic
 
+The client relays `OutpointSpentAttestation` to the Vault with an `input_index` for O(1) membership proof:
+
 ```text
-complete_withdraw_btc_session(session_id, attestation)
+complete_withdraw_btc_session(session_id, attestation, input_index)
 
 1. Verify MPC signature over attestation
 
 2. Load session PDA
 
-3. Verify attestation matches session (single comparison):
-   require!(attestation.txCommit == session.txCommit)
+3. Verify outpoint membership (O(1) lookup):
+   require!(input_index < session.num_inputs)
+   require!(session.outpoints[input_index] == (attestation.outpoint_txid, attestation.outpoint_vout))
 
-4. Apply outcome:
-   if attestation.success:
+4. Determine outcome by comparing txCommit:
+   if attestation.spending_txCommit == session.txCommit:
      session.status = COMPLETED
      // Balance remains spent
    else:
+     // Poison-outpoint mitigation gate (see Section 8.5)
+     require!(session.inputs_verified, "Inputs not verified; refund blocked")
      session.status = FAILED
      balance.amount += session.user_cost  // Refund
 ```
 
-| Outcome | Condition                      | Action                |
-| ------- | ------------------------------ | --------------------- |
-| SUCCESS | `attestation.success == true`  | Balance remains spent |
-| FAILURE | `attestation.success == false` | Refund user           |
+| Outcome | Condition                                            | Action                |
+| ------- | ---------------------------------------------------- | --------------------- |
+| SUCCESS | `spending_txCommit == session.txCommit`              | Balance remains spent |
+| FAILURE | `spending_txCommit != session.txCommit` + `inputs_verified` | Refund user           |
 
 ### 7.5 Flow Diagram
 
 ```text
 User/Client              Vault Program          ChainSignatures         MPC                 Bitcoin
   │                          │                        │                  │                     │
-  │ create_withdraw_btc_session()                     │                  │                     │
+  │ create_withdraw_btc_session(num_inputs, ...)      │                  │                     │
   ├─────────────────────────►│                        │                  │                     │
   │                          │ 1. validate change     │                  │                     │
   │                          │ 2. compute hashOutputs │                  │                     │
   │                          │ 3. compute txCommit    │                  │                     │
   │                          │ 4. derive session_id   │                  │                     │
   │                          │ 5. decrement balance   │                  │                     │
-  │                          │ 6. store session PDA   │                  │                     │
+  │                          │ 6. alloc manifest[N]   │                  │                     │
+  │                          │ 7. store session PDA   │                  │                     │
   │◄──────── session_id ─────┤                        │                  │                     │
   │                          │                        │                  │                     │
-  │ sign_withdraw_btc_input()│                        │                  │                     │
+  │ sign_withdraw_btc_input(input_index, ...)         │                  │                     │
   ├─────────────────────────►│                        │                  │                     │
-  │                          │ check accumulation     │                  │                     │
+  │                          │ 1. store in manifest   │                  │                     │
+  │                          │ 2. check accumulation  │                  │                     │
+  │                          │ 3. if complete: verify │                  │                     │
+  │                          │    hashPrevouts/Seq    │                  │                     │
   │                          │ CPI ──────────────────►│                  │                     │
   │                          │                        │ emit SignBidirectionalEvent            │
   │                          │                        │ ────────────────►│                     │
-  │                          │                        │                  │ 1. record outpoint  │
-  │                          │                        │                  │    keyed by txCommit│
+  │                          │                        │                  │ 1. add outpoint to  │
+  │                          │                        │                  │    watched_outpoints│
   │                          │                        │                  │ 2. sign(payload)    │
   │                          │                        │◄── respond() ────┤                     │
   │                          │                        │ emit SignatureRespondedEvent           │
@@ -651,23 +665,26 @@ User/Client              Vault Program          ChainSignatures         MPC     
   │ assemble + broadcast ─────────────────────────────────────────────────────────────────────►│
   │                          │                        │                  │                     │
   │                          │                        │                  │   observe (6 conf)  │
-  │                          │                        │                  │   for each input:   │
-  │                          │                        │                  │     find session    │
-  │                          │                        │                  │     compute txCommit│
-  │                          │                        │                  │     success = match?│
+  │                          │                        │                  │   for each outpoint:│
+  │                          │                        │                  │     if in watch set │
+  │                          │                        │                  │     compute spending│
+  │                          │                        │                  │       _txCommit     │
   │                          │                        │                  │   sign attestation  │
-  │                          │                        │◄─ respond_bidirectional(attestation) ──┤
+  │                          │                        │◄─ respond_bidirectional(OutpointSpentAttestation)
   │                          │                        │ emit RespondBidirectionalEvent         │
   │◄─ observe event ─────────┼────────────────────────┤                  │                     │
   │                          │                        │                  │                     │
-  │ complete_withdraw_btc_session(session_id, attestation)               │                     │
+  │ complete_withdraw_btc_session(session_id, attestation, input_index)  │                     │
   ├─────────────────────────►│                        │                  │                     │
   │                          │ 1. verify MPC sig      │                  │                     │
-  │                          │ 2. verify txCommit     │                  │                     │
-  │                          │    matches session     │                  │                     │
-  │                          │ 3. if success: done    │                  │                     │
-  │                          │    else: refund        │                  │                     │
-  │                          │ 4. close session PDA   │                  │                     │
+  │                          │ 2. verify outpoint in  │                  │                     │
+  │                          │    manifest[input_idx] │                  │                     │
+  │                          │ 3. compare txCommit    │                  │                     │
+  │                          │ 4. if match: done      │                  │                     │
+  │                          │    else: check         │                  │                     │
+  │                          │    inputs_verified     │                  │                     │
+  │                          │    then refund         │                  │                     │
+  │                          │ 5. close session PDA   │                  │                     │
 ```
 
 ## 8. Security Analysis
@@ -851,75 +868,92 @@ For three signatures to be valid in the same Bitcoin transaction, they must ALL 
 
 ---
 
-### 8.5 Open Problem: Poison Outpoint Refund Oracle
+### 8.5 Poison Outpoint Refund Oracle
 
 #### Problem
 
-The current design allows the MPC to "watch" (and later attest about) **any outpoint that was signed** during a session. However, the protocol does not currently prove that every signed/watched outpoint is actually part of the committed input set represented by `hashPrevouts` (and `hashSequence`).
+The protocol can be vulnerable to a **refund oracle** if the MPC's outcome resolution is triggered by an outpoint that was signed during the session but is **not actually part of the committed input set** (`hashPrevouts` / `hashSequence`).
 
-This enables a **refund oracle**: the user can obtain a valid withdrawal on Bitcoin *and* a refund on Solana by injecting a signed outpoint that is **not included** in the committed `hashPrevouts`.
+If the MPC "watches" any signed outpoint and emits a session-level failure attestation when that outpoint is spent in a non-matching transaction, then a user can inject a **poison outpoint** to force a refund while still broadcasting a valid withdrawal transaction.
 
-#### Attack: Poison Outpoint → Forced Failure Attestation While Withdrawal Still Succeeds
+#### Attack: Poison Outpoint → Forced Failure → Refund While Withdrawal Still Confirms
 
-**Goal:** Force `success=false` attestation (refund) without preventing the "real" withdrawal transaction from confirming.
+**Goal:** Obtain a Solana refund while still successfully withdrawing BTC on Bitcoin.
 
 **Scenario:**
 
-1. User creates a withdrawal session with a legitimate commitment:
-   - `hashPrevouts/hashSequence` correspond to the **real input list** `L` that will be used in the final Bitcoin transaction.
-2. User obtains signatures for every input in `L` (so the final withdrawal transaction is fully signable).
-3. User additionally requests a signature for a **poison outpoint** `P` that is *not* included in `L` (and therefore not included in `hashPrevouts/hashSequence`).
-4. User causes `P` to be spent in an unrelated Bitcoin transaction.
-5. MPC observes `P` spent and emits a **failure attestation** (`success=false`) because the spending transaction's commitments do not match the session commitments.
-6. User submits `complete_withdraw_btc_session(..., success=false attestation ...)` and receives a refund on Solana.
-7. User broadcasts the real withdrawal transaction using `L`. It confirms on Bitcoin.
+1. User creates a valid withdrawal session whose `hashPrevouts/hashSequence` correspond to the real input list `L` for the intended Bitcoin transaction.
+2. User obtains signatures for all inputs in `L` (enough to broadcast valid withdrawal transaction).
+3. User additionally requests a signature for a **poison outpoint** `P` that is *not* in `L` (and therefore not committed by `hashPrevouts/hashSequence`).
+4. User causes `P` to be spent in a different Bitcoin transaction.
+5. MPC observes `P` spent and emits a **failure** for the session (because the spending transaction does not match the session's commitments).
+6. User submits `complete_withdraw_btc_session(... failure ...)` and receives a refund on Solana.
+7. User broadcasts the original withdrawal tx using `L`. It confirms on Bitcoin.
 
-**Result:** User receives BTC on Bitcoin and is refunded on Solana → vault loss without user cost.
+**Result:** BTC withdrawal succeeds on Bitcoin and the user is refunded on Solana → vault loss without user cost.
 
-**Root cause:** The session's "watched outpoints" are not provably equal to the committed outpoints implied by `hashPrevouts/hashSequence`.
+**Root cause:** The protocol did not cryptographically enforce that "watched/signed outpoints" are exactly the committed inputs implied by `hashPrevouts/hashSequence` before honoring failure-based refunds.
 
 ---
 
-#### Proposed Solution: On-Chain Input Manifest + Commitment Verification Gate
+#### Solution: Input Manifest Verification + Outpoint-Centric Spend Attestation
 
-To make **refunds safe**, the Vault must ensure that **every signed/watched outpoint is a member of the committed input list** (the list hashed into `hashPrevouts` and `hashSequence`).
+Poison-outpoint mitigation is achieved by two additive changes:
 
-This is achieved by storing an **input manifest** in the session PDA and requiring the manifest to match the commitments before allowing any failure-based refund.
+1. **Vault-side proof that every signed/watched outpoint is committed** (Input Manifest + verification gate)
+2. **MPC-side outcome attestation that is outpoint-centric** (no per-session tracking)
 
-##### Additive Requirements (Poison-Outpoint Mitigation Only)
+These changes together ensure that any "spent outpoint" proof is only actionable for sessions that have proven membership and commitment correctness on-chain.
+
+---
+
+#### 8.5.1 Vault Fix: On-Chain Input Manifest + Commitment Verification Gate
+
+To make refunds safe, the Vault must prove that the session's signed inputs correspond exactly to the committed `hashPrevouts/hashSequence`.
 
 **A) User declares number of inputs**
 
-At session creation, the user provides:
+At session creation, include:
 
 ```text
 num_inputs: u32
 ```
 
-This is the expected length `N` of the committed input list.
+This is the expected number of committed inputs `N`.
 
-**B) Each signed input is stored in the session**
+**B) Each input is stored at a deterministic index**
 
-On each `sign_withdraw_btc_input`, the Vault stores the input identifier in the session manifest:
-
-- `outpoint = (txid, vout)` (36 bytes)
-- `sequence` (4 bytes)
-
-To avoid relying on Solana transaction ordering, the signing call provides a stable index:
+Extend `sign_withdraw_btc_input` with:
 
 ```text
 input_index: u32   // 0 <= input_index < num_inputs
 ```
 
-This allows inputs to be signed in any order while keeping a deterministic BIP143 input ordering for hashing.
+For each `sign_withdraw_btc_input`, the Vault stores:
 
-**C) Refunds require manifest verification**
+- `outpoint = txid[32] || vout[4]` (36 bytes)
+- `sequence` (4 bytes)
 
-Failure resolution (refund) is only allowed after the Vault verifies that the stored manifest hashes to the committed `hashPrevouts` and `hashSequence`.
+into a per-session manifest at `input_index`.
 
----
+**C) Commitment verification is performed once and recorded**
 
-##### Session Fields (Stored in `WithdrawBtcSession` PDA)
+When all inputs are filled, the Vault computes and verifies:
+
+```text
+sha256d(outpoints[0] || ... || outpoints[N-1]) == session.hashPrevouts
+sha256d(sequences[0] || ... || sequences[N-1]) == session.hashSequence
+```
+
+If both match, set `inputs_verified = true`.
+
+**D) Failure refunds are blocked until inputs_verified**
+
+If an outcome would refund the user (`success=false`), require `inputs_verified == true`.
+
+This prevents poison-outpoint refunds because the attacker cannot inject any non-committed outpoint without causing commitment verification to fail (and thus blocking refunds).
+
+**Session fields (additive):**
 
 ```text
 num_inputs:       u32
@@ -933,55 +967,133 @@ outpoints:  [u8; 36 * num_inputs]
 sequences:  [u8; 4  * num_inputs]
 ```
 
-##### Vault Logic (Pseudocode)
-
-**On `sign_withdraw_btc_input(session_id, input_index, outpoint, sequence, ...)`:**
+**Vault logic (pseudocode):**
 
 ```text
-require!(input_index < session.num_inputs, "Index out of range")
+sign_withdraw_btc_input(session_id, input_index, outpoint, sequence, amount_sats, scriptCode):
 
-// Store (or enforce consistency if already stored)
-if manifest_slot[input_index] is empty:
-  manifest_slot[input_index] = (outpoint, sequence)
-  session.inputs_filled += 1
-else:
-  require!(manifest_slot[input_index] == (outpoint, sequence), "Input mismatch")
+  require!(input_index < session.num_inputs, "Index out of range")
+  require!(session.status == Active, "Session not active")
 
-// Once all inputs are present, verify commitments exactly once
-if session.inputs_filled == session.num_inputs and !session.inputs_verified:
-  computed_hashPrevouts = sha256d(outpoints[0] || outpoints[1] || ... || outpoints[N-1])
-  computed_hashSequence = sha256d(sequences[0] || sequences[1] || ... || sequences[N-1])
+  // Store or enforce consistency
+  if slot[input_index] is empty:
+    outpoints[input_index] = outpoint
+    sequences[input_index] = sequence
+    inputs_filled += 1
+  else:
+    require!(outpoints[input_index] == outpoint, "Outpoint mismatch")
+    require!(sequences[input_index] == sequence, "Sequence mismatch")
 
-  require!(computed_hashPrevouts == session.hashPrevouts, "hashPrevouts mismatch")
-  require!(computed_hashSequence == session.hashSequence, "hashSequence mismatch")
+  // Existing accumulation bound logic remains unchanged
+  require!(authorized_input_total + amount_sats <= expected_input_total)
+  authorized_input_total += amount_sats
 
-  session.inputs_verified = true
+  // Once complete, verify commitments exactly once
+  if inputs_filled == num_inputs and !inputs_verified:
+    computed_prev = sha256d(outpoints[0] || ... || outpoints[N-1])
+    computed_seq  = sha256d(sequences[0] || ... || sequences[N-1])
+
+    require!(computed_prev == session.hashPrevouts, "hashPrevouts mismatch")
+    require!(computed_seq  == session.hashSequence, "hashSequence mismatch")
+
+    inputs_verified = true
 ```
 
-**On `complete_withdraw_btc_session(session_id, attestation)`:**
+---
+
+#### 8.5.2 MPC Fix: Outpoint-Centric Spend Attestation (No Session Tracking)
+
+To simplify MPC state and eliminate the need for MPC to track each session individually, MPC emits attestations keyed by the **spent outpoint**, not by the session.
+
+**Core idea:** MPC only tracks outpoints it has signed (watch set). When an outpoint is spent, MPC attests to the spending transaction's Bitcoin-derived commitment (`txCommit_spend`). Matching the spend to a session becomes the Vault's responsibility by comparing `txCommit_spend` against `session.txCommit`.
+
+**MPC watch state (simplified):**
 
 ```text
-verify_mpc_signature(attestation)
-require!(attestation.txCommit == session.txCommit)
-
-// Poison-outpoint mitigation gate:
-if attestation.success == false:
-  require!(session.inputs_verified, "Inputs not verified; refund blocked")
-
-// Apply existing success/failure handling unchanged
+watched_outpoints: Set<(txid, vout)>
 ```
 
-##### Why This Fix Works
+**When an outpoint is spent on Bitcoin:**
 
-With this gate in place:
+MPC computes from the observed spending transaction:
 
-1. The Vault will only accept a failure refund after it has proven that the session's committed input set (`hashPrevouts/hashSequence`) corresponds exactly to the stored manifest.
-2. Therefore, any outpoint that MPC watches (because it was signed under this session) must be one of the committed outpoints.
-3. A user can no longer introduce an "extra" signed outpoint to trigger a failure attestation while still broadcasting a successful withdrawal transaction.
+```text
+hashPrevouts, hashSequence, hashOutputs
+nVersion, nLockTime
+sighashType (fixed to SIGHASH_ALL per scope)
+```
 
-**Effect:** The poison outpoint refund oracle becomes impossible.
+MPC derives:
 
-**Status:** 🔶 PROPOSED FIX (requires implementation)
+```text
+txCommit_spend = sha256(DOMAIN || nVersion || nLockTime || sighashType ||
+                        hashPrevouts || hashSequence || hashOutputs)
+```
+
+After confirmation threshold, MPC signs an **outpoint spend attestation**:
+
+```text
+OutpointSpentAttestation {
+  outpoint_txid:      [u8; 32]
+  outpoint_vout:      u32
+  spending_txid:      [u8; 32]
+  spending_txCommit:  [u8; 32]
+  block_height:       u64
+  signature:          Signature  // MPC signature over DOMAIN || all fields
+}
+```
+
+This attestation is **reusable**: the same outpoint may appear in multiple sessions, and all "losing" sessions can use the same attestation to invalidate/refund.
+
+---
+
+#### 8.5.3 Vault Resolution Using OutpointSpentAttestation
+
+The client relays `OutpointSpentAttestation` to the Vault for a specific session along with the `input_index` used as an O(1) membership proof.
+
+```text
+complete_withdraw_btc_session(session_id, attestation, input_index)
+```
+
+**Vault checks (pseudocode):**
+
+```text
+complete_withdraw_btc_session(session_id, attestation, input_index):
+
+  verify_mpc_signature(attestation)
+
+  session = load_session(session_id)
+  require!(session.status == Active, "Session not active")
+  require!(input_index < session.num_inputs, "Index out of range")
+
+  // Membership proof: the attested outpoint must be in THIS session manifest
+  require!(session.outpoints[input_index] == (attestation.outpoint_txid, attestation.outpoint_vout),
+           "Outpoint not part of session")
+
+  // Determine outcome by comparing Bitcoin-derived txCommit to session.txCommit
+  if attestation.spending_txCommit == session.txCommit:
+    session.status = COMPLETED
+    // balance remains spent
+  else:
+    // Poison-outpoint mitigation gate: refunds require verified manifest
+    require!(session.inputs_verified, "Inputs not verified; refund blocked")
+    session.status = FAILED
+    balance.amount += session.user_cost
+```
+
+---
+
+#### Why This Fix Works
+
+| Property | Mechanism |
+|----------|-----------|
+| **No poison-outpoint refunds** | Failure refunds are blocked unless the session has proven that its manifest hashes to `hashPrevouts/hashSequence`. Any injected outpoint not in the committed list prevents `inputs_verified`, blocking refunds. |
+| **Stateless MPC outcome** | MPC no longer needs to track session → outpoints; it only tracks outpoint spends and signs a Bitcoin-derived commitment of the spending transaction. |
+| **Trust-minimized matching** | The Vault determines session success/failure purely by: (1) verifying attestation signature, (2) proving the outpoint is in the session manifest, and (3) comparing `spending_txCommit` against `session.txCommit`. |
+
+**Effect:** The poison outpoint refund oracle becomes impossible, while MPC state and logic are materially simplified.
+
+**Status:** ✅ MITIGATED
 
 ## 9. Deposit Protocol
 

@@ -4,10 +4,11 @@ import { Buffer } from 'buffer';
 
 import { useState } from 'react';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
-import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { toast } from 'sonner';
 
+import { useConnection } from '@/providers/connection-context';
+import { useAnchorWallet } from '@/hooks/use-anchor-wallet';
 import { BRIDGE_PROGRAM_ID } from '@/lib/constants/addresses';
 import { IDL, type SolDexIDL } from '@/lib/program/idl-sol-dex';
 
@@ -52,8 +53,10 @@ export default function AdminPage() {
       if (mpcBytes.length !== 20)
         throw new Error('MPC address must be 20 bytes');
 
-      const sig = await program.methods
-        .initializeConfig(Array.from(mpcBytes))
+      const initMethod = program.methods.initializeConfig;
+      if (!initMethod) throw new Error('initializeConfig method not found');
+
+      const sig = await initMethod(Array.from(mpcBytes))
         .accountsStrict({
           payer: anchorWallet.publicKey,
           config: configPda,
@@ -84,8 +87,10 @@ export default function AdminPage() {
       if (mpcBytes.length !== 20)
         throw new Error('MPC address must be 20 bytes');
 
-      const sig = await program.methods
-        .updateConfig(Array.from(mpcBytes))
+      const updateMethod = program.methods.updateConfig;
+      if (!updateMethod) throw new Error('updateConfig method not found');
+
+      const sig = await updateMethod(Array.from(mpcBytes))
         .accountsStrict({
           config: configPda,
         } as never)
