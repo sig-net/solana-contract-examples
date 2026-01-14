@@ -2240,8 +2240,9 @@ dependencies = [
 
 [[package]]
 name = "signet-rs"
-version = "0.2.5"
-source = "git+https://github.com/sig-net/signet.rs#959051228b819a600d4b82cf9cb6424312407bec"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "576c6bd256503eac02b0d4dfdcfa1abc83b2f48362f79e8f8981d35b06122b25"
 dependencies = [
  "borsh 1.5.7",
  "bs58",
