@@ -26,6 +26,6 @@ alloy-json-abi       = "0.8"
 alloy-primitives     = { version = "0.8.25", default-features = false }
 serde_json           = { version = "1.0",    default-features = false, features = ["alloc"] }
 hex                  = "0.4"
-chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", branch = "mock-signer-package-2", features = ["cpi"] }
+chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", features = ["cpi"] }
 base64ct             = { workspace = true }
 ruint                = { workspace = true }

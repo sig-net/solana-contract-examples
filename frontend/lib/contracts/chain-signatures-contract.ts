@@ -8,7 +8,7 @@ import type {
   ChainSignaturesProgram,
   ChainSignaturesSignature,
   SignatureRespondedEvent,
-  ReadRespondedEvent,
+  RespondBidirectionalEvent,
   EventPromises,
 } from '../types/chain-signatures.types';
 import { RESPONDER_ADDRESS } from '../constants/addresses';
@@ -52,7 +52,7 @@ export class ChainSignaturesContract {
 
   setupEventListeners(requestId: string): EventPromises {
     let signatureResolve: (value: SignatureRespondedEvent) => void;
-    let readRespondResolve: (value: ReadRespondedEvent) => void;
+    let respondBidirectionalResolve: (value: RespondBidirectionalEvent) => void;
     let resolvedSignature = false;
     let resolvedRead = false;
     // Timers are managed by the waiter per-event; initialize as null
@@ -63,8 +63,8 @@ export class ChainSignaturesContract {
       signatureResolve = resolve;
     });
 
-    const readRespondPromise = new Promise<ReadRespondedEvent>(resolve => {
-      readRespondResolve = resolve;
+    const respondBidirectionalPromise = new Promise<RespondBidirectionalEvent>(resolve => {
+      respondBidirectionalResolve = resolve;
     });
 
     const chainSignaturesProgram = this.getEventProgram();
@@ -99,9 +99,9 @@ export class ChainSignaturesContract {
       },
     );
 
-    const readRespondListener = chainSignaturesProgram.addEventListener(
-      'readRespondedEvent',
-      (event: ReadRespondedEvent) => {
+    const respondBidirectionalListener = chainSignaturesProgram.addEventListener(
+      'respondBidirectionalEvent',
+      (event: RespondBidirectionalEvent) => {
         const eventRequestId =
           '0x' + Buffer.from(event.requestId).toString('hex');
 
@@ -111,7 +111,7 @@ export class ChainSignaturesContract {
         ) {
           if (!resolvedRead) {
             resolvedRead = true;
-            readRespondResolve(event);
+            respondBidirectionalResolve(event);
             if (resolvedSignature && resolvedRead) {
               if (backfillSignatureTimer) {
                 clearTimeout(backfillSignatureTimer);
@@ -131,7 +131,7 @@ export class ChainSignaturesContract {
 
     const cleanup = () => {
       chainSignaturesProgram.removeEventListener(signatureListener);
-      chainSignaturesProgram.removeEventListener(readRespondListener);
+      chainSignaturesProgram.removeEventListener(respondBidirectionalListener);
       if (backfillSignatureTimer) {
         clearTimeout(backfillSignatureTimer);
         backfillSignatureTimer = null;
@@ -164,7 +164,7 @@ export class ChainSignaturesContract {
         read => {
           if (!resolvedRead) {
             resolvedRead = true;
-            readRespondResolve(read);
+            respondBidirectionalResolve(read);
           }
         },
       );
@@ -172,7 +172,7 @@ export class ChainSignaturesContract {
 
     return {
       signature: signaturePromise,
-      readRespond: readRespondPromise,
+      respondBidirectional: respondBidirectionalPromise,
       cleanup,
       backfillSignature,
       backfillRead,
@@ -190,7 +190,7 @@ export class ChainSignaturesContract {
   private async tryBackfillEvents(
     requestId: string,
     onSignature: (event: SignatureRespondedEvent) => void,
-    onReadRespond: (event: ReadRespondedEvent) => void,
+    onrespondBidirectional: (event: RespondBidirectionalEvent) => void,
     maxSignatures = 5,
   ): Promise<void> {
     try {
@@ -223,13 +223,13 @@ export class ChainSignaturesContract {
                   try {
                     const decoded = program.coder.events.decode(log) as {
                       name: string;
-                      data: SignatureRespondedEvent | ReadRespondedEvent;
+                      data: SignatureRespondedEvent | RespondBidirectionalEvent;
                     } | null;
                     if (!decoded) continue;
                     const name = decoded.name as string;
                     if (
                       name === 'signatureRespondedEvent' ||
-                      name === 'readRespondedEvent'
+                      name === 'respondBidirectionalEvent'
                     ) {
                       const eventReq =
                         '0x' +
@@ -237,8 +237,8 @@ export class ChainSignaturesContract {
                       if (eventReq !== requestId) continue;
                       if (name === 'signatureRespondedEvent') {
                         onSignature(decoded.data as SignatureRespondedEvent);
-                      } else if (name === 'readRespondedEvent') {
-                        onReadRespond(decoded.data as ReadRespondedEvent);
+                      } else if (name === 'respondBidirectionalEvent') {
+                        onrespondBidirectional(decoded.data as RespondBidirectionalEvent);
                       }
                     }
                   } catch {

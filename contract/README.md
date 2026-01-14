@@ -47,6 +47,6 @@ BITCOIN_NETWORK=regtest
 
 ## Key Management
 
-- If you have access to the private key, set `MPC_ROOT_KEY`; the base public key is derived automatically.
-- If the private key is unavailable, provide the uncompressed key in `BASE_PUBLIC_KEY` (65-byte hex, prefixed with `04`).
+- If you have access to the private key, set `MPC_ROOT_PRIVATE_KEY`; the root public key is derived automatically.
+- If the private key is unavailable, provide the uncompressed key in `MPC_ROOT_PUBLIC_KEY` (65-byte hex, prefixed with `04`).
 - Ensure the on-chain contract is initialized with the same base public key you load here before interacting with it.

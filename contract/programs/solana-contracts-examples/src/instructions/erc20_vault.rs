@@ -203,6 +203,7 @@ pub fn claim_erc20(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     ethereum_tx_hash: Option<[u8; 32]>,
+    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
 
@@ -210,10 +211,8 @@ pub fn claim_erc20(
     let message_hash = hash_message(&request_id, &serialized_output);
 
     // Verify the signature
-    let expected_address = format!(
-        "0x{}",
-        hex::encode(ctx.accounts.config.mpc_root_signer_address)
-    );
+    let expected_address = format!("0x{}", hex::encode(expected_address));
+
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
 
     msg!("Signature verified successfully");
@@ -424,15 +423,14 @@ pub fn complete_withdraw_erc20(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     ethereum_tx_hash: Option<[u8; 32]>,
+    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
 
-    // Verify signature
     let message_hash = hash_message(&request_id, &serialized_output);
-    let expected_address = format!(
-        "0x{}",
-        hex::encode(ctx.accounts.config.mpc_root_signer_address)
-    );
+    // Verify the signature
+    let expected_address = format!("0x{}", hex::encode(expected_address));
+
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
 
     msg!("Signature verified successfully");

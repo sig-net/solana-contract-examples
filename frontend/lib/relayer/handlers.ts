@@ -86,7 +86,7 @@ async function executeDeposit(args: {
   const result = await orchestrator.executeSignatureFlow(
     requestId,
     txRequest,
-    async (readEvent, ethereumTxHash) => {
+    async (respondBidirectionalEvent, ethereumTxHash) => {
       const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
       try {
         const pendingDeposit =
@@ -97,8 +97,8 @@ async function executeDeposit(args: {
         return await bridgeContract.claimErc20({
           requester: pendingDeposit.requester,
           requestIdBytes,
-          serializedOutput: readEvent.serializedOutput,
-          signature: readEvent.signature,
+          serializedOutput: respondBidirectionalEvent.serializedOutput,
+          signature: respondBidirectionalEvent.signature,
           erc20AddressBytes: pendingDeposit.erc20Address,
           ethereumTxHashBytes,
         });
@@ -159,7 +159,7 @@ async function executeWithdrawal(args: {
   const result = await orchestrator.executeSignatureFlow(
     requestId,
     transactionParams,
-    async (readEvent, ethereumTxHash) => {
+    async (respondBidirectionalEvent, ethereumTxHash) => {
       const bridgeContract = orchestrator.getBridgeContract();
       const requestIdBytes = Array.from(toBytes(requestId));
       const [pendingWithdrawalPda] = derivePendingWithdrawalPda(requestIdBytes);
@@ -174,8 +174,8 @@ async function executeWithdrawal(args: {
       return await bridgeContract.completeWithdrawErc20({
         requester: new PublicKey(pendingWithdrawal.requester),
         requestIdBytes,
-        serializedOutput: readEvent.serializedOutput,
-        signature: readEvent.signature,
+        serializedOutput: respondBidirectionalEvent.serializedOutput,
+        signature: respondBidirectionalEvent.signature,
         erc20AddressBytes,
         ethereumTxHashBytes,
       });

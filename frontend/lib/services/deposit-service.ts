@@ -29,7 +29,7 @@ export class DepositService {
       const derivedAddress = deriveEthereumAddress(
         path,
         vaultAuthority.toString(),
-        CHAIN_SIGNATURES_CONFIG.BASE_PUBLIC_KEY,
+        CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
       );
 
       // Notify relayer to monitor for this deposit

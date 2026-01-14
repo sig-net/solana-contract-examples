@@ -12,7 +12,7 @@ pub use constants::*;
 pub use contexts::*;
 pub use state::*;
 
-declare_id!("rqHSrDmbKyH17Dm9cRtnC4hCGPG2DXbSXfVG4pteitA");
+declare_id!("BJWqq4qsyo628Gv3wLpNnPdEn9HH74LFjFjjm8p6HZ6f");
 
 #[program]
 pub mod solana_core_contracts {
@@ -62,6 +62,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
+        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::erc20_vault::claim_erc20(
             ctx,
@@ -69,6 +70,7 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             ethereum_tx_hash,
+            expected_address,
         )
     }
 
@@ -96,6 +98,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
+        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::erc20_vault::complete_withdraw_erc20(
             ctx,
@@ -103,6 +106,7 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             ethereum_tx_hash,
+            expected_address,
         )
     }
 
