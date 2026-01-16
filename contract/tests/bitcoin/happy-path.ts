@@ -213,7 +213,9 @@ describe("BTC Happy Path", () => {
 
       const readEvent = await events.readRespond;
 
-      const multiExpectedAddress = deriveMpcRespondAddress(plan.vaultAuthority.pda);
+      const multiExpectedAddress = deriveMpcRespondAddress(
+        plan.vaultAuthority.pda
+      );
       const claimTx = await program.methods
         .claimBtc(
           planRequestIdBytes(plan),
@@ -363,7 +365,9 @@ describe("BTC Happy Path", () => {
     const readEvent = await events.readRespond;
 
     console.log("📍 Step 5: Completing withdrawal on Solana");
-    const withdrawExpectedAddress = deriveMpcRespondAddress(plan.globalVault.pda);
+    const withdrawExpectedAddress = deriveMpcRespondAddress(
+      plan.globalVault.pda
+    );
     const completeTx = await program.methods
       .completeWithdrawBtc(
         planRequestIdBytes(plan),

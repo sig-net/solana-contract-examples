@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { handleDeposit } from '@/lib/relayer/handlers';
 
+export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 

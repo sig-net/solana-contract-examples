@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { handleWithdrawal } from '@/lib/relayer/handlers';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
 
+export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 

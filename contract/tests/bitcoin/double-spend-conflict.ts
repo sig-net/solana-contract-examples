@@ -229,7 +229,9 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
 
       // Step 10: Call complete_withdraw_btc with the error response
       console.log("  🔄 Calling complete_withdraw_btc with error response...");
-      const expectedAddress = deriveMpcRespondAddress(withdrawalPlan.globalVault.pda);
+      const expectedAddress = deriveMpcRespondAddress(
+        withdrawalPlan.globalVault.pda
+      );
       const completeTx = await program.methods
         .completeWithdrawBtc(
           planRequestIdBytes(withdrawalPlan),

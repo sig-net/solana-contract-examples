@@ -1,6 +1,6 @@
 import { Connection } from '@solana/web3.js';
 import { Wallet } from '@coral-xyz/anchor';
-import { ethers } from 'ethers';
+import { serializeTransaction, type Hex, type PublicClient } from 'viem';
 
 import { BridgeContract } from '@/lib/contracts/bridge-contract';
 import { ChainSignaturesContract } from '@/lib/contracts/chain-signatures-contract';
@@ -26,13 +26,13 @@ export interface CrossChainResult {
 export class CrossChainOrchestrator {
   private bridgeContract: BridgeContract;
   private chainSignaturesContract: ChainSignaturesContract;
-  private provider: ethers.JsonRpcProvider;
+  private client: PublicClient;
   private config: Required<CrossChainConfig>;
 
   constructor(
     connection: Connection,
     wallet: Wallet,
-    provider: ethers.JsonRpcProvider,
+    client: PublicClient,
     config: CrossChainConfig = {},
     eventConnection?: Connection,
   ) {
@@ -42,7 +42,7 @@ export class CrossChainOrchestrator {
       wallet,
       eventConnection,
     );
-    this.provider = provider;
+    this.client = client;
 
     this.config = {
       // When eventTimeoutMs <= 0, we will wait indefinitely for events
@@ -146,35 +146,40 @@ export class CrossChainOrchestrator {
 
     console.log(`[${op}] Submitting to Ethereum...`);
 
-    const signedTx = ethers.Transaction.from({
-      type: txParams.type,
-      chainId: txParams.chainId,
-      nonce: txParams.nonce,
-      maxPriorityFeePerGas: txParams.maxPriorityFeePerGas,
-      maxFeePerGas: txParams.maxFeePerGas,
-      gasLimit: txParams.gasLimit,
-      to: txParams.to,
-      value: txParams.value,
-      data: txParams.data,
-      signature: {
-        r: ethereumSignature.r,
-        s: ethereumSignature.s,
-        v: Number(ethereumSignature.v),
+    const signedTx = serializeTransaction(
+      {
+        chainId: txParams.chainId,
+        nonce: txParams.nonce,
+        maxPriorityFeePerGas: txParams.maxPriorityFeePerGas,
+        maxFeePerGas: txParams.maxFeePerGas,
+        gas: txParams.gasLimit,
+        to: txParams.to,
+        value: txParams.value,
+        data: txParams.data,
       },
+      {
+        r: ethereumSignature.r as Hex,
+        s: ethereumSignature.s as Hex,
+        yParity: Number(ethereumSignature.v) - 27,
+      },
+    );
+
+    const txHash = await retryWithBackoff(() =>
+      this.client.sendRawTransaction({ serializedTransaction: signedTx }),
+    );
+
+    const txReceipt = await this.client.waitForTransactionReceipt({
+      hash: txHash,
+      confirmations: this.config.ethereumConfirmations,
     });
 
-    const txResponse = await retryWithBackoff(() =>
-      this.provider.broadcastTransaction(signedTx.serialized),
-    );
-    const txReceipt = await txResponse.wait(this.config.ethereumConfirmations);
-
-    if (txReceipt?.status !== 1) {
+    if (txReceipt.status !== 'success') {
       throw new Error(
-        `Ethereum transaction failed with status: ${txReceipt?.status}`,
+        `Ethereum transaction failed with status: ${txReceipt.status}`,
       );
     }
 
-    return txResponse.hash;
+    return txHash;
   }
 
   private async waitForRespondBidirectional(

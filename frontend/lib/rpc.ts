@@ -1,12 +1,16 @@
-import { ethers } from 'ethers';
 import { Connection } from '@solana/web3.js';
 import { Alchemy, Network } from 'alchemy-sdk';
+import { createPublicClient, http, type PublicClient } from 'viem';
+import { sepolia } from 'viem/chains';
 
 import { getClientEnv } from '@/lib/config/env.config';
 
-export function getEthereumProvider(): ethers.JsonRpcProvider {
+export function getEthereumProvider(): PublicClient {
   const rpcUrl = getAlchemyEthSepoliaRpcUrl();
-  return new ethers.JsonRpcProvider(rpcUrl);
+  return createPublicClient({
+    chain: sepolia,
+    transport: http(rpcUrl),
+  });
 }
 
 export function getHeliusConnection(): Connection | undefined {

@@ -1,6 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
-import { ethers } from 'ethers';
 import { secp256k1 } from '@noble/curves/secp256k1';
+import { keccak256, toHex } from 'viem';
+import { publicKeyToAddress } from 'viem/accounts';
 
 import { getClientEnv } from '@/lib/config/env.config';
 import { IDL } from '@/lib/program/idl-sol-dex';
@@ -107,7 +108,7 @@ export function deriveUserTransactionHistoryPda(
  */
 function deriveEpsilon(requester: string, path: string): bigint {
   const derivationPath = `${CHAIN_SIGNATURES_CONFIG.EPSILON_DERIVATION_PREFIX},${CHAIN_SIGNATURES_CONFIG.SOLANA_CHAIN_ID},${requester},${path}`;
-  const hash = ethers.keccak256(ethers.toUtf8Bytes(derivationPath));
+  const hash = keccak256(toHex(derivationPath));
   return BigInt(hash);
 }
 
@@ -180,7 +181,7 @@ export function deriveEthereumAddress(
     requesterAddress,
     basePublicKey,
   );
-  return ethers.computeAddress(derivedPublicKey);
+  return publicKeyToAddress(derivedPublicKey as `0x${string}`);
 }
 
 /**
@@ -203,7 +204,7 @@ export const VAULT_ETHEREUM_ADDRESS = (() => {
       GLOBAL_VAULT_AUTHORITY_PDA.toString(),
       CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
     );
-    return ethers.computeAddress(derivedPublicKey);
+    return publicKeyToAddress(derivedPublicKey as `0x${string}`);
   } catch (error) {
     throw new Error(
       `Failed to derive vault address: ${error instanceof Error ? error.message : 'Unknown error'}`,
