@@ -1,6 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
-import { ethers } from 'ethers';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { formatUnits } from 'viem';
 
 import type { TokenBalance } from '@/lib/types/token.types';
 import {
@@ -333,10 +333,7 @@ export class TokenBalanceService {
       adjustedBalance > BigInt(0) ? adjustedBalance : BigInt(1);
 
     // Convert to decimal format using the actual contract decimals
-    const balanceInUnits = ethers.formatUnits(
-      finalBalance,
-      tokenBalance.decimals,
-    );
+    const balanceInUnits = formatUnits(finalBalance, tokenBalance.decimals);
 
     return {
       amount: balanceInUnits,

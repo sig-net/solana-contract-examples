@@ -1,7 +1,6 @@
-import { Connection } from '@solana/web3.js';
-import { Keypair } from '@solana/web3.js';
+import { Connection, Keypair } from '@solana/web3.js';
 import NodeWallet from '@coral-xyz/anchor/dist/esm/nodewallet.js';
-import { ethers } from 'ethers';
+import type { PublicClient } from 'viem';
 
 import {
   CrossChainOrchestrator,
@@ -12,7 +11,7 @@ import { getEthereumProvider, getHeliusConnection } from '@/lib/rpc';
 
 export interface RelayerSetup {
   connection: Connection;
-  provider: ethers.JsonRpcProvider;
+  provider: PublicClient;
   relayerWallet: NodeWallet;
   orchestrator: CrossChainOrchestrator;
 }

@@ -1,5 +1,10 @@
-import { ethers } from 'ethers';
-import { encodeFunctionData, erc20Abi, type Hex } from 'viem';
+import {
+  encodeFunctionData,
+  erc20Abi,
+  parseGwei,
+  type Hex,
+  type PublicClient,
+} from 'viem';
 
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
@@ -13,7 +18,7 @@ export function encodeErc20Transfer(recipient: string, amount: bigint): Hex {
 }
 
 export async function buildErc20TransferTx(params: {
-  provider: ethers.AbstractProvider;
+  provider: PublicClient;
   from: string;
   erc20Address: string;
   recipient: string;
@@ -21,22 +26,21 @@ export async function buildErc20TransferTx(params: {
 }): Promise<EvmTransactionRequest> {
   const { provider, from, erc20Address, recipient, amount } = params;
 
-  const nonce = await provider.getTransactionCount(from);
+  const nonce = await provider.getTransactionCount({ address: from as Hex });
 
   const data = encodeErc20Transfer(recipient, amount);
 
   const estimatedGas = await provider.estimateGas({
-    from,
-    to: erc20Address,
+    account: from as Hex,
+    to: erc20Address as Hex,
     data,
-    value: 0,
+    value: BigInt(0),
   });
   const gasLimit = (estimatedGas * BigInt(120)) / BigInt(100); // 20% buffer
 
-  const feeData = await provider.getFeeData();
-  const maxPriorityFeePerGas =
-    feeData.maxPriorityFeePerGas ?? ethers.parseUnits('2', 'gwei');
-  const maxFeePerGas = feeData.maxFeePerGas ?? ethers.parseUnits('20', 'gwei');
+  const feeData = await provider.estimateFeesPerGas();
+  const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? parseGwei('2');
+  const maxFeePerGas = feeData.maxFeePerGas ?? parseGwei('20');
 
   const txRequest: EvmTransactionRequest = {
     type: 2,

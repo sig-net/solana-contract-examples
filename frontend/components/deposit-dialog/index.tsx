@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useWallet } from '@solana/connector/react';
 
 import {
@@ -22,15 +22,8 @@ interface DepositDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-enum DepositStep {
-  SELECT_TOKEN = 'select-token',
-  GENERATING_ADDRESS = 'generating-address',
-  SHOW_ADDRESS = 'show-address',
-}
-
 export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const { account, isConnected } = useWallet();
-  const [step, setStep] = useState<DepositStep>(DepositStep.SELECT_TOKEN);
   const [selectedToken, setSelectedToken] = useState<TokenMetadata | null>(
     null,
   );
@@ -43,10 +36,30 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const depositEvmMutation = useDepositEvmMutation();
   const { depositAddress: solDepositAddress } = useDepositSol();
 
+  // Derive step from state instead of syncing with useEffect
+  const getStep = () => {
+    if (!selectedToken || !selectedNetwork) {
+      return 'select-token';
+    }
+
+    // Solana: skip generating step, address is always available
+    if (selectedNetwork.chain === 'solana' && isConnected && account) {
+      return 'show-address';
+    }
+
+    // EVM: show generating while loading, then show address
+    if (!depositAddress || isGeneratingAddress) {
+      return 'generating-address';
+    }
+
+    return 'show-address';
+  };
+
+  const step = getStep();
+
   const handleTokenSelect = (token: TokenMetadata, network: NetworkData) => {
     setSelectedToken(token);
     setSelectedNetwork(network);
-    setStep(DepositStep.GENERATING_ADDRESS);
   };
 
   const handleNotifyRelayer = async () => {
@@ -72,31 +85,15 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   };
 
   const handleClose = () => {
-    setStep(DepositStep.SELECT_TOKEN);
     setSelectedToken(null);
     setSelectedNetwork(null);
     onOpenChange(false);
   };
 
-  useEffect(() => {
-    if (step !== DepositStep.GENERATING_ADDRESS) return;
-    if (!selectedNetwork) return;
-
-    // For Solana network, we already have the user's own wallet address; no generation needed
-    if (selectedNetwork.chain === 'solana' && isConnected && account) {
-      setStep(DepositStep.SHOW_ADDRESS);
-      return;
-    }
-
-    if (depositAddress && !isGeneratingAddress) {
-      setStep(DepositStep.SHOW_ADDRESS);
-    }
-  }, [step, selectedNetwork, isConnected, account, depositAddress, isGeneratingAddress]);
-
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className='gradient-popover max-w-md rounded-sm p-10 shadow-[0px_4px_9.3px_0px_rgba(41,86,70,0.35)]'>
-        {step === DepositStep.SELECT_TOKEN && (
+        {step === 'select-token' && (
           <div className='space-y-5'>
             <DialogHeader className='space-y-0 p-0'>
               <DialogTitle className='text-dark-neutral-400 text-xl font-semibold'>
@@ -107,11 +104,11 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
           </div>
         )}
 
-        {step === DepositStep.GENERATING_ADDRESS && selectedToken && (
+        {step === 'generating-address' && selectedToken && (
           <DepositGeneratingState token={selectedToken} network={selectedNetwork!} />
         )}
 
-        {step === DepositStep.SHOW_ADDRESS &&
+        {step === 'show-address' &&
           selectedToken &&
           selectedNetwork && (
             <div className='space-y-5'>

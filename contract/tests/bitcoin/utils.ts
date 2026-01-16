@@ -847,7 +847,9 @@ const SOLANA_RESPOND_PATH = "solana response key";
  * Derives the MPC response address for a given sender PDA.
  * This is the Ethereum address that the MPC will use to sign responses.
  */
-export const deriveMpcRespondAddress = (senderPda: anchor.web3.PublicKey): number[] => {
+export const deriveMpcRespondAddress = (
+  senderPda: anchor.web3.PublicKey
+): number[] => {
   const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
     CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
     senderPda.toString(),
@@ -955,7 +957,9 @@ export async function executeSyntheticDeposit(
     const readEvent = await eventPromises.readRespond;
 
     // Derive expected address from vault_authority PDA
-    const expectedAddress = deriveMpcRespondAddress(preparedPlan.vaultAuthority.pda);
+    const expectedAddress = deriveMpcRespondAddress(
+      preparedPlan.vaultAuthority.pda
+    );
 
     const claimTx = await program.methods
       .claimBtc(

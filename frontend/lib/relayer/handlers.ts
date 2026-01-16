@@ -1,7 +1,12 @@
 import { BN } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
-import { ethers } from 'ethers';
-import { toBytes } from 'viem';
+import {
+  erc20Abi,
+  serializeTransaction,
+  toBytes,
+  type Hex,
+  type PublicClient,
+} from 'viem';
 
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
 import { buildErc20TransferTx } from '@/lib/evm/tx-builder';
@@ -57,7 +62,7 @@ async function executeDeposit(args: {
       : actualAmount;
 
   const path = userAddress;
-  const erc20AddressBytes = Array.from(toBytes(erc20Address));
+  const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
 
   const txRequest: EvmTransactionRequest = await buildErc20TransferTx({
     provider,
@@ -67,10 +72,19 @@ async function executeDeposit(args: {
     amount: processAmount,
   });
 
-  const rlpEncodedTx = ethers.Transaction.from(txRequest).unsignedSerialized;
+  const rlpEncodedTx = serializeTransaction({
+    chainId: txRequest.chainId,
+    nonce: txRequest.nonce,
+    maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas,
+    maxFeePerGas: txRequest.maxFeePerGas,
+    gas: txRequest.gasLimit,
+    to: txRequest.to,
+    value: txRequest.value,
+    data: txRequest.data,
+  });
   const requestId = generateRequestId(
     vaultAuthority,
-    ethers.getBytes(rlpEncodedTx),
+    toBytes(rlpEncodedTx),
     SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
     SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
     path,
@@ -195,19 +209,19 @@ async function executeWithdrawal(args: {
 async function monitorTokenBalance(
   address: string,
   tokenAddress: string,
-  provider: ethers.JsonRpcProvider,
+  client: PublicClient,
 ): Promise<bigint | null> {
   const deadline = Date.now() + 60_000;
   const intervalMs = 5_000;
-  const erc20Contract = new ethers.Contract(
-    tokenAddress,
-    ['function balanceOf(address owner) view returns (uint256)'],
-    provider,
-  );
-  const balanceOf = erc20Contract.getFunction('balanceOf');
+
   while (Date.now() < deadline) {
     try {
-      const balance = await balanceOf(address);
+      const balance = await client.readContract({
+        address: tokenAddress as Hex,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [address as Hex],
+      });
       if (balance > BigInt(0)) return balance;
     } catch {
       // swallow and retry

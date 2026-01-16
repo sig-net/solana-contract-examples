@@ -12,8 +12,14 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
-import { ethers } from 'ethers';
-import { toBytes } from 'viem';
+import {
+  isAddress,
+  getAddress,
+  parseUnits,
+  serializeTransaction,
+  toBytes,
+  type Hex,
+} from 'viem';
 
 import type {
   EvmTransactionRequest,
@@ -106,9 +112,7 @@ export class WithdrawalService {
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
 
-      const amountInUnits = BigInt(
-        ethers.parseUnits(amount, decimals).toString(),
-      );
+      const amountInUnits = parseUnits(amount, decimals);
 
       const instructions = [] as Array<Parameters<Transaction['add']>[0]>;
 
@@ -173,19 +177,19 @@ export class WithdrawalService {
 
       const decimals = (await getTokenInfo(erc20Address)).decimals;
 
-      const amountBigInt = ethers.parseUnits(amount, decimals);
+      const amountBigInt = parseUnits(amount, decimals);
 
       const randomReduction = BigInt(Math.floor(Math.random() * 100) + 1);
       const processAmountBigInt = amountBigInt - randomReduction;
 
       const amountBN = new BN(processAmountBigInt.toString());
-      const erc20AddressBytes = Array.from(toBytes(erc20Address));
+      const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
 
-      if (!ethers.isAddress(recipientAddress)) {
+      if (!isAddress(recipientAddress)) {
         throw new Error('Invalid Ethereum address format');
       }
 
-      const checksummedAddress = ethers.getAddress(recipientAddress);
+      const checksummedAddress = getAddress(recipientAddress);
       const recipientAddressBytes = Array.from(toBytes(checksummedAddress));
 
       const txRequest: EvmTransactionRequest = await buildErc20TransferTx({
@@ -198,12 +202,20 @@ export class WithdrawalService {
 
       const evmParams = evmParamsToProgram(txRequest);
 
-      const rlpEncodedTx =
-        ethers.Transaction.from(txRequest).unsignedSerialized;
+      const rlpEncodedTx = serializeTransaction({
+        chainId: txRequest.chainId,
+        nonce: txRequest.nonce,
+        maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas,
+        maxFeePerGas: txRequest.maxFeePerGas,
+        gas: txRequest.gasLimit,
+        to: txRequest.to,
+        value: txRequest.value,
+        data: txRequest.data,
+      });
 
       const requestId = generateRequestId(
         globalVaultAuthority,
-        ethers.getBytes(rlpEncodedTx),
+        toBytes(rlpEncodedTx),
         SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
         SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
         SERVICE_CONFIG.CRYPTOGRAPHY.WITHDRAWAL_ROOT_PATH,

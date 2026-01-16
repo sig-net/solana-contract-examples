@@ -1,6 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
-import { ethers } from 'ethers';
 import { BN } from '@coral-xyz/anchor';
+import { encodePacked, keccak256, type Hex } from 'viem';
 
 import type {
   EvmTransactionRequest,
@@ -21,35 +21,14 @@ export function generateRequestId(
   dest: string,
   params: string,
 ): string {
-  const txDataArray = Array.from(transactionData);
-  const txDataHex = '0x' + Buffer.from(txDataArray).toString('hex');
+  const txDataHex = ('0x' + Buffer.from(transactionData).toString('hex')) as Hex;
 
-  const encoded = ethers.solidityPacked(
-    [
-      'string',
-      'bytes',
-      'string',
-      'uint32',
-      'string',
-      'string',
-      'string',
-      'string',
-    ],
-    [
-      sender.toString(),
-      txDataHex,
-      caip2Id,
-      keyVersion,
-      path,
-      algo,
-      dest,
-      params,
-    ],
+  const encoded = encodePacked(
+    ['string', 'bytes', 'string', 'uint32', 'string', 'string', 'string', 'string'],
+    [sender.toString(), txDataHex, caip2Id, keyVersion, path, algo, dest, params],
   );
 
-  const hash = ethers.keccak256(encoded);
-
-  return hash;
+  return keccak256(encoded);
 }
 
 /**
