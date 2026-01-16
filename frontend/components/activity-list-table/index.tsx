@@ -1,5 +1,5 @@
-import { useWallet } from '@solana/wallet-adapter-react';
-import { useMemo, useEffect } from 'react';
+import { useWallet } from '@solana/connector/react';
+import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { ExternalLink } from 'lucide-react';
 
@@ -57,8 +57,184 @@ interface ActivityListTableProps {
   className?: string;
 }
 
+function buildTransactionsList(
+  depositAddress: string | undefined,
+  incomingTransfers: ReturnType<typeof useIncomingTransfers>['data'],
+  outgoingTransfers: ReturnType<typeof useOutgoingTransfers>['data'],
+  solanaTxs: ReturnType<typeof useSolanaTransactions>['data'],
+  account: string | null,
+): ActivityTransaction[] {
+  const allTransactions: ActivityTransaction[] = [];
+
+  // Process incoming transfers (deposits)
+  if (incomingTransfers) {
+    const incomingTxs = incomingTransfers.map(transfer => {
+      const tokenInfo = getTokenInfoSync(transfer.tokenAddress);
+      const formattedAmount = formatTokenBalanceSync(
+        transfer.value,
+        tokenInfo.decimals,
+        tokenInfo.displaySymbol,
+        { showSymbol: true },
+      );
+
+      const usdPrice = tokenInfo.displaySymbol === 'USDC' ? 1.0 : 0;
+      const usdValue =
+        usdPrice > 0
+          ? formatTokenBalanceSync(
+              transfer.value,
+              tokenInfo.decimals,
+              undefined,
+              { showUsd: true, usdPrice },
+            )
+          : '$0.00';
+
+      return {
+        id: transfer.requestId,
+        type: 'Deposit' as const,
+        fromToken: depositAddress
+          ? {
+              symbol: 'WALLET',
+              chain: 'ethereum',
+              amount: depositAddress,
+              usdValue: '',
+            }
+          : undefined,
+        toToken: {
+          symbol: tokenInfo.displaySymbol,
+          chain: 'ethereum',
+          amount: formattedAmount,
+          usdValue: usdValue,
+        },
+        address: undefined,
+        timestamp: transfer.timestamp
+          ? formatActivityDate(transfer.timestamp)
+          : 'Unknown',
+        timestampRaw: transfer.timestamp,
+        status: transfer.status,
+        transactionHash: transfer.transactionHash,
+        explorerUrl: transfer.transactionHash
+          ? getTransactionExplorerUrl(transfer.transactionHash)
+          : undefined,
+      };
+    });
+    allTransactions.push(...incomingTxs);
+  }
+
+  // Process outgoing transfers (withdrawals)
+  if (outgoingTransfers) {
+    const outgoingTxs = outgoingTransfers.map(transfer => {
+      const tokenInfo = getTokenInfoSync(transfer.tokenAddress);
+      const formattedAmount = formatTokenBalanceSync(
+        transfer.value,
+        tokenInfo.decimals,
+        tokenInfo.displaySymbol,
+        { showSymbol: true },
+      );
+
+      const usdPrice = tokenInfo.displaySymbol === 'USDC' ? 1.0 : 0;
+      const usdValue =
+        usdPrice > 0
+          ? formatTokenBalanceSync(
+              transfer.value,
+              tokenInfo.decimals,
+              undefined,
+              { showUsd: true, usdPrice },
+            )
+          : '$0.00';
+
+      return {
+        id: `${transfer.requestId}-outgoing`,
+        type: 'Withdraw' as const,
+        fromToken: {
+          symbol: tokenInfo.displaySymbol,
+          chain: 'ethereum',
+          amount: formattedAmount,
+          usdValue: usdValue,
+        },
+        toToken: {
+          symbol: 'WALLET',
+          chain: 'ethereum',
+          amount: transfer.recipient,
+          usdValue: '',
+        },
+        address: transfer.recipient,
+        timestamp: transfer.timestamp
+          ? formatActivityDate(transfer.timestamp)
+          : 'Unknown',
+        timestampRaw: transfer.timestamp,
+        status: transfer.status,
+        transactionHash: transfer.transactionHash,
+        explorerUrl: transfer.transactionHash
+          ? getTransactionExplorerUrl(transfer.transactionHash)
+          : undefined,
+      };
+    });
+    allTransactions.push(...outgoingTxs);
+  }
+
+  // Include Solana wallet transactions
+  if (solanaTxs && solanaTxs.length > 0) {
+    const solanaAddress = account ?? '';
+    const walletTxs: ActivityTransaction[] = solanaTxs.map(tx => {
+      const formattedAmount = formatTokenBalanceSync(
+        tx.amount,
+        tx.decimals,
+        tx.symbol,
+        { showSymbol: true },
+      );
+
+      const isIncoming = tx.direction === 'in';
+
+      return {
+        id: `${tx.signature}-${tx.mint ?? 'SOL'}`,
+        type: (isIncoming ? 'Deposit' : 'Withdraw') as ActivityTransaction['type'],
+        fromToken: isIncoming
+          ? {
+              symbol: 'WALLET',
+              chain: 'solana',
+              amount: solanaAddress,
+              usdValue: '',
+            }
+          : {
+              symbol: tx.symbol,
+              chain: 'solana',
+              amount: formattedAmount,
+              usdValue: '$0.00',
+            },
+        toToken: isIncoming
+          ? {
+              symbol: tx.symbol,
+              chain: 'solana',
+              amount: formattedAmount,
+              usdValue: '$0.00',
+            }
+          : {
+              symbol: 'WALLET',
+              chain: 'solana',
+              amount: solanaAddress,
+              usdValue: '',
+            },
+        address: solanaAddress,
+        timestamp: formatActivityDate(tx.timestamp),
+        timestampRaw: tx.timestamp,
+        status: 'completed',
+        transactionHash: tx.signature,
+        explorerUrl: getSolanaExplorerUrl(tx.signature),
+      };
+    });
+    allTransactions.push(...walletTxs);
+  }
+
+  // Sort all transactions by timestamp (newest first)
+  return allTransactions.sort((a, b) => {
+    const aTime = a.timestampRaw || 0;
+    const bTime = b.timestampRaw || 0;
+    return bTime - aTime;
+  });
+}
+
 export function ActivityListTable({ className }: ActivityListTableProps) {
-  const { connected, publicKey } = useWallet();
+  const { isConnected, account } = useWallet();
   const { data: depositAddress } = useDepositAddress();
   const {
     data: incomingTransfers,
@@ -108,188 +284,14 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
     }
   }, [incomingTransfers, outgoingTransfers]);
 
-  const realTransactions: ActivityTransaction[] = useMemo(() => {
-    const allTransactions: ActivityTransaction[] = [];
-
-    // Process incoming transfers (deposits) - now driven from Solana deposits
-    if (incomingTransfers) {
-      const incomingTxs = incomingTransfers.map(transfer => {
-        const tokenInfo = getTokenInfoSync(transfer.tokenAddress);
-        const formattedAmount = formatTokenBalanceSync(
-          transfer.value,
-          tokenInfo.decimals,
-          tokenInfo.displaySymbol,
-          { showSymbol: true },
-        );
-
-        // Calculate USD value for USDC (1:1 ratio)
-        const usdPrice = tokenInfo.displaySymbol === 'USDC' ? 1.0 : 0;
-        const usdValue =
-          usdPrice > 0
-            ? formatTokenBalanceSync(
-                transfer.value,
-                tokenInfo.decimals,
-                undefined,
-                { showUsd: true, usdPrice },
-              )
-            : '$0.00';
-
-        return {
-          id: transfer.requestId,
-          type: 'Deposit' as const,
-          fromToken: depositAddress
-            ? {
-                symbol: 'WALLET',
-                chain: 'ethereum',
-                amount: depositAddress,
-                usdValue: '',
-              }
-            : undefined,
-          toToken: {
-            symbol: tokenInfo.displaySymbol,
-            chain: 'ethereum',
-            amount: formattedAmount,
-            usdValue: usdValue,
-          },
-          address: undefined,
-          timestamp: transfer.timestamp
-            ? formatActivityDate(transfer.timestamp)
-            : 'Unknown',
-          timestampRaw: transfer.timestamp,
-          status: transfer.status,
-          transactionHash: transfer.transactionHash,
-          explorerUrl: transfer.transactionHash
-            ? getTransactionExplorerUrl(transfer.transactionHash, 'sepolia')
-            : undefined,
-        };
-      });
-      allTransactions.push(...incomingTxs);
-    }
-
-    // Process outgoing transfers (withdrawals)
-    if (outgoingTransfers) {
-      const outgoingTxs = outgoingTransfers.map(transfer => {
-        const tokenInfo = getTokenInfoSync(transfer.tokenAddress);
-        const formattedAmount = formatTokenBalanceSync(
-          transfer.value,
-          tokenInfo.decimals,
-          tokenInfo.displaySymbol,
-          { showSymbol: true },
-        );
-
-        // Calculate USD value for USDC (1:1 ratio)
-        const usdPrice = tokenInfo.displaySymbol === 'USDC' ? 1.0 : 0;
-        const usdValue =
-          usdPrice > 0
-            ? formatTokenBalanceSync(
-                transfer.value,
-                tokenInfo.decimals,
-                undefined,
-                { showUsd: true, usdPrice },
-              )
-            : '$0.00';
-
-        return {
-          id: `${transfer.requestId}-outgoing`,
-          type: 'Withdraw' as const,
-          fromToken: {
-            symbol: tokenInfo.displaySymbol,
-            chain: 'ethereum',
-            amount: formattedAmount,
-            usdValue: usdValue,
-          },
-          toToken: {
-            symbol: 'WALLET',
-            chain: 'ethereum',
-            amount: transfer.recipient,
-            usdValue: '',
-          },
-          address: transfer.recipient,
-          timestamp: transfer.timestamp
-            ? formatActivityDate(transfer.timestamp)
-            : 'Unknown',
-          timestampRaw: transfer.timestamp,
-          status: transfer.status,
-          transactionHash: transfer.transactionHash,
-          explorerUrl: transfer.transactionHash
-            ? getTransactionExplorerUrl(transfer.transactionHash, 'sepolia')
-            : undefined,
-        };
-      });
-      allTransactions.push(...outgoingTxs);
-    }
-
-    // Include Solana wallet transactions (always completed)
-    if (solanaTxs && solanaTxs.length > 0) {
-      const solanaAddress = publicKey?.toBase58() ?? '';
-      const walletTxs: ActivityTransaction[] = solanaTxs.map(tx => {
-        const formattedAmount = formatTokenBalanceSync(
-          tx.amount,
-          tx.decimals,
-          tx.symbol,
-          { showSymbol: true },
-        );
-
-        const isIncoming = tx.direction === 'in';
-
-        return {
-          id: `${tx.signature}-${tx.mint ?? 'SOL'}`,
-          type: (isIncoming
-            ? 'Deposit'
-            : 'Withdraw') as ActivityTransaction['type'],
-          fromToken: isIncoming
-            ? {
-                symbol: 'WALLET',
-                chain: 'solana',
-                amount: solanaAddress,
-                usdValue: '',
-              }
-            : {
-                symbol: tx.symbol,
-                chain: 'solana',
-                amount: formattedAmount,
-                usdValue: '$0.00',
-              },
-          toToken: isIncoming
-            ? {
-                symbol: tx.symbol,
-                chain: 'solana',
-                amount: formattedAmount,
-                usdValue: '$0.00',
-              }
-            : {
-                symbol: 'WALLET',
-                chain: 'solana',
-                amount: solanaAddress,
-                usdValue: '',
-              },
-          address: solanaAddress,
-          timestamp: formatActivityDate(tx.timestamp),
-          timestampRaw: tx.timestamp,
-          status: 'completed',
-          transactionHash: tx.signature,
-          explorerUrl: getSolanaExplorerUrl(tx.signature),
-        };
-      });
-      allTransactions.push(...walletTxs);
-    }
-
-    // Sort all transactions by timestamp (newest first)
-    return allTransactions.sort((a, b) => {
-      const aTime = a.timestampRaw || 0;
-      const bTime = b.timestampRaw || 0;
-      return bTime - aTime;
-    });
-  }, [
+  const realTransactions = buildTransactionsList(
     depositAddress,
     incomingTransfers,
     outgoingTransfers,
     solanaTxs,
-    publicKey,
-  ]);
+    account,
+  );
 
-  // TODO: Add pagination for better UX when there are many transactions
-  // Currently showing only the last 5 transactions to keep the UI clean
   const displayTransactions = realTransactions.slice(0, 5);
 
   return (
@@ -317,7 +319,6 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
         </TableHeader>
         <TableBody>
           {isLoadingTransfers ? (
-            // Loading skeleton with proper column structure
             Array.from({ length: 3 }).map((_, index) => (
               <TableRow key={`loading-${index}`}>
                 <TableCell>
@@ -379,7 +380,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
           ) : (
             <TableRow>
               <TableCell colSpan={5} className='py-8 text-center text-gray-500'>
-                {connected
+                {isConnected
                   ? 'No transactions found. Send ERC20 tokens to your deposit address to see activity.'
                   : 'Connect your wallet to view transaction activity.'}
               </TableCell>

@@ -5,7 +5,7 @@ import {
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from '@solana/web3.js';
-import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
+import { Program, AnchorProvider, BN, Wallet, Idl } from '@coral-xyz/anchor';
 import { toHex, toBytes } from 'viem';
 
 import { IDL, type SolDexIDL } from '@/lib/program/idl-sol-dex';
@@ -65,7 +65,7 @@ export class BridgeContract {
         commitment: 'confirmed',
         skipPreflight: true,
       });
-      this.program = new Program(IDL as any, provider) as Program<SolDexIDL>;
+      this.program = new Program(IDL as Idl, provider) as Program<SolDexIDL>;
     }
     return this.program;
   }

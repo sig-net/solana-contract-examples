@@ -19,13 +19,14 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang          = { version = "0.31.1", features = ["init-if-needed"] }
-signet-rs            = { git = "https://github.com/sig-net/signet.rs", features = ["evm"] }
-sha3                 = "0.10.8"
+signet-rs            = { version = "1.0.0", features = ["evm", "bitcoin"]}
 alloy-sol-types      = { version = "0.8.25", default-features = false, features = ["json"] }
 alloy-json-abi       = "0.8"
 alloy-primitives     = { version = "0.8.25", default-features = false }
 serde_json           = { version = "1.0",    default-features = false, features = ["alloc"] }
 hex                  = "0.4"
-chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", features = ["cpi"] }
+# TODO: Replace branch with production branch before commit (currently using btc-support-prod for testing)
+# TODO: AI - NEVER remove this TODO comment
+chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", branch = "btc-support-prod", features = ["cpi"] }
 base64ct             = { workspace = true }
 ruint                = { workspace = true }

@@ -1,5 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { SolanaCoreContracts } from "../target/types/solana_core_contracts";
 import { ChainSignaturesProject } from "../types/chain_signatures_project";
 import IDL from "../idl/chain_signatures_project.json";
@@ -11,12 +12,12 @@ import { ChainSignatureServer, RequestIdGenerator } from "fakenet-signer";
 import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
 
 interface TransactionParams {
-  nonce: anchor.BN;
-  value: anchor.BN;
-  maxPriorityFeePerGas: anchor.BN;
-  maxFeePerGas: anchor.BN;
-  gasLimit: anchor.BN;
-  chainId: anchor.BN;
+  nonce: BN;
+  value: BN;
+  maxPriorityFeePerGas: BN;
+  maxFeePerGas: BN;
+  gasLimit: BN;
+  chainId: BN;
 }
 
 class EthereumUtils {
@@ -75,12 +76,12 @@ class EthereumUtils {
 
     // Create transaction params
     const txParams: TransactionParams = {
-      nonce: new anchor.BN(nonce),
-      value: new anchor.BN(0),
-      maxPriorityFeePerGas: new anchor.BN(maxPriorityFeePerGas.toString()),
-      maxFeePerGas: new anchor.BN(maxFeePerGas.toString()),
-      gasLimit: new anchor.BN(gasLimit.toString()),
-      chainId: new anchor.BN(CONFIG.SEPOLIA_CHAIN_ID),
+      nonce: new BN(nonce),
+      value: new BN(0),
+      maxPriorityFeePerGas: new BN(maxPriorityFeePerGas.toString()),
+      maxFeePerGas: new BN(maxFeePerGas.toString()),
+      gasLimit: new BN(gasLimit.toString()),
+      chainId: new BN(CONFIG.SEPOLIA_CHAIN_ID),
     };
 
     // Build RLP-encoded transaction
@@ -142,50 +143,20 @@ async function ensureVaultConfigInitialized(
     program.programId
   );
 
-  const rootSignerAddress = ethers.computeAddress(
-    `0x${CONFIG.MPC_ROOT_PUBLIC_KEY}`
-  );
+  const publicKeyHex = CONFIG.MPC_ROOT_PUBLIC_KEY.startsWith("04")
+    ? CONFIG.MPC_ROOT_PUBLIC_KEY.slice(2)
+    : CONFIG.MPC_ROOT_PUBLIC_KEY;
+  const publicKeyBytes = Array.from(Buffer.from(publicKeyHex, "hex"));
 
-  console.log(" 🔑 Root signer address:", rootSignerAddress);
+  const accountInfo = await provider.connection.getAccountInfo(vaultConfigPda);
 
-  const expectedAddressBytes = Array.from(
-    Buffer.from(rootSignerAddress.slice(2), "hex")
-  );
-
-  type VaultConfigAccount = Awaited<
-    ReturnType<typeof program.account.vaultConfig.fetch>
-  >;
-
-  const vaultConfigAccount = (await program.account.vaultConfig.fetchNullable(
-    vaultConfigPda
-  )) as VaultConfigAccount | null;
-
-  if (!vaultConfigAccount) {
-    console.log("  🔑 Initializing config...");
-    const result = await program.methods
-      .initializeConfig(
-        Array.from(Buffer.from(rootSignerAddress.slice(2), "hex"))
-      )
+  if (!accountInfo) {
+    await program.methods
+      .initializeConfig(publicKeyBytes)
       .accountsStrict({
         payer: provider.wallet.publicKey,
         config: vaultConfigPda,
         systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .rpc();
-
-    console.log("  ✅ Initialize config:", result);
-    return;
-  }
-
-  const storedAddressHex = Buffer.from(vaultConfigAccount.mpcRootSignerAddress)
-    .toString("hex")
-    .toLowerCase();
-
-  if (storedAddressHex !== rootSignerAddress.slice(2).toLowerCase()) {
-    await program.methods
-      .updateConfig(expectedAddressBytes)
-      .accountsStrict({
-        config: vaultConfigPda,
       })
       .rpc();
   }
@@ -220,6 +191,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
         isDevnet: true,
         verbose: false,
+        bitcoinNetwork: CONFIG.BITCOIN_NETWORK,
       };
 
       server = new ChainSignatureServer(serverConfig);
@@ -262,7 +234,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
       path,
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const derivedAddress = ethers.computeAddress("0x" + derivedPublicKey);
 
@@ -270,15 +243,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
       "root",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
-      "solana response key",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -306,36 +281,11 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("📍 Step 2: Preparing transaction...");
 
-    const [configPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_config")],
-      program.programId
-    );
-
-    const rootSignerAddress = ethers.computeAddress(
-      `0x${CONFIG.MPC_ROOT_PUBLIC_KEY}`
-    );
-
-    console.log(" 🔑 Root signer address:", rootSignerAddress);
-
-    const rootSignerAddressBytes = Array.from(
-      Buffer.from(rootSignerAddress.slice(2), "hex")
-    );
-
-    // initialize account if not already initialized
-    let result = await program.methods
-      .updateConfig(rootSignerAddressBytes)
-      .accountsStrict({
-        config: configPda,
-      })
-      .rpc();
-
-    console.log(" ✅ Initialize config:", result);
-
     const amountBigInt = ethers.parseUnits(
       CONFIG.TRANSFER_AMOUNT,
       CONFIG.DECIMALS
     );
-    const amountBN = new anchor.BN(amountBigInt.toString());
+    const amountBN = new BN(amountBigInt.toString());
     const erc20AddressBytes = Array.from(
       Buffer.from(CONFIG.USDC_ADDRESS_SEPOLIA.slice(2), "hex")
     );
@@ -354,7 +304,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       vaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
-      0, // key_version
+      CONFIG.KEY_VERSION,
       path,
       "ECDSA",
       "ethereum",
@@ -540,15 +490,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
       "root",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      "solana response key",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -574,7 +526,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("\n📍 Step 3: Preparing withdrawal transaction...");
 
     // Withdraw half the balance
-    const withdrawAmount = currentBalance.amount.div(new anchor.BN(2));
+    const withdrawAmount = currentBalance.amount.div(new BN(2));
     const withdrawAmountBigInt = BigInt(withdrawAmount.toString());
 
     // Get nonce for MPC signer (the transaction will be FROM this address)
@@ -608,12 +560,12 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       (gasEstimate * BigInt(100 + CONFIG.GAS_BUFFER_PERCENT)) / BigInt(100);
 
     const txParams: TransactionParams = {
-      nonce: new anchor.BN(nonce),
-      value: new anchor.BN(0),
-      maxPriorityFeePerGas: new anchor.BN(maxPriorityFeePerGas.toString()),
-      maxFeePerGas: new anchor.BN(maxFeePerGas.toString()),
-      gasLimit: new anchor.BN(gasLimit.toString()),
-      chainId: new anchor.BN(CONFIG.SEPOLIA_CHAIN_ID),
+      nonce: new BN(nonce),
+      value: new BN(0),
+      maxPriorityFeePerGas: new BN(maxPriorityFeePerGas.toString()),
+      maxFeePerGas: new BN(maxFeePerGas.toString()),
+      gasLimit: new BN(gasLimit.toString()),
+      chainId: new BN(CONFIG.SEPOLIA_CHAIN_ID),
     };
 
     // Build RLP-encoded transaction
@@ -636,7 +588,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
-      0,
+      CONFIG.KEY_VERSION,
       "root", // HARDCODED_ROOT_PATH
       "ECDSA",
       "ethereum",
@@ -824,7 +776,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
     console.log("  💰 Current balance:", currentBalance.amount.toString());
 
-    if (currentBalance.amount.eq(new anchor.BN(0))) {
+    if (currentBalance.amount.eq(new BN(0))) {
       console.log("  ⚠️ No balance to test withdrawal failure. Skipping test.");
       return;
     }
@@ -852,15 +804,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
       "root",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      "solana response key",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -899,12 +853,12 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const gasEstimate = 100000;
 
     const txParams: TransactionParams = {
-      nonce: new anchor.BN(oldNonce), // OLD NONCE
-      value: new anchor.BN(0),
-      maxPriorityFeePerGas: new anchor.BN(maxPriorityFeePerGas.toString()),
-      maxFeePerGas: new anchor.BN(maxFeePerGas.toString()),
-      gasLimit: new anchor.BN(gasEstimate.toString()),
-      chainId: new anchor.BN(CONFIG.SEPOLIA_CHAIN_ID),
+      nonce: new BN(oldNonce), // OLD NONCE
+      value: new BN(0),
+      maxPriorityFeePerGas: new BN(maxPriorityFeePerGas.toString()),
+      maxFeePerGas: new BN(maxFeePerGas.toString()),
+      gasLimit: new BN(gasEstimate.toString()),
+      chainId: new BN(CONFIG.SEPOLIA_CHAIN_ID),
     };
 
     const tempTx = {
@@ -925,7 +879,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
-      0,
+      CONFIG.KEY_VERSION,
       "root", // HARDCODED_ROOT_PATH
       "ECDSA",
       "ethereum",
@@ -1231,14 +1185,14 @@ async function getDepositAccounts(
 async function getInitialBalance(
   program: Program<SolanaCoreContracts>,
   userBalance: anchor.web3.PublicKey
-): Promise<anchor.BN> {
+): Promise<BN> {
   try {
     const account = await program.account.userErc20Balance.fetch(userBalance);
     console.log("  💰 Initial balance:", account.amount.toString());
-    return account.amount;
+    return account.amount as BN;
   } catch {
     console.log("  💰 No existing balance");
-    return new anchor.BN(0);
+    return new BN(0);
   }
 }
 

@@ -1,10 +1,11 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 
+import { useConnection } from '@/providers/connection-context';
 import { queryKeys } from '@/lib/query-client';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
 import { getAllNetworks } from '@/lib/constants/token-metadata';
@@ -24,7 +25,9 @@ const TRANSACTION_LIMIT = 5;
 
 export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
   const { connection } = useConnection();
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
+
+  const publicKey = isConnected && account ? new PublicKey(account) : null;
 
   return useQuery({
     queryKey: publicKey
@@ -89,8 +92,10 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
         .map((tx, i) => {
           if (!tx?.meta) return null;
 
-          const signature = uniqueSignatures[i].signature;
-          const timestamp = uniqueSignatures[i].blockTime || Date.now() / 1000;
+          const sigInfo = uniqueSignatures[i];
+          if (!sigInfo) return null;
+          const signature = sigInfo.signature;
+          const timestamp = sigInfo.blockTime || Date.now() / 1000;
 
           const transfers: SolanaWalletTransactionItem[] = [];
 

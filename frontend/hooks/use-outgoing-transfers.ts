@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
 import { PublicKey } from '@solana/web3.js';
 
 import { queryKeys } from '@/lib/query-client';
@@ -58,8 +58,10 @@ async function fetchUserWithdrawals(
 }
 
 export function useOutgoingTransfers() {
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
   const withdrawalService = useWithdrawalService();
+
+  const publicKey = isConnected && account ? new PublicKey(account) : null;
 
   const query = useQuery({
     queryKey: publicKey

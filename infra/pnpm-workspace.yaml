@@ -1,3 +1,0 @@
-ignoredBuiltDependencies:
-  - aws-crt
-  - esbuild

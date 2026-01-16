@@ -209,8 +209,8 @@ export class ChainSignaturesContract {
           async () => {
             while (true) {
               const i = next++;
-              if (i >= signatures.length) break;
               const sig = signatures[i];
+              if (!sig) break;
               try {
                 const tx = await this.eventConnection.getTransaction(
                   sig.signature,

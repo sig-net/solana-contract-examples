@@ -6,12 +6,12 @@ import type {
   NetworkData,
 } from '@/lib/constants/token-metadata';
 
-interface LoadingStateProps {
+interface DepositGeneratingStateProps {
   token: TokenMetadata;
   network: NetworkData;
 }
 
-export function LoadingState({ token, network }: LoadingStateProps) {
+export function DepositGeneratingState({ token, network }: DepositGeneratingStateProps) {
   return (
     <div className='space-y-6 text-center'>
       {/* Token Info */}

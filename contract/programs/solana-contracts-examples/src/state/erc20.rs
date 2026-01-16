@@ -1,14 +1,6 @@
 use alloy_sol_types::sol;
 use anchor_lang::prelude::*;
 
-// Program-wide configuration stored at a fixed PDA
-#[account]
-#[derive(InitSpace)]
-pub struct VaultConfig {
-    pub mpc_root_signer_address: [u8; 20],
-}
-
-// Add ERC20 interface
 sol! {
     #[sol(abi)]
     interface IERC20 {
@@ -16,7 +8,6 @@ sol! {
     }
 }
 
-// PDA for storing pending ERC20 deposits
 #[account]
 #[derive(InitSpace)]
 pub struct PendingErc20Deposit {
@@ -40,14 +31,12 @@ pub struct PendingErc20Withdrawal {
     pub request_id: [u8; 32],
 }
 
-// PDA for storing user ERC20 balances
 #[account]
 #[derive(InitSpace)]
 pub struct UserErc20Balance {
     pub amount: u128,
 }
 
-// Transaction parameters for EVM
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct EvmTransactionParams {
     pub value: u128,

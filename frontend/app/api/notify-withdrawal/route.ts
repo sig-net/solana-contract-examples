@@ -1,7 +1,11 @@
+import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { handleWithdrawal } from '@/lib/relayer/handlers';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
+
+export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,21 +19,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    handleWithdrawal({
-      requestId,
-      erc20Address,
-      transactionParams: transactionParams as EvmTransactionRequest,
-    })
-      .then(result => {
+    after(async () => {
+      try {
+        const result = await handleWithdrawal({
+          requestId,
+          erc20Address,
+          transactionParams: transactionParams as EvmTransactionRequest,
+        });
         if (!result.ok) {
           console.error('Withdrawal processing failed:', result.error);
         } else {
           console.log('Withdrawal processed successfully:', result.requestId);
         }
-      })
-      .catch(error => {
+      } catch (error) {
         console.error('Withdrawal processing error:', error);
-      });
+      }
+    });
 
     return NextResponse.json({ accepted: true }, { status: 202 });
   } catch (error) {

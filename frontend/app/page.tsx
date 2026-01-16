@@ -1,6 +1,6 @@
 'use client';
 
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
 
 import { NavigationHeader } from '@/components/navigation-header';
 import { BalanceSection } from '@/components/balance-section';
@@ -10,21 +10,18 @@ import { EmptyStateWallet } from '@/components/empty-state-wallet';
 import { useBridgeAutoRefetch } from '@/hooks/use-bridge-auto-refetch';
 
 export default function Home() {
-  const { publicKey } = useWallet();
+  const { isConnected } = useWallet();
   useBridgeAutoRefetch();
 
   const handleSettingsClick = () => {
     // TODO: Implement settings functionality
   };
 
-  // Check if wallet is connected
-  const isWalletConnected = !!publicKey;
-
   return (
     <div className='gradient-bg-main min-h-screen w-full overflow-x-hidden'>
       <NavigationHeader onSettingsClick={handleSettingsClick} />
 
-      {!isWalletConnected ? (
+      {!isConnected ? (
         <div className='mx-auto mt-16 max-w-full p-4 xl:container'>
           <EmptyStateWallet />
         </div>

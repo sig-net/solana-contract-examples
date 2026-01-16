@@ -2,12 +2,13 @@
 
 import { Buffer } from 'buffer';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
-import { useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { toast } from 'sonner';
 
+import { useConnection } from '@/providers/connection-context';
+import { useAnchorWallet } from '@/hooks/use-anchor-wallet';
 import { BRIDGE_PROGRAM_ID } from '@/lib/constants/addresses';
 import { IDL, type SolDexIDL } from '@/lib/program/idl-sol-dex';
 
@@ -26,20 +27,18 @@ export default function AdminPage() {
   const [mpcAddress, setMpcAddress] = useState('');
   const [loading, setLoading] = useState<'idle' | 'init' | 'update'>('idle');
 
-  const provider = useMemo(() => {
-    if (!anchorWallet) return null;
-    return new AnchorProvider(connection, anchorWallet, {
-      commitment: 'confirmed',
-      skipPreflight: true,
-    });
-  }, [connection, anchorWallet]);
+  const provider = anchorWallet
+    ? new AnchorProvider(connection, anchorWallet, {
+        commitment: 'confirmed',
+        skipPreflight: true,
+      })
+    : null;
 
-  const program = useMemo(() => {
-    if (!provider) return null;
-    return new Program(IDL as unknown as SolDexIDL, provider);
-  }, [provider]);
+  const program = provider
+    ? new Program(IDL as unknown as SolDexIDL, provider)
+    : null;
 
-  const onInitialize = useCallback(async () => {
+  async function onInitialize() {
     if (!program || !anchorWallet?.publicKey) {
       toast.error('Connect your wallet');
       return;
@@ -54,8 +53,10 @@ export default function AdminPage() {
       if (mpcBytes.length !== 20)
         throw new Error('MPC address must be 20 bytes');
 
-      const sig = await program.methods
-        .initializeConfig(Array.from(mpcBytes))
+      const initMethod = program.methods.initializeConfig;
+      if (!initMethod) throw new Error('initializeConfig method not found');
+
+      const sig = await initMethod(Array.from(mpcBytes))
         .accountsStrict({
           payer: anchorWallet.publicKey,
           config: configPda,
@@ -64,14 +65,15 @@ export default function AdminPage() {
         .rpc();
 
       toast.success('Initialized config: ' + sig);
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to initialize');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed to initialize';
+      toast.error(message);
     } finally {
       setLoading('idle');
     }
-  }, [program, anchorWallet, mpcAddress]);
+  }
 
-  const onUpdate = useCallback(async () => {
+  async function onUpdate() {
     if (!program || !anchorWallet?.publicKey) {
       toast.error('Connect your wallet');
       return;
@@ -85,20 +87,23 @@ export default function AdminPage() {
       if (mpcBytes.length !== 20)
         throw new Error('MPC address must be 20 bytes');
 
-      const sig = await program.methods
-        .updateConfig(Array.from(mpcBytes))
+      const updateMethod = program.methods.updateConfig;
+      if (!updateMethod) throw new Error('updateConfig method not found');
+
+      const sig = await updateMethod(Array.from(mpcBytes))
         .accountsStrict({
           config: configPda,
         } as never)
         .rpc();
 
       toast.success('Updated config: ' + sig);
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to update');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed to update';
+      toast.error(message);
     } finally {
       setLoading('idle');
     }
-  }, [program, anchorWallet, mpcAddress]);
+  }
 
   return (
     <div className='mx-auto max-w-xl space-y-6 p-4'>

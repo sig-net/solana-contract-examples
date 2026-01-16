@@ -230,9 +230,10 @@ export class TokenBalanceService {
 
           for (let i = 0; i < accounts.length; i++) {
             const account = accounts[i];
-            const ataAddress = ataAddresses[i].toBase58();
+            const ata = ataAddresses[i];
+            if (!ata) continue;
+            const ataAddress = ata.toBase58();
             const tokenInfo = tokenInfoMap.get(ataAddress);
-
             if (!tokenInfo) continue;
 
             let amount = '0';

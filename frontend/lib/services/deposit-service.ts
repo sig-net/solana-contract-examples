@@ -1,11 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
 
-import { BridgeContract } from '@/lib/contracts/bridge-contract';
 import {
   deriveEthereumAddress,
   deriveVaultAuthorityPda,
 } from '@/lib/constants/addresses';
-import { RelayerService } from '@/lib/services/relayer-service';
+import { notifyDeposit } from '@/lib/services/relayer-service';
 import type { StatusCallback } from '@/lib/types/shared.types';
 import { CHAIN_SIGNATURES_CONFIG } from '@/lib/constants/addresses';
 
@@ -14,12 +13,6 @@ import { CHAIN_SIGNATURES_CONFIG } from '@/lib/constants/addresses';
  * The relayer monitors Ethereum and handles Solana bridge calls automatically.
  */
 export class DepositService {
-  private relayerService: RelayerService;
-
-  constructor(private bridgeContract: BridgeContract) {
-    this.relayerService = new RelayerService();
-  }
-
   /**
    * Initiate an ERC20 deposit from Ethereum to Solana
    */
@@ -40,7 +33,7 @@ export class DepositService {
       );
 
       // Notify relayer to monitor for this deposit
-      await this.relayerService.notifyDeposit({
+      await notifyDeposit({
         userAddress: publicKey.toString(),
         erc20Address,
         ethereumAddress: derivedAddress,

@@ -1,16 +1,19 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/connector/react';
+import { PublicKey } from '@solana/web3.js';
 
 import { queryKeys } from '@/lib/query-client';
 
 import { useWithdrawalService } from './use-withdrawal-service';
 
 export function useWithdrawEvmMutation() {
-  const { publicKey } = useWallet();
+  const { account, isConnected } = useWallet();
   const withdrawalService = useWithdrawalService();
   const queryClient = useQueryClient();
+
+  const publicKey = isConnected && account ? new PublicKey(account) : null;
 
   return useMutation({
     mutationFn: async ({
@@ -41,15 +44,15 @@ export function useWithdrawEvmMutation() {
       );
     },
     onSuccess: () => {
-      if (publicKey) {
+      if (account) {
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.userBalances(publicKey.toString()),
+          queryKey: queryKeys.solana.userBalances(account),
         });
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.unclaimedBalances(publicKey.toString()),
+          queryKey: queryKeys.solana.unclaimedBalances(account),
         });
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.outgoingTransfers(publicKey.toString()),
+          queryKey: queryKeys.solana.outgoingTransfers(account),
         });
       }
     },
@@ -62,9 +65,9 @@ export function useWithdrawEvmMutation() {
         });
       }
 
-      if (publicKey) {
+      if (account) {
         queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.outgoingTransfers(publicKey.toString()),
+          queryKey: queryKeys.solana.outgoingTransfers(account),
         });
       }
     },

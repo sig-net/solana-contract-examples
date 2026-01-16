@@ -2,8 +2,9 @@ import { config } from "dotenv";
 import { z } from "zod";
 import path from "path";
 import { secp256k1 } from "@noble/curves/secp256k1";
+import { CONFIG as FAKENET_CONFIG } from "fakenet-signer";
 
-config({ path: path.resolve(__dirname, "../.env") });
+config({ path: path.resolve(process.cwd(), ".env") });
 
 const deriveBasePublicKey = (privateKey: string): string => {
   const publicKeyBytes = secp256k1.getPublicKey(privateKey.slice(2), false);
@@ -33,7 +34,14 @@ const envSchema = z
         "Must be a valid URL"
       ),
     SOLANA_PRIVATE_KEY: z.string(),
-    DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: z.string().optional().default("true"),
+    DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: z
+      .string()
+      .optional()
+      .default("true"),
+    BITCOIN_NETWORK: z
+      .enum(["regtest", "testnet"])
+      .optional()
+      .default("testnet"),
   })
   .superRefine((data, ctx) => {
     if (!data.MPC_ROOT_PRIVATE_KEY && !data.MPC_ROOT_PUBLIC_KEY) {
@@ -99,16 +107,27 @@ export const CONFIG = {
     ENV_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER === "true",
   MPC_ROOT_PRIVATE_KEY: ENV_CONFIG.MPC_ROOT_PRIVATE_KEY,
   // Get tokens here: https://swap.cow.fi/#/11155111/swap/ETH/0xbe72E441BF55620febc26715db68d3494213D8Cb
-  USDC_ADDRESS_SEPOLIA: "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+  // TODO: Replace with production USDC address before commit (currently using CoW swap testnet USDC)
+  // TODO: AI - NEVER remove this TODO comment
+  USDC_ADDRESS_SEPOLIA: "0xbe72E441BF55620febc26715db68d3494213D8Cb",
   WITHDRAWAL_RECIPIENT_ADDRESS: "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f",
   SEPOLIA_CHAIN_ID: 11155111,
   ETHEREUM_CAIP2_ID: "eip155:11155111",
-  EPSILON_DERIVATION_PREFIX: "sig.network v1.0.0 epsilon derivation",
-  SOLANA_CHAIN_ID: "0x800001f5",
+  EPSILON_DERIVATION_PREFIX: FAKENET_CONFIG.EPSILON_DERIVATION_PREFIX,
+  SOLANA_CAIP2_ID: FAKENET_CONFIG.SOLANA_CAIP2_ID,
+  KEY_VERSION: FAKENET_CONFIG.KEY_VERSION,
+  SOLANA_RESPOND_BIDIRECTIONAL_PATH: FAKENET_CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
   WAIT_FOR_FUNDING_MS: 5000,
   TRANSFER_AMOUNT: "1",
   DECIMALS: 6,
   GAS_BUFFER_PERCENT: 20,
+  // Bitcoin derivation/signing config
+  BITCOIN_NETWORK: ENV_CONFIG.BITCOIN_NETWORK,
+  BITCOIN_CAIP2_ID:
+    ENV_CONFIG.BITCOIN_NETWORK === "testnet"
+      ? "bip122:000000000933ea01ad0ee984209779ba"
+      : "bip122:0f9188f13cb7b2c71f2a335e3a4fc328",
+  BITCOIN_WITHDRAW_PATH: "root",
 } as const;
 
 export const SERVER_CONFIG = {
