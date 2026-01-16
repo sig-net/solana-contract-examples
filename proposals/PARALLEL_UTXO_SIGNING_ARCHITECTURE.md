@@ -1,3 +1,11 @@
+<!-- TODO: Come up with a solution that we first provide all the inputs and outputs before start signing.
+
+- Lock all the inputs while the MPC it's signing, avoid race condition
+- We can verfify if all the inputs belong to the vault. User can't mix-match inputs from outside the vault - bring a lot of complexity
+- Allow to quick refund as we verify before singing, if it's invalid we simply refund
+
+ -->
+
 # Parallel UTXO Signing Architecture
 
 ## 1. Overview
@@ -132,6 +140,8 @@ An attacker might attempt to split a multi-input transaction across separate ses
 
 ---
 
+<!-- TODO this should live on the Withdraw section, not as a separated section -->
+
 ## 4. Security Framework
 
 ### 4.1 Three Enforcement Mechanisms
@@ -181,6 +191,8 @@ Vault (Solana contract):
 MPC (internal tracking):
   mpc_session_key = txCommit
 ```
+
+<!-- Maybe both can be the same -->
 
 **Why Vault and MPC differ:**
 
@@ -623,9 +635,9 @@ complete_withdraw_btc_session(session_id, attestation, input_index)
      balance.amount += session.user_cost  // Refund
 ```
 
-| Outcome | Condition                                            | Action                |
-| ------- | ---------------------------------------------------- | --------------------- |
-| SUCCESS | `spending_txCommit == session.txCommit`              | Balance remains spent |
+| Outcome | Condition                                                   | Action                |
+| ------- | ----------------------------------------------------------- | --------------------- |
+| SUCCESS | `spending_txCommit == session.txCommit`                     | Balance remains spent |
 | FAILURE | `spending_txCommit != session.txCommit` + `inputs_verified` | Refund user           |
 
 ### 7.5 Flow Diagram
@@ -884,7 +896,7 @@ If the MPC "watches" any signed outpoint and emits a session-level failure attes
 
 1. User creates a valid withdrawal session whose `hashPrevouts/hashSequence` correspond to the real input list `L` for the intended Bitcoin transaction.
 2. User obtains signatures for all inputs in `L` (enough to broadcast valid withdrawal transaction).
-3. User additionally requests a signature for a **poison outpoint** `P` that is *not* in `L` (and therefore not committed by `hashPrevouts/hashSequence`).
+3. User additionally requests a signature for a **poison outpoint** `P` that is _not_ in `L` (and therefore not committed by `hashPrevouts/hashSequence`).
 4. User causes `P` to be spent in a different Bitcoin transaction.
 5. MPC observes `P` spent and emits a **failure** for the session (because the spending transaction does not match the session's commitments).
 6. User submits `complete_withdraw_btc_session(... failure ...)` and receives a refund on Solana.
@@ -1085,11 +1097,11 @@ complete_withdraw_btc_session(session_id, attestation, input_index):
 
 #### Why This Fix Works
 
-| Property | Mechanism |
-|----------|-----------|
-| **No poison-outpoint refunds** | Failure refunds are blocked unless the session has proven that its manifest hashes to `hashPrevouts/hashSequence`. Any injected outpoint not in the committed list prevents `inputs_verified`, blocking refunds. |
-| **Stateless MPC outcome** | MPC no longer needs to track session → outpoints; it only tracks outpoint spends and signs a Bitcoin-derived commitment of the spending transaction. |
-| **Trust-minimized matching** | The Vault determines session success/failure purely by: (1) verifying attestation signature, (2) proving the outpoint is in the session manifest, and (3) comparing `spending_txCommit` against `session.txCommit`. |
+| Property                       | Mechanism                                                                                                                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **No poison-outpoint refunds** | Failure refunds are blocked unless the session has proven that its manifest hashes to `hashPrevouts/hashSequence`. Any injected outpoint not in the committed list prevents `inputs_verified`, blocking refunds.    |
+| **Stateless MPC outcome**      | MPC no longer needs to track session → outpoints; it only tracks outpoint spends and signs a Bitcoin-derived commitment of the spending transaction.                                                                |
+| **Trust-minimized matching**   | The Vault determines session success/failure purely by: (1) verifying attestation signature, (2) proving the outpoint is in the session manifest, and (3) comparing `spending_txCommit` against `session.txCommit`. |
 
 **Effect:** The poison outpoint refund oracle becomes impossible, while MPC state and logic are materially simplified.
 
