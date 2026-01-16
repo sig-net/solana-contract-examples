@@ -3,7 +3,7 @@ use alloy_sol_types::SolCall;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::keccak;
 use anchor_lang::solana_program::secp256k1_recover::secp256k1_recover;
-use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
+use borsh::BorshDeserialize;
 use chain_signatures::cpi::accounts::SignBidirectional;
 use chain_signatures::cpi::sign_bidirectional;
 
@@ -14,16 +14,6 @@ use crate::state::{EvmTransactionParams, IERC20};
 use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
 
 const HARDCODED_ROOT_PATH: &str = "root";
-
-#[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
-pub struct NonFunctionCallResult {
-    pub message: String,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
-pub struct Erc20TransferResult {
-    pub success: bool,
-}
 
 pub fn deposit_erc20(
     ctx: Context<DepositErc20>,
@@ -94,7 +84,7 @@ pub fn deposit_erc20(
         &ctx.accounts.requester_pda.key(),
         &rlp_encoded_tx,
         &caip2_id,
-        0, // key_version
+        1, // key_version
         &path,
         "ECDSA",
         "ethereum",
@@ -166,7 +156,7 @@ pub fn deposit_erc20(
         cpi_ctx,
         rlp_encoded_tx,
         caip2_id,
-        0, // key_version
+        1, // key_version
         path,
         "ECDSA".to_string(),
         "ethereum".to_string(),
@@ -313,7 +303,7 @@ pub fn withdraw_erc20(
         &ctx.accounts.requester.key(),
         &rlp_encoded_tx,
         &caip2_id,
-        0, // key_version
+        1, // key_version
         &path,
         "ECDSA",
         "ethereum",
@@ -383,7 +373,7 @@ pub fn withdraw_erc20(
         cpi_ctx,
         rlp_encoded_tx,
         caip2_id,
-        0, // key_version
+        1, // key_version
         path,
         "ECDSA".to_string(),
         "ethereum".to_string(),

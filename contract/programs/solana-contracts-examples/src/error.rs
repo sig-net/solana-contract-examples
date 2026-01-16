@@ -2,8 +2,6 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("Invalid chain signatures program")]
-    InvalidChainSignaturesProgram,
     #[msg("Serialization error")]
     SerializationError,
     #[msg("Function not found in ABI")]
@@ -20,8 +18,6 @@ pub enum ErrorCode {
     Overflow,
     #[msg("Invalid address")]
     InvalidAddress,
-    #[msg("Schema size exceeds maximum allowed")]
-    SchemaTooLarge,
     #[msg("Insufficient balance")]
     InsufficientBalance,
     #[msg("Underflow error")]
@@ -30,12 +26,6 @@ pub enum ErrorCode {
     TransactionNotFound,
     #[msg("No vault outputs found in transaction")]
     VaultOutputNotFound,
-    #[msg("Transaction fee does not match inputs and outputs")]
-    FeeMismatch,
-    #[msg("Recipient outputs do not match requested amount")]
-    RecipientAmountMismatch,
-    #[msg("Change outputs do not match expected vault amount")]
-    ChangeAmountMismatch,
     #[msg("Provided inputs do not cover requested amount + fee")]
     InsufficientInputs,
 }

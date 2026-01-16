@@ -9,6 +9,7 @@ import {
   executeSyntheticDeposit,
   fetchUserBalance,
   getBitcoinTestContext,
+  getMpcRootAddressBytes,
   planRequestIdBytes,
   setupBitcoinTestContext,
   signHashWithMpc,
@@ -107,13 +108,15 @@ describe("BTC Sad Path", () => {
     ) as typeof validSignature;
     invalidSignature.s[0] ^= 0xff;
 
+    const rootAddress = getMpcRootAddressBytes();
     await expectAnchorError(
       program.methods
         .claimBtc(
           planRequestIdBytes(plan),
           serializedOutput,
           invalidSignature,
-          null
+          null,
+          rootAddress
         )
         .rpc(),
       /Invalid signature/
@@ -124,7 +127,8 @@ describe("BTC Sad Path", () => {
         planRequestIdBytes(plan),
         serializedOutput,
         validSignature,
-        null
+        null,
+        rootAddress
       )
       .rpc();
     await provider.connection.confirmTransaction(claimTx);
@@ -161,7 +165,8 @@ describe("BTC Sad Path", () => {
           planRequestIdBytes(plan),
           malformedOutput,
           malformedSignature,
-          null
+          null,
+          getMpcRootAddressBytes()
         )
         .rpc(),
       /Invalid output format/
@@ -195,7 +200,13 @@ describe("BTC Sad Path", () => {
 
     await expectAnchorError(
       program.methods
-        .claimBtc(planRequestIdBytes(plan), failedOutput, failedSig, null)
+        .claimBtc(
+          planRequestIdBytes(plan),
+          failedOutput,
+          failedSig,
+          null,
+          getMpcRootAddressBytes()
+        )
         .rpc(),
       /Transfer failed/
     );
@@ -317,7 +328,8 @@ describe("BTC Sad Path", () => {
         planRequestIdBytes(withdrawPlan),
         serializedOutput,
         refundSignature,
-        null
+        null,
+        getMpcRootAddressBytes()
       )
       .rpc();
     await provider.connection.confirmTransaction(completeTx);

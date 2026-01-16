@@ -12,6 +12,7 @@ import {
   buildWithdrawalPsbt,
   computeSignatureRequestIds,
   createFundedAuthority,
+  deriveMpcRespondAddress,
   executeSyntheticDeposit,
   fetchUserBalance,
   getBitcoinTestContext,
@@ -144,7 +145,7 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
       const derivedKeyHex = await CryptoUtils.deriveSigningKey(
         CONFIG.BITCOIN_WITHDRAW_PATH, // "root"
         withdrawalPlan.globalVault.pda.toString(),
-        CONFIG.MPC_ROOT_KEY
+        CONFIG.MPC_ROOT_PRIVATE_KEY
       );
       const spendingKey = ECPair.fromPrivateKey(
         Buffer.from(derivedKeyHex.slice(2), "hex"),
@@ -228,12 +229,14 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
 
       // Step 10: Call complete_withdraw_btc with the error response
       console.log("  🔄 Calling complete_withdraw_btc with error response...");
+      const expectedAddress = deriveMpcRespondAddress(withdrawalPlan.globalVault.pda);
       const completeTx = await program.methods
         .completeWithdrawBtc(
           planRequestIdBytes(withdrawalPlan),
           Buffer.from(readEvent.serializedOutput),
           readEvent.signature,
-          null
+          null,
+          expectedAddress
         )
         .accounts({
           payer: provider.wallet.publicKey,

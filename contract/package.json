@@ -14,9 +14,9 @@
     "dotenv": "^17.2.3",
     "ecpair": "^3.0.0",
     "ethers": "^6.14.4",
-    "fakenet-signer": "^1.3.4",
+    "fakenet-signer": "link:/Users/felipesousapessina/Documents/signet/signet-solana-program/fakenet-signer",
     "pino": "^10.1.0",
-    "signet.js": "0.0.12-beta.13",
+    "signet.js": "link:/Users/felipesousapessina/Documents/signet/signet.js",
     "tiny-secp256k1": "^2.2.4",
     "zod": "^4.1.11"
   },

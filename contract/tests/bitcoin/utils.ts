@@ -182,7 +182,7 @@ export async function setupBitcoinTestContext(): Promise<BitcoinTestContext> {
       const serverConfig = {
         solanaRpcUrl: SERVER_CONFIG.SOLANA_RPC_URL,
         solanaPrivateKey: SERVER_CONFIG.SOLANA_PRIVATE_KEY,
-        mpcRootKey: CONFIG.MPC_ROOT_KEY,
+        mpcRootKey: CONFIG.MPC_ROOT_PRIVATE_KEY,
         infuraApiKey: CONFIG.INFURA_API_KEY,
         programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
         isDevnet: true,
@@ -507,7 +507,7 @@ export const composeWithdrawalPlan = (params: {
 };
 
 // Constants for Bitcoin Chain Signatures
-const CHAIN_SIG_KEY_VERSION = 0;
+const CHAIN_SIG_KEY_VERSION = 1;
 const CHAIN_SIG_ALGO = "ECDSA";
 const CHAIN_SIG_DEST = "bitcoin";
 const CHAIN_SIG_PARAMS = "";
@@ -841,8 +841,27 @@ export const computeMessageHash = (
   return Buffer.from(ethers.keccak256(payload).slice(2), "hex");
 };
 
+const SOLANA_RESPOND_PATH = "solana response key";
+
+/**
+ * Derives the MPC response address for a given sender PDA.
+ * This is the Ethereum address that the MPC will use to sign responses.
+ */
+export const deriveMpcRespondAddress = (senderPda: anchor.web3.PublicKey): number[] => {
+  const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
+    CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
+    senderPda.toString(),
+    SOLANA_RESPOND_PATH,
+    CONFIG.SOLANA_CAIP2_ID,
+    CHAIN_SIG_KEY_VERSION
+  );
+  const address = ethers.computeAddress("0x" + derivedPublicKey);
+  // Convert "0x..." address to byte array (without the 0x prefix)
+  return Array.from(Buffer.from(address.slice(2), "hex"));
+};
+
 export const signHashWithMpc = (hash: Buffer): ChainSignaturePayload => {
-  const signingKey = new ethers.SigningKey(CONFIG.MPC_ROOT_KEY);
+  const signingKey = new ethers.SigningKey(CONFIG.MPC_ROOT_PRIVATE_KEY);
   const signature = signingKey.sign(hash);
   const rBytes = Buffer.from(ethers.getBytes(signature.r));
   const sBytes = Buffer.from(ethers.getBytes(signature.s));
@@ -857,6 +876,16 @@ export const signHashWithMpc = (hash: Buffer): ChainSignaturePayload => {
     s: Array.from(sBytes),
     recoveryId,
   };
+};
+
+/**
+ * Returns the Ethereum address bytes for the root MPC key.
+ * Used in mock tests where signHashWithMpc signs with the root key.
+ */
+export const getMpcRootAddressBytes = (): number[] => {
+  const signingKey = new ethers.SigningKey(CONFIG.MPC_ROOT_PRIVATE_KEY);
+  const address = ethers.computeAddress(signingKey.publicKey);
+  return Array.from(Buffer.from(address.slice(2), "hex"));
 };
 
 /**
@@ -925,12 +954,16 @@ export async function executeSyntheticDeposit(
 
     const readEvent = await eventPromises.readRespond;
 
+    // Derive expected address from vault_authority PDA
+    const expectedAddress = deriveMpcRespondAddress(preparedPlan.vaultAuthority.pda);
+
     const claimTx = await program.methods
       .claimBtc(
         requestIdToBytes(requestIdHex),
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
-        null
+        null,
+        expectedAddress
       )
       .rpc();
     await provider.connection.confirmTransaction(claimTx);
@@ -1202,10 +1235,11 @@ const deriveBtcTarget = (
 ): BtcTarget => {
   const { btcUtils } = requireContext();
   const uncompressedPubkey = signetUtils.cryptography.deriveChildPublicKey(
-    CONFIG.BASE_PUBLIC_KEY as `04${string}`,
+    CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
     pda.toString(),
     path,
-    CONFIG.SOLANA_CHAIN_ID
+    CONFIG.SOLANA_CAIP2_ID,
+    CHAIN_SIG_KEY_VERSION
   );
   const compressedPubkey = btcUtils.compressPublicKey(uncompressedPubkey);
   return {
@@ -1460,7 +1494,8 @@ export const buildWithdrawalPsbt = (plan: WithdrawalPlan): bitcoin.Psbt =>
   buildPlanPsbt(plan.btcInputs, plan.btcOutputs, plan.globalVault.script);
 
 /**
- * Idempotently initializes the on-chain vault_config account with the MPC root signer address expected by tests.
+ * Idempotently initializes the on-chain vault_config account with the MPC root public key.
+ * The public key is stored as 64 bytes (uncompressed without the 0x04 prefix).
  */
 async function ensureVaultConfigInitialized(
   program: Program<SolanaCoreContracts>,
@@ -1471,20 +1506,16 @@ async function ensureVaultConfigInitialized(
     program.programId
   );
 
-  const rootSignerAddress = ethers.computeAddress(
-    `0x${CONFIG.BASE_PUBLIC_KEY}`
-  );
-  const expectedAddressBytes = Array.from(
-    Buffer.from(rootSignerAddress.slice(2), "hex")
-  );
+  const publicKeyHex = CONFIG.MPC_ROOT_PUBLIC_KEY.startsWith("04")
+    ? CONFIG.MPC_ROOT_PUBLIC_KEY.slice(2)
+    : CONFIG.MPC_ROOT_PUBLIC_KEY;
+  const publicKeyBytes = Array.from(Buffer.from(publicKeyHex, "hex"));
 
-  const vaultConfigAccount = await program.account.vaultConfig.fetchNullable(
-    vaultConfigPda
-  );
+  const accountInfo = await provider.connection.getAccountInfo(vaultConfigPda);
 
-  if (!vaultConfigAccount) {
+  if (!accountInfo) {
     await program.methods
-      .initializeConfig(expectedAddressBytes)
+      .initializeConfig(publicKeyBytes)
       .accountsStrict({
         payer: provider.wallet.publicKey,
         config: vaultConfigPda,
@@ -1553,7 +1584,7 @@ export async function setupEventListeners(
   };
 
   const rootPublicKeyUncompressed = secp256k1.getPublicKey(
-    CONFIG.MPC_ROOT_KEY.slice(2),
+    CONFIG.MPC_ROOT_PRIVATE_KEY.slice(2),
     false
   );
 

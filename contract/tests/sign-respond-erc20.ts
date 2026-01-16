@@ -143,50 +143,20 @@ async function ensureVaultConfigInitialized(
     program.programId
   );
 
-  const rootSignerAddress = ethers.computeAddress(
-    `0x${CONFIG.MPC_ROOT_PUBLIC_KEY}`
-  );
+  const publicKeyHex = CONFIG.MPC_ROOT_PUBLIC_KEY.startsWith("04")
+    ? CONFIG.MPC_ROOT_PUBLIC_KEY.slice(2)
+    : CONFIG.MPC_ROOT_PUBLIC_KEY;
+  const publicKeyBytes = Array.from(Buffer.from(publicKeyHex, "hex"));
 
-  console.log(" 🔑 Root signer address:", rootSignerAddress);
+  const accountInfo = await provider.connection.getAccountInfo(vaultConfigPda);
 
-  const expectedAddressBytes = Array.from(
-    Buffer.from(rootSignerAddress.slice(2), "hex")
-  );
-
-  type VaultConfigAccount = Awaited<
-    ReturnType<typeof program.account.vaultConfig.fetch>
-  >;
-
-  const vaultConfigAccount = (await program.account.vaultConfig.fetchNullable(
-    vaultConfigPda
-  )) as VaultConfigAccount | null;
-
-  if (!vaultConfigAccount) {
-    console.log("  🔑 Initializing config...");
-    const result = await program.methods
-      .initializeConfig(
-        Array.from(Buffer.from(rootSignerAddress.slice(2), "hex"))
-      )
+  if (!accountInfo) {
+    await program.methods
+      .initializeConfig(publicKeyBytes)
       .accountsStrict({
         payer: provider.wallet.publicKey,
         config: vaultConfigPda,
         systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .rpc();
-
-    console.log("  ✅ Initialize config:", result);
-    return;
-  }
-
-  const storedAddressHex = Buffer.from(vaultConfigAccount.mpcRootSignerAddress)
-    .toString("hex")
-    .toLowerCase();
-
-  if (storedAddressHex !== rootSignerAddress.slice(2).toLowerCase()) {
-    await program.methods
-      .updateConfig(expectedAddressBytes)
-      .accountsStrict({
-        config: vaultConfigPda,
       })
       .rpc();
   }
@@ -264,7 +234,8 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
       path,
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const derivedAddress = ethers.computeAddress("0x" + derivedPublicKey);
 
@@ -272,15 +243,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
       "root",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       vaultAuthority.toString(),
-      "solana response key",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -308,31 +281,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("📍 Step 2: Preparing transaction...");
 
-    const [configPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("vault_config")],
-      program.programId
-    );
-
-    const rootSignerAddress = ethers.computeAddress(
-      `0x${CONFIG.MPC_ROOT_PUBLIC_KEY}`
-    );
-
-    console.log(" 🔑 Root signer address:", rootSignerAddress);
-
-    const rootSignerAddressBytes = Array.from(
-      Buffer.from(rootSignerAddress.slice(2), "hex")
-    );
-
-    // initialize account if not already initialized
-    let result = await program.methods
-      .updateConfig(rootSignerAddressBytes)
-      .accountsStrict({
-        config: configPda,
-      })
-      .rpc();
-
-    console.log(" ✅ Initialize config:", result);
-
     const amountBigInt = ethers.parseUnits(
       CONFIG.TRANSFER_AMOUNT,
       CONFIG.DECIMALS
@@ -356,7 +304,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       vaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
-      0, // key_version
+      CONFIG.KEY_VERSION,
       path,
       "ECDSA",
       "ethereum",
@@ -542,15 +490,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
       "root",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      "solana response key",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -638,7 +588,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
-      0,
+      CONFIG.KEY_VERSION,
       "root", // HARDCODED_ROOT_PATH
       "ECDSA",
       "ethereum",
@@ -854,15 +804,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
       "root",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const signerAddress = ethers.computeAddress("0x" + signerPublicKey);
 
     const mpcRespondPublicKey = signetUtils.cryptography.deriveChildPublicKey(
       CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
       globalVaultAuthority.toString(),
-      "solana response key",
-      CONFIG.SOLANA_CHAIN_ID
+      CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+      CONFIG.SOLANA_CAIP2_ID,
+      CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
@@ -927,7 +879,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       globalVaultAuthority.toString(),
       Array.from(ethers.getBytes(rlpEncodedTx)),
       CONFIG.ETHEREUM_CAIP2_ID,
-      0,
+      CONFIG.KEY_VERSION,
       "root", // HARDCODED_ROOT_PATH
       "ECDSA",
       "ethereum",

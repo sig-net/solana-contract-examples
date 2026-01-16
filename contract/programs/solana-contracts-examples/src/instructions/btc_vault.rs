@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::keccak;
 use anchor_lang::solana_program::secp256k1_recover::secp256k1_recover;
-use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
+use borsh::BorshDeserialize;
 use chain_signatures::cpi::accounts::SignBidirectional;
 use chain_signatures::cpi::sign_bidirectional;
 
@@ -14,11 +14,6 @@ use crate::state::{BtcDepositParams, BtcInput, BtcOutput, BtcWithdrawParams};
 use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
 
 const HARDCODED_ROOT_PATH: &str = "root";
-
-#[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
-pub struct BtcTransferResult {
-    pub success: bool,
-}
 
 pub fn deposit_btc(
     ctx: Context<DepositBtc>,
@@ -146,7 +141,7 @@ pub fn deposit_btc(
         &ctx.accounts.requester_pda.key(),
         &txid_explorer_reversed_bytes,
         &caip2_id,
-        0,
+        1,
         &path,
         "ECDSA",
         "bitcoin",
@@ -215,7 +210,7 @@ pub fn deposit_btc(
         cpi_ctx,
         psbt_bytes,
         caip2_id,
-        0,
+        1,
         path,
         "ECDSA".to_string(),
         "bitcoin".to_string(),
@@ -252,16 +247,14 @@ pub fn claim_btc(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     bitcoin_tx_hash: Option<[u8; 32]>,
+    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
 
-    // Verify signature
+    // Verify signature against the expected address (derived off-chain from root public key + sender PDA)
     let message_hash = hash_message(&request_id, &serialized_output);
-    let expected_address = format!(
-        "0x{}",
-        hex::encode(ctx.accounts.config.mpc_root_signer_address)
-    );
-    verify_signature_from_address(&message_hash, &signature, &expected_address)?;
+    let expected_address_str = format!("0x{}", hex::encode(expected_address));
+    verify_signature_from_address(&message_hash, &signature, &expected_address_str)?;
 
     msg!("Signature verified successfully");
 
@@ -452,7 +445,7 @@ pub fn withdraw_btc(
         &ctx.accounts.requester.key(),
         &txid_explorer_reversed_bytes,
         &caip2_id,
-        0,
+        1,
         &path,
         "ECDSA",
         "bitcoin",
@@ -513,7 +506,7 @@ pub fn withdraw_btc(
         cpi_ctx,
         psbt_bytes,
         caip2_id.clone(),
-        0,
+        1,
         path,
         "ECDSA".to_string(),
         "bitcoin".to_string(),
@@ -550,16 +543,14 @@ pub fn complete_withdraw_btc(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     bitcoin_tx_hash: Option<[u8; 32]>,
+    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
 
-    // Verify signature
+    // Verify signature against the expected address (derived off-chain from root public key + sender PDA)
     let message_hash = hash_message(&request_id, &serialized_output);
-    let expected_address = format!(
-        "0x{}",
-        hex::encode(ctx.accounts.config.mpc_root_signer_address)
-    );
-    verify_signature_from_address(&message_hash, &signature, &expected_address)?;
+    let expected_address_str = format!("0x{}", hex::encode(expected_address));
+    verify_signature_from_address(&message_hash, &signature, &expected_address_str)?;
 
     msg!("Signature verified successfully");
 

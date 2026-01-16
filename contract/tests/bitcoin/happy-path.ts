@@ -11,6 +11,7 @@ import {
   cleanupEventListeners,
   computeSignatureRequestIds,
   createFundedAuthority,
+  deriveMpcRespondAddress,
   deriveUserBalancePda,
   executeSyntheticDeposit,
   extractSignature,
@@ -113,12 +114,14 @@ describe("BTC Happy Path", () => {
       const readEvent = await events.readRespond;
 
       console.log("📍 Step 6: Submitting claim ix");
+      const expectedAddress = deriveMpcRespondAddress(plan.vaultAuthority.pda);
       const claimTx = await program.methods
         .claimBtc(
           planRequestIdBytes(plan),
           Buffer.from(readEvent.serializedOutput),
           readEvent.signature,
-          null
+          null,
+          expectedAddress
         )
         .rpc();
       await provider.connection.confirmTransaction(claimTx);
@@ -210,12 +213,14 @@ describe("BTC Happy Path", () => {
 
       const readEvent = await events.readRespond;
 
+      const multiExpectedAddress = deriveMpcRespondAddress(plan.vaultAuthority.pda);
       const claimTx = await program.methods
         .claimBtc(
           planRequestIdBytes(plan),
           Buffer.from(readEvent.serializedOutput),
           readEvent.signature,
-          null
+          null,
+          multiExpectedAddress
         )
         .rpc();
       await provider.connection.confirmTransaction(claimTx);
@@ -358,12 +363,14 @@ describe("BTC Happy Path", () => {
     const readEvent = await events.readRespond;
 
     console.log("📍 Step 5: Completing withdrawal on Solana");
+    const withdrawExpectedAddress = deriveMpcRespondAddress(plan.globalVault.pda);
     const completeTx = await program.methods
       .completeWithdrawBtc(
         planRequestIdBytes(plan),
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
-        null
+        null,
+        withdrawExpectedAddress
       )
       .rpc();
     await provider.connection.confirmTransaction(completeTx);

@@ -12,7 +12,7 @@ pub use constants::*;
 pub use contexts::*;
 pub use state::*;
 
-declare_id!("BJWqq4qsyo628Gv3wLpNnPdEn9HH74LFjFjjm8p6HZ6f");
+declare_id!("DzSqpUpL8DJ1z3wNAFnPMKRPZQL1oEZrwwSnXkA4w8Ce");
 
 #[program]
 pub mod solana_core_contracts {
@@ -20,19 +20,10 @@ pub mod solana_core_contracts {
 
     pub fn initialize_config(
         ctx: Context<InitializeConfig>,
-        mpc_root_signer_address: [u8; 20],
+        mpc_root_public_key: [u8; 64],
     ) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        config.mpc_root_signer_address = mpc_root_signer_address;
-        Ok(())
-    }
-
-    pub fn update_config(
-        ctx: Context<UpdateConfig>,
-        mpc_root_signer_address: [u8; 20],
-    ) -> Result<()> {
-        let config = &mut ctx.accounts.config;
-        config.mpc_root_signer_address = mpc_root_signer_address;
+        config.mpc_root_public_key = mpc_root_public_key;
         Ok(())
     }
 
@@ -127,6 +118,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         bitcoin_tx_hash: Option<[u8; 32]>,
+        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::btc_vault::claim_btc(
             ctx,
@@ -134,6 +126,7 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             bitcoin_tx_hash,
+            expected_address,
         )
     }
 
@@ -161,6 +154,7 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         bitcoin_tx_hash: Option<[u8; 32]>,
+        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::btc_vault::complete_withdraw_btc(
             ctx,
@@ -168,6 +162,7 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             bitcoin_tx_hash,
+            expected_address,
         )
     }
 }
