@@ -362,7 +362,7 @@ const buildTransaction = (
     requestIdParams.sender,
     Array.from(Buffer.from(txidExplorerHex, "hex")),
     requestIdParams.caip2Id,
-    0,
+    CONFIG.KEY_VERSION,
     requestIdParams.path,
     "ECDSA",
     "bitcoin",
@@ -507,7 +507,6 @@ export const composeWithdrawalPlan = (params: {
 };
 
 // Constants for Bitcoin Chain Signatures
-const CHAIN_SIG_KEY_VERSION = 1;
 const CHAIN_SIG_ALGO = "ECDSA";
 const CHAIN_SIG_DEST = "bitcoin";
 const CHAIN_SIG_PARAMS = "";
@@ -539,7 +538,7 @@ const computePerInputRequestIds = ({
       sender,
       Array.from(txData),
       caip2Id,
-      CHAIN_SIG_KEY_VERSION,
+      CONFIG.KEY_VERSION,
       path,
       CHAIN_SIG_ALGO,
       CHAIN_SIG_DEST,
@@ -595,11 +594,12 @@ export const buildDepositPlan = async (
       const { amount, fee } = options;
       const minValue = amount + fee;
 
-      const [utxo] = await ensureUtxos(bitcoinAdapter, vaultAuthority.address, {
+      const utxos = await ensureUtxos(bitcoinAdapter, vaultAuthority.address, {
         minCount: 1,
         minValue,
       });
 
+      const utxo = utxos.find((u) => u.value >= minValue) ?? utxos[0];
       const btcInputs: BtcInput[] = [toBtcInput(utxo, vaultAuthority.script)];
       const btcOutputs: BtcOutput[] = [];
 
@@ -853,7 +853,7 @@ export const deriveMpcRespondAddress = (senderPda: anchor.web3.PublicKey): numbe
     senderPda.toString(),
     SOLANA_RESPOND_PATH,
     CONFIG.SOLANA_CAIP2_ID,
-    CHAIN_SIG_KEY_VERSION
+    CONFIG.KEY_VERSION
   );
   const address = ethers.computeAddress("0x" + derivedPublicKey);
   // Convert "0x..." address to byte array (without the 0x prefix)
@@ -1239,7 +1239,7 @@ const deriveBtcTarget = (
     pda.toString(),
     path,
     CONFIG.SOLANA_CAIP2_ID,
-    CHAIN_SIG_KEY_VERSION
+    CONFIG.KEY_VERSION
   );
   const compressedPubkey = btcUtils.compressPublicKey(uncompressedPubkey);
   return {
