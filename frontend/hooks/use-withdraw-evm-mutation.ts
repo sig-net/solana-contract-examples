@@ -2,18 +2,17 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/connector/react';
-import { PublicKey } from '@solana/web3.js';
 
-import { queryKeys } from '@/lib/query-client';
+import { queryKeys, invalidateWithdrawalQueries } from '@/lib/query-client';
 
 import { useWithdrawalService } from './use-withdrawal-service';
+import { useSolanaPublicKey } from './use-solana-public-key';
 
 export function useWithdrawEvmMutation() {
-  const { account, isConnected } = useWallet();
+  const { account } = useWallet();
   const withdrawalService = useWithdrawalService();
   const queryClient = useQueryClient();
-
-  const publicKey = isConnected && account ? new PublicKey(account) : null;
+  const publicKey = useSolanaPublicKey();
 
   return useMutation({
     mutationFn: async ({
@@ -45,15 +44,7 @@ export function useWithdrawEvmMutation() {
     },
     onSuccess: () => {
       if (account) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.userBalances(account),
-        });
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.unclaimedBalances(account),
-        });
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.outgoingTransfers(account),
-        });
+        invalidateWithdrawalQueries(queryClient, account);
       }
     },
     onError: (error, variables) => {

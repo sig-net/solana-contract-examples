@@ -1,7 +1,6 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useWallet } from '@solana/connector/react';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 
@@ -9,6 +8,8 @@ import { useConnection } from '@/providers/connection-context';
 import { queryKeys } from '@/lib/query-client';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
 import { getAllNetworks } from '@/lib/constants/token-metadata';
+
+import { useSolanaPublicKey } from './use-solana-public-key';
 
 export interface SolanaWalletTransactionItem {
   id: string;
@@ -25,9 +26,7 @@ const TRANSACTION_LIMIT = 5;
 
 export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
   const { connection } = useConnection();
-  const { account, isConnected } = useWallet();
-
-  const publicKey = isConnected && account ? new PublicKey(account) : null;
+  const publicKey = useSolanaPublicKey();
 
   return useQuery({
     queryKey: publicKey

@@ -4,8 +4,6 @@ import { Alchemy, Network } from 'alchemy-sdk';
 
 import { getClientEnv } from '@/lib/config/env.config';
 
-export type SupportedChain = 'ethereum-sepolia' | 'solana';
-
 export function getEthereumProvider(): ethers.JsonRpcProvider {
   const rpcUrl = getAlchemyEthSepoliaRpcUrl();
   return new ethers.JsonRpcProvider(rpcUrl);

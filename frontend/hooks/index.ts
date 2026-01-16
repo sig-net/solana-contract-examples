@@ -8,3 +8,4 @@ export { useTokenPrices, useTokenPrice } from './use-token-prices';
 export { useIncomingTransfers } from './use-incoming-transfers';
 export { useOutgoingTransfers } from './use-outgoing-transfers';
 export { useCopyToClipboard } from './use-copy-to-clipboard';
+export { useSolanaPublicKey } from './use-solana-public-key';

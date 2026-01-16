@@ -5,7 +5,6 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 import { getClientEnv } from '@/lib/config/env.config';
 import { IDL } from '@/lib/program/idl-sol-dex';
 
-// Get environment variables
 const env = getClientEnv();
 
 /**
@@ -22,7 +21,7 @@ export const CHAIN_SIGNATURES_PROGRAM_ID = new PublicKey(
  * Chain Signatures MPC configuration
  */
 export const CHAIN_SIGNATURES_CONFIG = {
-  BASE_PUBLIC_KEY: env.NEXT_PUBLIC_BASE_PUBLIC_KEY,
+  MPC_ROOT_PUBLIC_KEY: env.NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY,
   EPSILON_DERIVATION_PREFIX: 'sig.network v1.0.0 epsilon derivation',
   SOLANA_CHAIN_ID: '0x800001f5',
 } as const;
@@ -30,24 +29,15 @@ export const CHAIN_SIGNATURES_CONFIG = {
 export const RESPONDER_ADDRESS = env.NEXT_PUBLIC_RESPONDER_ADDRESS;
 
 /**
- * MPC Root Signer Address - derived directly from base public key
- * This address stays constant across deployments
- */
-export const MPC_ROOT_SIGNER_ADDRESS = ethers.computeAddress(
-  CHAIN_SIGNATURES_CONFIG.BASE_PUBLIC_KEY,
-);
-
-/**
  * Seeds for Program Derived Addresses (PDAs)
  */
-export const BRIDGE_PDA_SEEDS = {
+const BRIDGE_PDA_SEEDS = {
   VAULT_AUTHORITY: 'vault_authority',
   GLOBAL_VAULT_AUTHORITY: 'global_vault_authority',
   PENDING_ERC20_DEPOSIT: 'pending_erc20_deposit',
   PENDING_ERC20_WITHDRAWAL: 'pending_erc20_withdrawal',
   USER_ERC20_BALANCE: 'user_erc20_balance',
   USER_TRANSACTION_HISTORY: 'user_transaction_history',
-  PROGRAM_STATE: 'program-state',
 } as const;
 
 /**
@@ -109,13 +99,6 @@ export function deriveUserTransactionHistoryPda(
       userPublicKey.toBuffer(),
     ],
     BRIDGE_PROGRAM_ID,
-  );
-}
-
-export function deriveChainSignaturesStatePda(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(BRIDGE_PDA_SEEDS.PROGRAM_STATE)],
-    CHAIN_SIGNATURES_PROGRAM_ID,
   );
 }
 
@@ -218,7 +201,7 @@ export const VAULT_ETHEREUM_ADDRESS = (() => {
     const derivedPublicKey = derivePublicKey(
       'root',
       GLOBAL_VAULT_AUTHORITY_PDA.toString(),
-      CHAIN_SIGNATURES_CONFIG.BASE_PUBLIC_KEY,
+      CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
     );
     return ethers.computeAddress(derivedPublicKey);
   } catch (error) {

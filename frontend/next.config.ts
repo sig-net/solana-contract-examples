@@ -14,24 +14,6 @@ const nextConfig: NextConfig = {
   // Server-only packages excluded from bundling (avoid Turbopack conflicts)
   serverExternalPackages: ['fakenet-signer', 'bitcoin-core'],
 
-  // Configure module transpilation
-  transpilePackages: [
-    '@solana/wallet-adapter-react',
-    '@solana/wallet-adapter-react-ui',
-    '@solana/wallet-adapter-base',
-    '@solana/wallet-adapter-wallets',
-  ],
-
-  // Turbopack configuration (top-level in Next.js 16)
-  turbopack: {
-    rules: {
-      '*.svg': {
-        loaders: ['@svgr/webpack'],
-        as: '*.js',
-      },
-    },
-  },
-
   // Optimize package imports
   experimental: {
     optimizePackageImports: [

@@ -6,7 +6,6 @@ export const queryClient = new QueryClient({
       staleTime: 2 * 60 * 1000,
       gcTime: 10 * 60 * 1000,
       retry: (failureCount, error) => {
-        // Don't retry on wallet errors
         if (error instanceof Error && error.message.includes('wallet')) {
           return false;
         }
@@ -35,3 +34,35 @@ export const queryKeys = {
       [...queryKeys.solana.all, 'incomingDeposits', publicKey] as const,
   },
 } as const;
+
+export function invalidateBalanceQueries(
+  queryClient: QueryClient,
+  account: string,
+) {
+  queryClient.invalidateQueries({
+    queryKey: queryKeys.solana.userBalances(account),
+  });
+  queryClient.invalidateQueries({
+    queryKey: queryKeys.solana.unclaimedBalances(account),
+  });
+}
+
+export function invalidateDepositQueries(
+  queryClient: QueryClient,
+  account: string,
+) {
+  invalidateBalanceQueries(queryClient, account);
+  queryClient.invalidateQueries({
+    queryKey: queryKeys.solana.incomingDeposits(account),
+  });
+}
+
+export function invalidateWithdrawalQueries(
+  queryClient: QueryClient,
+  account: string,
+) {
+  invalidateBalanceQueries(queryClient, account);
+  queryClient.invalidateQueries({
+    queryKey: queryKeys.solana.outgoingTransfers(account),
+  });
+}
