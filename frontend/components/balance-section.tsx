@@ -29,13 +29,11 @@ export function BalanceSection() {
   if (isLoading) {
     return (
       <div className='flex w-full max-w-full flex-col gap-5'>
-        {/* Balance section header skeleton */}
         <div className='flex items-center justify-between'>
           <div className='h-6 w-24 animate-pulse rounded bg-gray-200'></div>
           <div className='h-9 w-20 animate-pulse rounded bg-gray-200'></div>
         </div>
 
-        {/* Balance boxes skeleton */}
         <div className='grid w-full max-w-full gap-4 sm:gap-6 md:grid-cols-2 md:gap-5 lg:gap-10'>
           {Array.from({ length: 2 }).map((_, index) => (
             <div
@@ -63,9 +61,9 @@ export function BalanceSection() {
     );
   }
 
-  if (displayTokens.length === 0) {
-    return (
-      <>
+  return (
+    <>
+      {displayTokens.length === 0 ? (
         <EmptyState
           icon={Package}
           title='No tokens found'
@@ -77,17 +75,9 @@ export function BalanceSection() {
             </Button>
           }
         />
-        <DepositDialog
-          open={isDepositDialogOpen}
-          onOpenChange={setIsDepositDialogOpen}
-        />
-      </>
-    );
-  }
-
-  return (
-    <>
-      <BalanceDisplay tokens={displayTokens} />
+      ) : (
+        <BalanceDisplay tokens={displayTokens} />
+      )}
       <DepositDialog
         open={isDepositDialogOpen}
         onOpenChange={setIsDepositDialogOpen}

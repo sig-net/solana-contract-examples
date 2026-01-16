@@ -6,11 +6,6 @@ const SERVER_READY_DELAY_MS = 2000;
 
 let activeServer: ChainSignatureServer | null = null;
 
-export function isEmbeddedSignerEnabled(): boolean {
-  const env = getFullEnv();
-  return Boolean(env.MPC_ROOT_KEY);
-}
-
 export async function startEmbeddedSigner(): Promise<ChainSignatureServer | null> {
   const env = getFullEnv();
 

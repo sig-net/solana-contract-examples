@@ -1,12 +1,11 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useWallet } from '@solana/connector/react';
-import { PublicKey } from '@solana/web3.js';
 
 import { queryKeys } from '@/lib/query-client';
 
 import { useBridgeContract } from './use-bridge-contract';
+import { useSolanaPublicKey } from './use-solana-public-key';
 
 export interface TransferEvent {
   requestId: string;
@@ -18,12 +17,10 @@ export interface TransferEvent {
 }
 
 export function useIncomingTransfers() {
-  const { account, isConnected } = useWallet();
   const bridgeContract = useBridgeContract();
+  const publicKey = useSolanaPublicKey();
 
-  const publicKey = isConnected && account ? new PublicKey(account) : null;
-
-  const query = useQuery({
+  return useQuery({
     queryKey: publicKey
       ? queryKeys.solana.incomingDeposits(publicKey.toString())
       : [],
@@ -42,10 +39,8 @@ export function useIncomingTransfers() {
       }));
     },
     enabled: !!publicKey && !!bridgeContract,
-    staleTime: 3 * 1000, // 3 seconds
-    refetchInterval: 5 * 1000, // Refetch every 5 seconds
+    staleTime: 3 * 1000,
+    refetchInterval: 5 * 1000,
     refetchIntervalInBackground: true,
   });
-
-  return query;
 }

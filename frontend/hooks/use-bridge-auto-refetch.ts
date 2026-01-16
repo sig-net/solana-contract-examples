@@ -1,7 +1,5 @@
 'use client';
 
-import { useWallet } from '@solana/connector/react';
-import { PublicKey } from '@solana/web3.js';
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -13,6 +11,9 @@ import {
 } from '@/lib/constants/addresses';
 import { getAllErc20Tokens } from '@/lib/constants/token-metadata';
 import { queryKeys } from '@/lib/query-client';
+import { PublicKey } from '@solana/web3.js';
+
+import { useSolanaPublicKey } from './use-solana-public-key';
 
 function buildUserBalancePdaSet(publicKey: PublicKey | null) {
   if (!publicKey) return new Set<string>();
@@ -47,10 +48,9 @@ function getRequesterPdaBase58(publicKey: PublicKey | null) {
  */
 export function useBridgeAutoRefetch() {
   const { connection } = useConnection();
-  const { account, isConnected } = useWallet();
   const queryClient = useQueryClient();
+  const publicKey = useSolanaPublicKey();
 
-  const publicKey = isConnected && account ? new PublicKey(account) : null;
   const userBalancePdaSet = buildUserBalancePdaSet(publicKey);
   const requesterPdaBase58 = getRequesterPdaBase58(publicKey);
 
@@ -92,7 +92,8 @@ export function useBridgeAutoRefetch() {
             const isInitiation =
               raw.includes('withdrawErc20') || raw.includes('depositErc20');
 
-            const queriesToInvalidate: Array<{ queryKey: readonly string[] }> = [];
+            const queriesToInvalidate: Array<{ queryKey: readonly string[] }> =
+              [];
 
             if (isCompletion) {
               queriesToInvalidate.push(

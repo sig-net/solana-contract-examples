@@ -1,18 +1,15 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useWallet } from '@solana/connector/react';
-import { PublicKey } from '@solana/web3.js';
 
 import { queryKeys } from '@/lib/query-client';
 
 import { useBridgeContract } from './use-bridge-contract';
+import { useSolanaPublicKey } from './use-solana-public-key';
 
 export function useDepositAddress() {
-  const { account, isConnected } = useWallet();
   const bridgeContract = useBridgeContract();
-
-  const publicKey = isConnected && account ? new PublicKey(account) : null;
+  const publicKey = useSolanaPublicKey();
 
   return useQuery({
     queryKey: publicKey
