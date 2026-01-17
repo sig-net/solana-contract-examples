@@ -2,7 +2,7 @@ import { Connection } from '@solana/web3.js';
 import { Wallet } from '@coral-xyz/anchor';
 import { serializeTransaction, type Hex, type PublicClient } from 'viem';
 
-import { BridgeContract } from '@/lib/contracts/bridge-contract';
+import { DexContract } from '@/lib/contracts/dex-contract';
 import { ChainSignaturesContract } from '@/lib/contracts/chain-signatures-contract';
 import type {
   EventPromises,
@@ -24,7 +24,7 @@ export interface CrossChainResult {
 }
 
 export class CrossChainOrchestrator {
-  private bridgeContract: BridgeContract;
+  private dexContract: DexContract;
   private chainSignaturesContract: ChainSignaturesContract;
   private client: PublicClient;
   private config: Required<CrossChainConfig>;
@@ -36,7 +36,7 @@ export class CrossChainOrchestrator {
     config: CrossChainConfig = {},
     eventConnection?: Connection,
   ) {
-    this.bridgeContract = new BridgeContract(connection, wallet);
+    this.dexContract = new DexContract(connection, wallet);
     this.chainSignaturesContract = new ChainSignaturesContract(
       connection,
       wallet,
@@ -105,6 +105,9 @@ export class CrossChainOrchestrator {
       };
     } catch (error) {
       console.error(error);
+      if (error && typeof error === 'object' && 'logs' in error) {
+        console.error(`[${op}] Transaction logs:`, (error as { logs: string[] }).logs);
+      }
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       console.error(`[${op}] Flow failed:`, errorMessage);
@@ -138,7 +141,7 @@ export class CrossChainOrchestrator {
       `Signature event timeout for ${op}`,
     ).finally(() => clearTimeout(signatureBackfillTimeout));
 
-    console.log(`[${op}] Signature received`);
+    console.log(`[${op}] Signature received:`, JSON.stringify(signatureEvent.signature));
 
     const ethereumSignature = ChainSignaturesContract.extractSignature(
       signatureEvent.signature,
@@ -164,13 +167,27 @@ export class CrossChainOrchestrator {
       },
     );
 
-    const txHash = await retryWithBackoff(() =>
-      this.client.sendRawTransaction({ serializedTransaction: signedTx }),
-    );
+    let txHash: Hex;
+    try {
+      txHash = await retryWithBackoff(() =>
+        this.client.sendRawTransaction({ serializedTransaction: signedTx }),
+      );
+      console.log(`[${op}] Broadcast successful, txHash: ${txHash}`);
+    } catch (broadcastError) {
+      console.error(`[${op}] Broadcast failed:`, broadcastError);
+      throw broadcastError;
+    }
 
+    console.log(`[${op}] Waiting for Ethereum receipt...`);
     const txReceipt = await this.client.waitForTransactionReceipt({
       hash: txHash,
       confirmations: this.config.ethereumConfirmations,
+    });
+
+    console.log(`[${op}] Receipt received:`, {
+      status: txReceipt.status,
+      blockNumber: txReceipt.blockNumber,
+      gasUsed: txReceipt.gasUsed?.toString(),
     });
 
     if (txReceipt.status !== 'success') {
@@ -211,7 +228,7 @@ export class CrossChainOrchestrator {
     return Promise.race([promise, timeoutPromise]);
   }
 
-  getBridgeContract(): BridgeContract {
-    return this.bridgeContract;
+  getDexContract(): DexContract {
+    return this.dexContract;
   }
 }

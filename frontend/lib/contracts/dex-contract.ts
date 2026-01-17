@@ -5,10 +5,10 @@ import {
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
 } from '@solana/web3.js';
-import { Program, AnchorProvider, BN, Wallet, Idl } from '@coral-xyz/anchor';
+import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 import { toHex, toBytes } from 'viem';
 
-import { IDL, type SolDexIDL } from '@/lib/program/idl-sol-dex';
+import { IDL, type SolanaDexContract } from '@/lib/program/idl-sol-dex';
 import type { EvmTransactionProgramParams } from '@/lib/types/shared.types';
 import {
   deriveEthereumAddress,
@@ -20,31 +20,8 @@ import {
 
 import { ChainSignaturesSignature } from '../types/chain-signatures.types';
 
-type TransactionStatus =
-  | { pending: Record<string, never> }
-  | { completed: Record<string, never> }
-  | { failed: Record<string, never> };
-
-type TransactionRecord = {
-  requestId: number[];
-  transactionType:
-    | { deposit: Record<string, never> }
-    | { withdrawal: Record<string, never> };
-  status: TransactionStatus;
-  amount: BN;
-  erc20Address: number[];
-  recipientAddress: number[];
-  timestamp: BN;
-  ethereumTxHash: number[] | null;
-};
-
-type UserTransactionHistory = {
-  deposits: TransactionRecord[];
-  withdrawals: TransactionRecord[];
-};
-
-export class BridgeContract {
-  private program: Program<SolDexIDL> | null = null;
+export class DexContract {
+  private program: Program<SolanaDexContract> | null = null;
 
   constructor(
     private connection: Connection,
@@ -59,21 +36,20 @@ export class BridgeContract {
     return this.wallet;
   }
 
-  private getBridgeProgram(): Program<SolDexIDL> {
+  private getDexProgram(): Program<SolanaDexContract> {
     if (!this.program) {
       const provider = new AnchorProvider(this.connection, this.wallet, {
         commitment: 'confirmed',
         skipPreflight: true,
       });
-      this.program = new Program(IDL as Idl, provider) as Program<SolDexIDL>;
+      this.program = new Program(IDL, provider);
     }
     return this.program;
   }
 
   async fetchPendingDeposit(pendingDepositPda: PublicKey) {
-    return await this.getBridgeProgram().account.pendingErc20Deposit.fetch(
-      pendingDepositPda,
-    );
+    const program = this.getDexProgram();
+    return program.account.pendingErc20Deposit.fetch(pendingDepositPda);
   }
 
   async fetchUserBalance(
@@ -83,11 +59,10 @@ export class BridgeContract {
     try {
       const erc20Bytes = Buffer.from(toBytes(erc20Address as `0x${string}`));
       const [userBalancePda] = deriveUserBalancePda(userPublicKey, erc20Bytes);
+      const program = this.getDexProgram();
 
       const userBalanceAccount =
-        await this.getBridgeProgram().account.userErc20Balance.fetchNullable(
-          userBalancePda,
-        );
+        await program.account.userErc20Balance.fetchNullable(userBalancePda);
 
       if (!userBalanceAccount) {
         return '0';
@@ -126,14 +101,14 @@ export class BridgeContract {
     evmParams: EvmTransactionProgramParams;
   }): Promise<string> {
     const payerKey = payer || this.wallet.publicKey;
-    const program = this.getBridgeProgram();
+    const program = this.getDexProgram();
 
     return await program.methods
       .depositErc20(
-        requestIdBytes,
+        requestIdBytes as unknown as number[],
         requester,
-        erc20AddressBytes,
-        recipientAddressBytes,
+        erc20AddressBytes as unknown as number[],
+        recipientAddressBytes as unknown as number[],
         amount,
         evmParams,
       )
@@ -152,6 +127,7 @@ export class BridgeContract {
     erc20AddressBytes,
     requester,
     ethereumTxHashBytes,
+    expectedAddressBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: number[];
@@ -159,23 +135,25 @@ export class BridgeContract {
     erc20AddressBytes: number[];
     requester: PublicKey;
     ethereumTxHashBytes?: number[];
+    expectedAddressBytes: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
-    const [transactionHistory] = deriveUserTransactionHistoryPda(requester);
-    const program = this.getBridgeProgram();
+    const program = this.getDexProgram();
 
     return await program.methods
       .claimErc20(
-        Array.from(requestIdBytes),
-        serializedOutput,
+        Array.from(requestIdBytes) as unknown as number[],
+        Buffer.from(serializedOutput),
         signature,
-        ethereumTxHashBytes ? Array.from(ethereumTxHashBytes) : null,
+        ethereumTxHashBytes
+          ? (Array.from(ethereumTxHashBytes) as unknown as number[])
+          : null,
+        expectedAddressBytes as unknown as number[],
       )
       .accounts({
         userBalance: userBalancePda,
-        transactionHistory,
-      } as never)
+      })
       .rpc();
   }
 
@@ -194,14 +172,14 @@ export class BridgeContract {
     recipientAddressBytes: number[];
     evmParams: EvmTransactionProgramParams;
   }): Promise<string> {
-    const program = this.getBridgeProgram();
+    const program = this.getDexProgram();
 
     return await program.methods
       .withdrawErc20(
-        Array.from(requestIdBytes),
-        Array.from(erc20AddressBytes),
+        Array.from(requestIdBytes) as unknown as number[],
+        Array.from(erc20AddressBytes) as unknown as number[],
         amount,
-        Array.from(recipientAddressBytes),
+        Array.from(recipientAddressBytes) as unknown as number[],
         evmParams,
       )
       .accounts({
@@ -219,6 +197,7 @@ export class BridgeContract {
     erc20AddressBytes,
     requester,
     ethereumTxHashBytes,
+    expectedAddressBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: number[];
@@ -226,32 +205,31 @@ export class BridgeContract {
     erc20AddressBytes: number[];
     requester: PublicKey;
     ethereumTxHashBytes?: number[];
+    expectedAddressBytes: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
-    const [transactionHistory] = deriveUserTransactionHistoryPda(requester);
-    const program = this.getBridgeProgram();
+    const program = this.getDexProgram();
 
     return await program.methods
       .completeWithdrawErc20(
-        Array.from(requestIdBytes),
-        serializedOutput,
+        Array.from(requestIdBytes) as unknown as number[],
+        Buffer.from(serializedOutput),
         signature,
-        ethereumTxHashBytes ? Array.from(ethereumTxHashBytes) : null,
+        ethereumTxHashBytes
+          ? (Array.from(ethereumTxHashBytes) as unknown as number[])
+          : null,
+        expectedAddressBytes as unknown as number[],
       )
       .accounts({
         userBalance: userBalancePda,
-        transactionHistory,
-      } as never)
+      })
       .rpc();
   }
 
-  async fetchPendingWithdrawal(
-    pendingWithdrawalPda: PublicKey,
-  ): Promise<unknown> {
-    return await this.getBridgeProgram().account.pendingErc20Withdrawal.fetch(
-      pendingWithdrawalPda,
-    );
+  async fetchPendingWithdrawal(pendingWithdrawalPda: PublicKey) {
+    const program = this.getDexProgram();
+    return program.account.pendingErc20Withdrawal.fetch(pendingWithdrawalPda);
   }
 
   async fetchAllUserWithdrawals(userPublicKey: PublicKey): Promise<
@@ -267,38 +245,36 @@ export class BridgeContract {
     }[]
   > {
     try {
-      const program = this.getBridgeProgram();
       const [userTransactionHistoryPda] =
         deriveUserTransactionHistoryPda(userPublicKey);
+      const program = this.getDexProgram();
 
       const transactionHistory =
-        (await program.account.userTransactionHistory.fetchNullable(
+        await program.account.userTransactionHistory.fetchNullable(
           userTransactionHistoryPda,
-        )) as UserTransactionHistory | null;
+        );
 
       if (!transactionHistory) {
         return [];
       }
 
-      const withdrawals = transactionHistory.withdrawals.map(
-        (withdrawal: TransactionRecord) => ({
-          requestId: toHex(Buffer.from(withdrawal.requestId)),
-          amount: withdrawal.amount.toString(),
-          erc20Address: toHex(Buffer.from(withdrawal.erc20Address)),
-          recipient: toHex(Buffer.from(withdrawal.recipientAddress)),
-          status:
-            'pending' in withdrawal.status
+      const withdrawals = transactionHistory.withdrawals.map(withdrawal => ({
+        requestId: toHex(Buffer.from(withdrawal.requestId)),
+        amount: withdrawal.amount.toString(),
+        erc20Address: toHex(Buffer.from(withdrawal.erc20Address)),
+        recipient: toHex(Buffer.from(withdrawal.recipientAddress)),
+        status:
+          'pending' in withdrawal.status
+            ? ('pending' as const)
+            : 'failed' in withdrawal.status
               ? ('pending' as const)
-              : 'failed' in withdrawal.status
-                ? ('pending' as const)
-                : ('completed' as const),
-          timestamp: withdrawal.timestamp.toNumber(),
-          signature: undefined,
-          ethereumTxHash: withdrawal.ethereumTxHash
-            ? toHex(Buffer.from(withdrawal.ethereumTxHash))
-            : undefined,
-        }),
-      );
+              : ('completed' as const),
+        timestamp: Number(withdrawal.timestamp),
+        signature: undefined,
+        ethereumTxHash: withdrawal.ethereumTxHash
+          ? toHex(Buffer.from(withdrawal.ethereumTxHash))
+          : undefined,
+      }));
 
       return withdrawals.sort((a, b) => b.timestamp - a.timestamp);
     } catch (error) {
@@ -331,36 +307,34 @@ export class BridgeContract {
     }[]
   > {
     try {
-      const program = this.getBridgeProgram();
       const [userTransactionHistoryPda] =
         deriveUserTransactionHistoryPda(userPublicKey);
+      const program = this.getDexProgram();
 
       const transactionHistory =
-        (await program.account.userTransactionHistory.fetchNullable(
+        await program.account.userTransactionHistory.fetchNullable(
           userTransactionHistoryPda,
-        )) as UserTransactionHistory | null;
+        );
 
       if (!transactionHistory) {
         return [];
       }
 
-      const deposits = transactionHistory.deposits.map(
-        (deposit: TransactionRecord) => ({
-          requestId: toHex(Buffer.from(deposit.requestId)),
-          amount: deposit.amount.toString(),
-          erc20Address: toHex(Buffer.from(deposit.erc20Address)),
-          timestamp: deposit.timestamp.toNumber(),
-          status:
-            'pending' in deposit.status
+      const deposits = transactionHistory.deposits.map(deposit => ({
+        requestId: toHex(Buffer.from(deposit.requestId)),
+        amount: deposit.amount.toString(),
+        erc20Address: toHex(Buffer.from(deposit.erc20Address)),
+        timestamp: Number(deposit.timestamp),
+        status:
+          'pending' in deposit.status
+            ? ('pending' as const)
+            : 'failed' in deposit.status
               ? ('pending' as const)
-              : 'failed' in deposit.status
-                ? ('pending' as const)
-                : ('completed' as const),
-          ethereumTxHash: deposit.ethereumTxHash
-            ? toHex(Buffer.from(deposit.ethereumTxHash))
-            : undefined,
-        }),
-      );
+              : ('completed' as const),
+        ethereumTxHash: deposit.ethereumTxHash
+          ? toHex(Buffer.from(deposit.ethereumTxHash))
+          : undefined,
+      }));
 
       return deposits.sort((a, b) => b.timestamp - a.timestamp);
     } catch (error) {

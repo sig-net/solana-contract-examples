@@ -28,7 +28,7 @@ import type {
 import { getTokenInfo } from '@/lib/utils/token-formatting';
 import { buildErc20TransferTx } from '@/lib/evm/tx-builder';
 import { generateRequestId, evmParamsToProgram } from '@/lib/program/utils';
-import { BridgeContract } from '@/lib/contracts/bridge-contract';
+import { DexContract } from '@/lib/contracts/dex-contract';
 import { notifyWithdrawal } from '@/lib/services/relayer-service';
 import {
   VAULT_ETHEREUM_ADDRESS,
@@ -43,9 +43,9 @@ import { getEthereumProvider } from '@/lib/rpc';
  */
 export class WithdrawalService {
   private heliusConnection: Connection | null = null;
-  private heliusBridgeContract: BridgeContract | null = null;
+  private heliusDexContract: DexContract | null = null;
 
-  constructor(private bridgeContract: BridgeContract) {}
+  constructor(private dexContract: DexContract) {}
 
   /**
    * Get or create a Helius connection for withdrawals
@@ -65,15 +65,15 @@ export class WithdrawalService {
   }
 
   /**
-   * Get or create a Helius-based BridgeContract for withdrawals
+   * Get or create a Helius-based DexContract for withdrawals
    */
-  private getHeliusBridgeContract(): BridgeContract {
-    if (!this.heliusBridgeContract) {
-      const wallet = this.bridgeContract.getWallet();
+  private getHeliusDexContract(): DexContract {
+    if (!this.heliusDexContract) {
+      const wallet = this.dexContract.getWallet();
       const heliusConnection = this.getHeliusConnection();
-      this.heliusBridgeContract = new BridgeContract(heliusConnection, wallet);
+      this.heliusDexContract = new DexContract(heliusConnection, wallet);
     }
-    return this.heliusBridgeContract;
+    return this.heliusDexContract;
   }
 
   /**
@@ -88,8 +88,8 @@ export class WithdrawalService {
     onStatusChange?: StatusCallback,
   ): Promise<string> {
     try {
-      const connection: Connection = this.bridgeContract.getConnection();
-      const wallet = this.bridgeContract.getWallet();
+      const connection: Connection = this.dexContract.getConnection();
+      const wallet = this.dexContract.getWallet();
       if (!wallet.publicKey || !wallet.signTransaction) {
         throw new Error('Wallet not available for SPL transfer');
       }
@@ -244,10 +244,10 @@ export class WithdrawalService {
       });
 
       // Use Helius RPC for withdrawErc20 to avoid WebSocket issues
-      const heliusBridgeContract = this.getHeliusBridgeContract();
+      const heliusDexContract = this.getHeliusDexContract();
 
       try {
-        await heliusBridgeContract.withdrawErc20({
+        await heliusDexContract.withdrawErc20({
           authority: publicKey,
           requestIdBytes,
           erc20AddressBytes,
@@ -286,6 +286,6 @@ export class WithdrawalService {
    * Fetch all user withdrawals (pending + historical)
    */
   async fetchAllUserWithdrawals(publicKey: PublicKey) {
-    return this.bridgeContract.fetchAllUserWithdrawals(publicKey);
+    return this.dexContract.fetchAllUserWithdrawals(publicKey);
   }
 }

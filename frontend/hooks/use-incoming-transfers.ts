@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { queryKeys } from '@/lib/query-client';
 
-import { useBridgeContract } from './use-bridge-contract';
+import { useDexContract } from './use-dex-contract';
 import { useSolanaPublicKey } from './use-solana-public-key';
 
 export interface TransferEvent {
@@ -17,7 +17,7 @@ export interface TransferEvent {
 }
 
 export function useIncomingTransfers() {
-  const bridgeContract = useBridgeContract();
+  const dexContract = useDexContract();
   const publicKey = useSolanaPublicKey();
 
   return useQuery({
@@ -25,10 +25,10 @@ export function useIncomingTransfers() {
       ? queryKeys.solana.incomingDeposits(publicKey.toString())
       : [],
     queryFn: async (): Promise<TransferEvent[]> => {
-      if (!publicKey || !bridgeContract)
-        throw new Error('No public key or bridge contract available');
+      if (!publicKey || !dexContract)
+        throw new Error('No public key or dex contract available');
 
-      const deposits = await bridgeContract.fetchAllUserDeposits(publicKey);
+      const deposits = await dexContract.fetchAllUserDeposits(publicKey);
       return deposits.map(d => ({
         requestId: d.requestId,
         tokenAddress: d.erc20Address,
@@ -38,7 +38,7 @@ export function useIncomingTransfers() {
         transactionHash: d.ethereumTxHash,
       }));
     },
-    enabled: !!publicKey && !!bridgeContract,
+    enabled: !!publicKey && !!dexContract,
     staleTime: 3 * 1000,
     refetchInterval: 5 * 1000,
     refetchIntervalInBackground: true,

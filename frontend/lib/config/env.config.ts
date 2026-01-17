@@ -33,6 +33,7 @@ const serverEnvSchema = z.object({
     )
     .optional(),
   SOLANA_RPC_URL: z.string().url().optional(),
+  INFURA_API_KEY: z.string().min(1, 'Infura API key is required'),
 });
 
 // Full environment schema (client + server)
@@ -97,6 +98,7 @@ export function getFullEnv(): FullEnv {
     RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY,
     MPC_ROOT_KEY: process.env.MPC_ROOT_KEY,
     SOLANA_RPC_URL: process.env.SOLANA_RPC_URL,
+    INFURA_API_KEY: process.env.INFURA_API_KEY,
   };
 
   try {

@@ -19,6 +19,8 @@ export const SERVICE_CONFIG = {
     TARGET_BLOCKCHAIN: 'ethereum',
     /** Root path for withdrawal operations */
     WITHDRAWAL_ROOT_PATH: 'root',
+    /** Path for deriving the MPC respond key (used for respondBidirectional signature verification) */
+    SOLANA_RESPOND_BIDIRECTIONAL_PATH: 'solana response key',
   },
   TIMEOUTS: {
     /** Cache TTL for token decimals (5 minutes) */
@@ -42,6 +44,6 @@ export const SERVICE_CONFIG = {
     /** Default number of retries for failed operations */
     DEFAULT_RETRIES: 2,
     /** Default key version for request generation */
-    DEFAULT_KEY_VERSION: 0,
+    DEFAULT_KEY_VERSION: 1,
   },
 } as const;

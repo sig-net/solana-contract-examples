@@ -18,6 +18,8 @@ import {
   deriveVaultAuthorityPda,
   derivePendingDepositPda,
   derivePendingWithdrawalPda,
+  deriveMpcRespondAddress,
+  GLOBAL_VAULT_AUTHORITY_PDA,
 } from '@/lib/constants/addresses';
 import { withEmbeddedSigner } from '@/lib/relayer/embedded-signer';
 
@@ -41,7 +43,7 @@ async function executeDeposit(args: {
       operationName: 'DEPOSIT',
       eventTimeoutMs: 60000,
     });
-  const bridgeContract = orchestrator.getBridgeContract();
+  const dexContract = orchestrator.getDexContract();
 
   const userPublicKey = new PublicKey(userAddress);
   const [vaultAuthority] = deriveVaultAuthorityPda(userPublicKey);
@@ -103,18 +105,21 @@ async function executeDeposit(args: {
     async (respondBidirectionalEvent, ethereumTxHash) => {
       const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
       try {
-        const pendingDeposit =
-          await bridgeContract.fetchPendingDeposit(pendingDepositPda);
+        const pendingDeposit = (await dexContract.fetchPendingDeposit(
+          pendingDepositPda,
+        )) as { requester: PublicKey; erc20Address: number[] };
         const ethereumTxHashBytes = ethereumTxHash
           ? Array.from(toBytes(ethereumTxHash))
           : undefined;
-        return await bridgeContract.claimErc20({
+        const mpcRespondAddress = deriveMpcRespondAddress(vaultAuthority);
+        return await dexContract.claimErc20({
           requester: pendingDeposit.requester,
           requestIdBytes,
           serializedOutput: respondBidirectionalEvent.serializedOutput,
           signature: respondBidirectionalEvent.signature,
           erc20AddressBytes: pendingDeposit.erc20Address,
           ethereumTxHashBytes,
+          expectedAddressBytes: Array.from(toBytes(mpcRespondAddress as Hex)),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -128,7 +133,7 @@ async function executeDeposit(args: {
       }
     },
     async () => {
-      return await bridgeContract.depositErc20({
+      return await dexContract.depositErc20({
         requester: userPublicKey,
         payer: relayerWallet.publicKey,
         requestIdBytes,
@@ -174,24 +179,26 @@ async function executeWithdrawal(args: {
     requestId,
     transactionParams,
     async (respondBidirectionalEvent, ethereumTxHash) => {
-      const bridgeContract = orchestrator.getBridgeContract();
+      const dexContract = orchestrator.getDexContract();
       const requestIdBytes = Array.from(toBytes(requestId));
       const [pendingWithdrawalPda] = derivePendingWithdrawalPda(requestIdBytes);
-      const pendingWithdrawal = (await bridgeContract.fetchPendingWithdrawal(
+      const pendingWithdrawal = (await dexContract.fetchPendingWithdrawal(
         pendingWithdrawalPda,
       )) as unknown as { requester: string };
       const erc20AddressBytes = Array.from(toBytes(erc20Address));
       const ethereumTxHashBytes = ethereumTxHash
         ? Array.from(toBytes(ethereumTxHash))
         : undefined;
+      const mpcRespondAddress = deriveMpcRespondAddress(GLOBAL_VAULT_AUTHORITY_PDA);
 
-      return await bridgeContract.completeWithdrawErc20({
+      return await dexContract.completeWithdrawErc20({
         requester: new PublicKey(pendingWithdrawal.requester),
         requestIdBytes,
         serializedOutput: respondBidirectionalEvent.serializedOutput,
         signature: respondBidirectionalEvent.signature,
         erc20AddressBytes,
         ethereumTxHashBytes,
+        expectedAddressBytes: Array.from(toBytes(mpcRespondAddress as Hex)),
       });
     },
   );

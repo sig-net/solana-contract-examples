@@ -2,14 +2,14 @@
 
 import { TokenBalanceService } from '@/lib/services/token-balance-service';
 
-import { useBridgeContract } from './use-bridge-contract';
+import { useDexContract } from './use-dex-contract';
 
 export function useTokenBalanceService() {
-  const bridgeContract = useBridgeContract();
+  const dexContract = useDexContract();
 
-  if (!bridgeContract) {
+  if (!dexContract) {
     return null;
   }
 
-  return new TokenBalanceService(bridgeContract);
+  return new TokenBalanceService(dexContract);
 }

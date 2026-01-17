@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { useConnection } from '@/providers/connection-context';
 import { useAnchorWallet } from '@/hooks/use-anchor-wallet';
 import { BRIDGE_PROGRAM_ID } from '@/lib/constants/addresses';
-import { IDL, type SolDexIDL } from '@/lib/program/idl-sol-dex';
+import { IDL } from '@/lib/program/idl-sol-dex';
 
 const CONFIG_SEED = 'vault_config';
 
@@ -34,9 +34,7 @@ export default function AdminPage() {
       })
     : null;
 
-  const program = provider
-    ? new Program(IDL as unknown as SolDexIDL, provider)
-    : null;
+  const program = provider ? new Program(IDL, provider) : null;
 
   async function onInitialize() {
     if (!program || !anchorWallet?.publicKey) {
