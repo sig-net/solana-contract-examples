@@ -184,7 +184,7 @@ export class DexContract {
       )
       .accounts({
         authority,
-        feePayer: this.wallet.publicKey,
+        feePayer: authority,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       })
       .rpc();
