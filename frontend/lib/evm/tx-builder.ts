@@ -2,12 +2,42 @@ import {
   encodeFunctionData,
   erc20Abi,
   parseGwei,
+  serializeTransaction,
   type Hex,
   type PublicClient,
 } from 'viem';
 
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
+
+/**
+ * Serialize an EVM transaction request to RLP-encoded bytes (without signature).
+ * Used for generating request IDs before signing.
+ */
+export function serializeEvmTx(txRequest: EvmTransactionRequest): Hex {
+  return serializeTransaction({
+    chainId: txRequest.chainId,
+    nonce: txRequest.nonce,
+    maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas,
+    maxFeePerGas: txRequest.maxFeePerGas,
+    gas: txRequest.gasLimit,
+    to: txRequest.to,
+    value: txRequest.value,
+    data: txRequest.data,
+  });
+}
+
+/**
+ * Apply a random reduction to an amount to work around contract constraints.
+ * This is a workaround for edge cases where the full amount causes issues.
+ */
+export function applyContractSafetyReduction(
+  amount: bigint,
+  range = 100,
+): bigint {
+  const reduction = BigInt(Math.floor(Math.random() * range) + 1);
+  return amount > reduction ? amount - reduction : amount;
+}
 
 export function encodeErc20Transfer(recipient: string, amount: bigint): Hex {
   return encodeFunctionData({

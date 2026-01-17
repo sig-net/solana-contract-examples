@@ -1,6 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { formatUnits } from 'viem';
 
 import type { TokenBalance } from '@/lib/types/token.types';
 import {
@@ -292,75 +291,4 @@ export class TokenBalanceService {
     }
   }
 
-  /**
-   * Fetch single user balance from Solana contract
-   */
-  async fetchUserBalance(
-    publicKey: PublicKey,
-    erc20Address: string,
-  ): Promise<string> {
-    return await this.dexContract.fetchUserBalance(publicKey, erc20Address);
-  }
-
-  /**
-   * Get available balance for a specific token, adjusted for contract constraints
-   * Returns both the formatted amount and the actual decimals used
-   */
-  async getAdjustedAvailableBalance(
-    derivedAddress: string,
-    erc20Address: string,
-  ): Promise<{ amount: string; decimals: number }> {
-    const unclaimedBalances = await this.fetchUnclaimedBalances(derivedAddress);
-
-    const tokenBalance = unclaimedBalances.find(
-      balance =>
-        balance.erc20Address.toLowerCase() === erc20Address.toLowerCase(),
-    );
-
-    if (!tokenBalance || !tokenBalance.amount || tokenBalance.amount === '0') {
-      throw new Error(
-        `No ${erc20Address} tokens available in the derived address`,
-      );
-    }
-
-    // Apply random subtraction to work around contract constraints
-    const balance = BigInt(tokenBalance.amount);
-    const randomSubtraction = BigInt(Math.floor(Math.random() * 1000) + 1);
-    const adjustedBalance = balance - randomSubtraction;
-
-    // Ensure we don't go negative
-    const finalBalance =
-      adjustedBalance > BigInt(0) ? adjustedBalance : BigInt(1);
-
-    // Convert to decimal format using the actual contract decimals
-    const balanceInUnits = formatUnits(finalBalance, tokenBalance.decimals);
-
-    return {
-      amount: balanceInUnits,
-      decimals: tokenBalance.decimals,
-    };
-  }
-
-  /**
-   * Get available balance for a specific token using public key
-   * This is a convenience method that derives the address first
-   */
-  async getAdjustedAvailableBalanceByPublicKey(
-    publicKey: PublicKey,
-    erc20Address: string,
-    vaultAuthority: PublicKey,
-    basePublicKey: string,
-  ): Promise<{ amount: string; decimals: number }> {
-    // Import here to avoid circular dependency
-    const { deriveEthereumAddress } = await import('@/lib/constants/addresses');
-
-    const path = publicKey.toString();
-    const derivedAddress = deriveEthereumAddress(
-      path,
-      vaultAuthority.toString(),
-      basePublicKey,
-    );
-
-    return this.getAdjustedAvailableBalance(derivedAddress, erc20Address);
-  }
 }

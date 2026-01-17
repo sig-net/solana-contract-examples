@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 
 interface TruncatedTextProps {
   text: string;
@@ -26,37 +26,17 @@ export function TruncatedText({
   suffixLength,
   ellipsis = '...',
 }: TruncatedTextProps) {
-  const [copied, setCopied] = useState(false);
+  const { isCopied, copyToClipboard } = useCopyToClipboard();
 
-  // If prefixLength and suffixLength are provided, use middle truncation (good for addresses/hashes)
   const getTruncatedText = () => {
     if (!text) return '';
-
-    if (text.length <= maxLength) {
-      return text;
-    }
+    if (text.length <= maxLength) return text;
 
     if (prefixLength !== undefined && suffixLength !== undefined) {
-      // Middle truncation (e.g., "0x1234...abcd")
-      const prefix = text.slice(0, prefixLength);
-      const suffix = text.slice(-suffixLength);
-      return `${prefix}${ellipsis}${suffix}`;
+      return `${text.slice(0, prefixLength)}${ellipsis}${text.slice(-suffixLength)}`;
     }
 
-    // End truncation (e.g., "This is a long text...")
     return `${text.slice(0, maxLength - ellipsis.length)}${ellipsis}`;
-  };
-
-  const handleCopy = async () => {
-    if (!copyable) return;
-
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy text:', error);
-    }
   };
 
   const truncatedText = getTruncatedText();
@@ -69,13 +49,13 @@ export function TruncatedText({
         copyable && 'cursor-pointer transition-colors hover:text-blue-600',
         className,
       )}
-      onClick={handleCopy}
+      onClick={copyable ? () => copyToClipboard(text) : undefined}
       title={showTooltip && isTextTruncated ? text : undefined}
     >
       <span className='font-mono text-sm'>{truncatedText}</span>
       {copyable && (
         <span className='ml-1 text-gray-400 hover:text-gray-600'>
-          {copied ? (
+          {isCopied ? (
             <Check className='h-3 w-3' />
           ) : (
             <Copy className='h-3 w-3' />

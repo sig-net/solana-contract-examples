@@ -5,6 +5,7 @@ import { useWallet } from '@solana/connector/react';
 
 import { queryKeys, invalidateDepositQueries } from '@/lib/query-client';
 import { DepositService } from '@/lib/services/deposit-service';
+import type { StatusCallback } from '@/lib/types/shared.types';
 
 import { useSolanaPublicKey } from './use-solana-public-key';
 
@@ -25,12 +26,7 @@ export function useDepositEvmMutation() {
       erc20Address: string;
       amount: string;
       decimals: number;
-      onStatusChange?: (status: {
-        status: string;
-        txHash?: string;
-        note?: string;
-        error?: string;
-      }) => void;
+      onStatusChange?: StatusCallback;
     }) => {
       if (!publicKey) throw new Error('No public key available');
       return depositService.depositErc20(
