@@ -1,15 +1,13 @@
 import { BN } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
-import {
-  erc20Abi,
-  serializeTransaction,
-  toBytes,
-  type Hex,
-  type PublicClient,
-} from 'viem';
+import { erc20Abi, toBytes, type Hex, type PublicClient } from 'viem';
 
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
-import { buildErc20TransferTx } from '@/lib/evm/tx-builder';
+import {
+  buildErc20TransferTx,
+  serializeEvmTx,
+  applyContractSafetyReduction,
+} from '@/lib/evm/tx-builder';
 import { initializeRelayerSetup } from '@/lib/utils/relayer-setup';
 import { generateRequestId, evmParamsToProgram } from '@/lib/program/utils';
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
@@ -57,11 +55,7 @@ async function executeDeposit(args: {
   );
   if (!actualAmount) return { ok: false, error: 'No token balance detected' };
 
-  const randomReduction = BigInt(Math.floor(Math.random() * 100) + 1);
-  const processAmount =
-    actualAmount > randomReduction
-      ? actualAmount - randomReduction
-      : actualAmount;
+  const processAmount = applyContractSafetyReduction(actualAmount);
 
   const path = userAddress;
   const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
@@ -74,16 +68,7 @@ async function executeDeposit(args: {
     amount: processAmount,
   });
 
-  const rlpEncodedTx = serializeTransaction({
-    chainId: txRequest.chainId,
-    nonce: txRequest.nonce,
-    maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas,
-    maxFeePerGas: txRequest.maxFeePerGas,
-    gas: txRequest.gasLimit,
-    to: txRequest.to,
-    value: txRequest.value,
-    data: txRequest.data,
-  });
+  const rlpEncodedTx = serializeEvmTx(txRequest);
   const requestId = generateRequestId(
     vaultAuthority,
     toBytes(rlpEncodedTx),

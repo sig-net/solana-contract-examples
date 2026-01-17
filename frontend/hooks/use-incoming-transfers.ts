@@ -7,7 +7,7 @@ import { queryKeys } from '@/lib/query-client';
 import { useDexContract } from './use-dex-contract';
 import { useSolanaPublicKey } from './use-solana-public-key';
 
-export interface TransferEvent {
+interface TransferEvent {
   requestId: string;
   tokenAddress: string;
   value: bigint;

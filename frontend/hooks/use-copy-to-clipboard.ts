@@ -2,13 +2,7 @@
 
 import { useState } from 'react';
 
-interface CopyToClipboardReturn {
-  isCopied: boolean;
-  copyToClipboard: (text: string) => Promise<void>;
-  error: Error | null;
-}
-
-export function useCopyToClipboard(resetDelay = 2000): CopyToClipboardReturn {
+export function useCopyToClipboard(resetDelay = 2000) {
   const [isCopied, setIsCopied] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 

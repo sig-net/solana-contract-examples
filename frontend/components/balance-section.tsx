@@ -1,22 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Package } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { BalanceDisplay } from '@/components/balance-display';
 import { EmptyState } from '@/components/states';
-import { DepositDialog } from '@/components/deposit-dialog';
 import { useUserBalances } from '@/hooks';
 import { convertTokenBalancesToDisplayTokens } from '@/lib/utils';
 
 export function BalanceSection() {
   const { data: userBalances = [], isLoading, error } = useUserBalances();
-  const [isDepositDialogOpen, setIsDepositDialogOpen] = useState(false);
-
-  const handleDepositClick = () => {
-    setIsDepositDialogOpen(true);
-  };
 
   const displayTokens = convertTokenBalancesToDisplayTokens(userBalances);
 
@@ -61,27 +54,16 @@ export function BalanceSection() {
     );
   }
 
-  return (
-    <>
-      {displayTokens.length === 0 ? (
-        <EmptyState
-          icon={Package}
-          title='No tokens found'
-          description='Deposit some tokens to get started managing your portfolio.'
-          compact
-          action={
-            <Button onClick={handleDepositClick} variant='default'>
-              Deposit Tokens
-            </Button>
-          }
-        />
-      ) : (
-        <BalanceDisplay tokens={displayTokens} />
-      )}
-      <DepositDialog
-        open={isDepositDialogOpen}
-        onOpenChange={setIsDepositDialogOpen}
+  if (displayTokens.length === 0) {
+    return (
+      <EmptyState
+        icon={Package}
+        title='No tokens found'
+        description='Deposit some tokens to get started managing your portfolio.'
+        compact
       />
-    </>
-  );
+    );
+  }
+
+  return <BalanceDisplay tokens={displayTokens} />;
 }

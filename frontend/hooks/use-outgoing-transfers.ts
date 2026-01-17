@@ -10,7 +10,7 @@ import { VAULT_ETHEREUM_ADDRESS } from '@/lib/constants/addresses';
 import { useWithdrawalService } from './use-withdrawal-service';
 import { useSolanaPublicKey } from './use-solana-public-key';
 
-export interface OutgoingTransfer {
+interface OutgoingTransfer {
   requestId: string;
   transactionHash?: string;
   blockNumber?: bigint;
@@ -24,7 +24,7 @@ export interface OutgoingTransfer {
   status: 'pending' | 'processing' | 'completed' | 'failed';
 }
 
-export interface WithdrawalRequest {
+interface WithdrawalRequest {
   requestId: string;
   erc20Address: string;
   amount: string;

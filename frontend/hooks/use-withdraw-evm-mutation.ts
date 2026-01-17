@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/connector/react';
 
 import { queryKeys, invalidateWithdrawalQueries } from '@/lib/query-client';
+import type { StatusCallback } from '@/lib/types/shared.types';
 
 import { useWithdrawalService } from './use-withdrawal-service';
 import { useSolanaPublicKey } from './use-solana-public-key';
@@ -24,12 +25,7 @@ export function useWithdrawEvmMutation() {
       erc20Address: string;
       amount: string;
       recipientAddress: string;
-      onStatusChange?: (status: {
-        status: string;
-        txHash?: string;
-        note?: string;
-        error?: string;
-      }) => void;
+      onStatusChange?: StatusCallback;
     }) => {
       if (!publicKey) throw new Error('No public key available');
       if (!withdrawalService)

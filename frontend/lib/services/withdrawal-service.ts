@@ -7,21 +7,18 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
-import {
-  isAddress,
-  getAddress,
-  parseUnits,
-  serializeTransaction,
-  toBytes,
-  type Hex,
-} from 'viem';
+import { isAddress, getAddress, parseUnits, toBytes, type Hex } from 'viem';
 
 import type {
   EvmTransactionRequest,
   StatusCallback,
 } from '@/lib/types/shared.types';
 import { getTokenInfo } from '@/lib/utils/token-formatting';
-import { buildErc20TransferTx } from '@/lib/evm/tx-builder';
+import {
+  buildErc20TransferTx,
+  serializeEvmTx,
+  applyContractSafetyReduction,
+} from '@/lib/evm/tx-builder';
 import { generateRequestId, evmParamsToProgram } from '@/lib/program/utils';
 import { DexContract } from '@/lib/contracts/dex-contract';
 import { notifyWithdrawal } from '@/lib/services/relayer-service';
@@ -141,9 +138,7 @@ export class WithdrawalService {
       const decimals = (await getTokenInfo(erc20Address)).decimals;
 
       const amountBigInt = parseUnits(amount, decimals);
-
-      const randomReduction = BigInt(Math.floor(Math.random() * 100) + 1);
-      const processAmountBigInt = amountBigInt - randomReduction;
+      const processAmountBigInt = applyContractSafetyReduction(amountBigInt);
 
       const amountBN = new BN(processAmountBigInt.toString());
       const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
@@ -164,17 +159,7 @@ export class WithdrawalService {
       });
 
       const evmParams = evmParamsToProgram(txRequest);
-
-      const rlpEncodedTx = serializeTransaction({
-        chainId: txRequest.chainId,
-        nonce: txRequest.nonce,
-        maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas,
-        maxFeePerGas: txRequest.maxFeePerGas,
-        gas: txRequest.gasLimit,
-        to: txRequest.to,
-        value: txRequest.value,
-        data: txRequest.data,
-      });
+      const rlpEncodedTx = serializeEvmTx(txRequest);
 
       const requestId = generateRequestId(
         globalVaultAuthority,
