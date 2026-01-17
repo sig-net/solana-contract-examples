@@ -1,9 +1,4 @@
-import {
-  Connection,
-  PublicKey,
-  Transaction,
-  Commitment,
-} from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -42,39 +37,7 @@ import { getEthereumProvider } from '@/lib/rpc';
  * The relayer handles withdrawal completion automatically.
  */
 export class WithdrawalService {
-  private heliusConnection: Connection | null = null;
-  private heliusDexContract: DexContract | null = null;
-
   constructor(private dexContract: DexContract) {}
-
-  /**
-   * Get or create a Helius connection for withdrawals
-   */
-  private getHeliusConnection(): Connection {
-    if (!this.heliusConnection) {
-      const heliusUrl = process.env.NEXT_PUBLIC_HELIUS_RPC_URL;
-      if (!heliusUrl) {
-        throw new Error('NEXT_PUBLIC_HELIUS_RPC_URL is not configured');
-      }
-      this.heliusConnection = new Connection(heliusUrl, {
-        commitment: 'confirmed' as Commitment,
-        confirmTransactionInitialTimeout: 60000,
-      });
-    }
-    return this.heliusConnection;
-  }
-
-  /**
-   * Get or create a Helius-based DexContract for withdrawals
-   */
-  private getHeliusDexContract(): DexContract {
-    if (!this.heliusDexContract) {
-      const wallet = this.dexContract.getWallet();
-      const heliusConnection = this.getHeliusConnection();
-      this.heliusDexContract = new DexContract(heliusConnection, wallet);
-    }
-    return this.heliusDexContract;
-  }
 
   /**
    * Perform a direct SPL token transfer on Solana.
@@ -243,11 +206,8 @@ export class WithdrawalService {
         note: 'Setting up withdrawal monitoring...',
       });
 
-      // Use Helius RPC for withdrawErc20 to avoid WebSocket issues
-      const heliusDexContract = this.getHeliusDexContract();
-
       try {
-        await heliusDexContract.withdrawErc20({
+        await this.dexContract.withdrawErc20({
           authority: publicKey,
           requestIdBytes,
           erc20AddressBytes,

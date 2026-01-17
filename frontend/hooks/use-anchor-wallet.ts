@@ -28,6 +28,5 @@ export function useAnchorWallet(): Wallet | null {
       const signed = await signer.signAllTransactions(txs);
       return signed as T[];
     },
-    payer: { publicKey },
   } as Wallet;
 }

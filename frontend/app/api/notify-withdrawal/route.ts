@@ -2,11 +2,30 @@ import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { handleWithdrawal } from '@/lib/relayer/handlers';
-import type { EvmTransactionRequest } from '@/lib/types/shared.types';
+import type {
+  EvmTransactionRequest,
+  EvmTransactionRequestNotifyWithdrawal,
+} from '@/lib/types/shared.types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
+
+function parseTransactionParams(
+  params: EvmTransactionRequestNotifyWithdrawal,
+): EvmTransactionRequest {
+  return {
+    type: params.type,
+    chainId: params.chainId,
+    nonce: params.nonce,
+    to: params.to,
+    data: params.data,
+    value: BigInt(params.value),
+    gasLimit: BigInt(params.gasLimit),
+    maxFeePerGas: BigInt(params.maxFeePerGas),
+    maxPriorityFeePerGas: BigInt(params.maxPriorityFeePerGas),
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +44,7 @@ export async function POST(request: NextRequest) {
         const result = await handleWithdrawal({
           requestId,
           erc20Address,
-          transactionParams: transactionParams as EvmTransactionRequest,
+          transactionParams: parseTransactionParams(transactionParams),
         });
         if (!result.ok) {
           console.error('Withdrawal processing failed:', result.error);
