@@ -10,7 +10,8 @@
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "format": "prettier --check .",
-    "format:fix": "prettier --write ."
+    "format:fix": "prettier --write .",
+    "generate:idl": "anchor idl type ../contract/target/idl/solana_core_contracts.json -o lib/program/idl-sol-dex.ts && sed -i '' 's/SolanaCoreContracts/SolanaDexContract/g' lib/program/idl-sol-dex.ts && cp ../contract/target/idl/solana_core_contracts.json lib/program/solana_dex_contract.json && echo \"\\nimport IDL_JSON from './solana_dex_contract.json';\\nexport const IDL = IDL_JSON as SolanaDexContract;\" >> lib/program/idl-sol-dex.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
@@ -22,7 +23,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@solana/connector": "^0.2.2",
     "@solana/spl-token": "^0.4.14",
-    "@solana/web3.js": "^1.98.2",
+    "@solana/web3.js": "1.69.0",
     "@tanstack/react-query": "^5.83.0",
     "@tanstack/react-query-devtools": "^5.83.0",
     "@web3icons/react": "^4.0.20",
@@ -37,6 +38,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.61.1",
+    "signet.js": "^0.2.0",
     "sonner": "^2.0.6",
     "tailwind-merge": "^3.3.1",
     "viem": "^2.31.7",
@@ -60,5 +62,5 @@
     "typescript": "^5",
     "typescript-eslint": "^8.37.0"
   },
-  "packageManager": "pnpm@10.13.1+sha512.37ebf1a5c7a30d5fabe0c5df44ee8da4c965ca0c5af3dbab28c3a1681b70a256218d05c81c9c0dcf767ef6b8551eb5b960042b9ed4300c59242336377e01cfad"
+  "packageManager": "pnpm@10.28.0+sha512.05df71d1421f21399e053fde567cea34d446fa02c76571441bfc1c7956e98e363088982d940465fd34480d4d90a0668bc12362f8aa88000a64e83d0b0e47be48"
 }

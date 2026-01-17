@@ -8,7 +8,7 @@ import {
   getAllErc20Tokens,
   NETWORKS_WITH_TOKENS,
 } from '@/lib/constants/token-metadata';
-import type { BridgeContract } from '@/lib/contracts/bridge-contract';
+import type { DexContract } from '@/lib/contracts/dex-contract';
 import { getTokenInfo } from '@/lib/utils/token-formatting';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
 import { getAlchemyProvider } from '@/lib/rpc';
@@ -23,8 +23,8 @@ export class TokenBalanceService {
   private alchemy = getAlchemyProvider();
   private rpcManager: ReturnType<typeof getRPCManager>;
 
-  constructor(private bridgeContract: BridgeContract) {
-    this.rpcManager = getRPCManager(bridgeContract.getConnection());
+  constructor(private dexContract: DexContract) {
+    this.rpcManager = getRPCManager(dexContract.getConnection());
   }
 
   // Decimals resolution delegated to shared token info (Alchemy-backed)
@@ -171,7 +171,7 @@ export class TokenBalanceService {
 
       // Fetch ERC20 balances from the bridge contract
       const balancesPromises = tokenAddresses.map(async erc20Address => {
-        const balance = await this.bridgeContract.fetchUserBalance(
+        const balance = await this.dexContract.fetchUserBalance(
           publicKey,
           erc20Address,
         );
@@ -299,7 +299,7 @@ export class TokenBalanceService {
     publicKey: PublicKey,
     erc20Address: string,
   ): Promise<string> {
-    return await this.bridgeContract.fetchUserBalance(publicKey, erc20Address);
+    return await this.dexContract.fetchUserBalance(publicKey, erc20Address);
   }
 
   /**

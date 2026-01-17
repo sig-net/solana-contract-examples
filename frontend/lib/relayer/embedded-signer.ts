@@ -33,7 +33,7 @@ export async function startEmbeddedSigner(): Promise<ChainSignatureServer | null
     solanaRpcUrl,
     solanaPrivateKey: env.RELAYER_PRIVATE_KEY,
     mpcRootKey: env.MPC_ROOT_KEY,
-    infuraApiKey: env.NEXT_PUBLIC_ALCHEMY_API_KEY,
+    infuraApiKey: env.INFURA_API_KEY,
     programId: env.NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID,
     isDevnet: true,
     verbose: false,

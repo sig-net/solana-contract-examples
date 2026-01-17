@@ -1,10 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
-import { secp256k1 } from '@noble/curves/secp256k1';
-import { keccak256, toHex } from 'viem';
+import { utils as signetUtils } from 'signet.js';
 import { publicKeyToAddress } from 'viem/accounts';
 
 import { getClientEnv } from '@/lib/config/env.config';
 import { IDL } from '@/lib/program/idl-sol-dex';
+import { SERVICE_CONFIG } from '@/lib/constants/service.config';
 
 const env = getClientEnv();
 
@@ -23,8 +23,8 @@ export const CHAIN_SIGNATURES_PROGRAM_ID = new PublicKey(
  */
 export const CHAIN_SIGNATURES_CONFIG = {
   MPC_ROOT_PUBLIC_KEY: env.NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY,
-  EPSILON_DERIVATION_PREFIX: 'sig.network v1.0.0 epsilon derivation',
-  SOLANA_CHAIN_ID: '0x800001f5',
+  SOLANA_CAIP2_ID: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+  KEY_VERSION: 1,
 } as const;
 
 export const RESPONDER_ADDRESS = env.NEXT_PUBLIC_RESPONDER_ADDRESS;
@@ -104,68 +104,25 @@ export function deriveUserTransactionHistoryPda(
 }
 
 /**
- * Derive epsilon value for key derivation
+ * Derive public key using signet.js cryptography utilities
+ * Uses the same derivation method as the MPC contract tests
  */
-function deriveEpsilon(requester: string, path: string): bigint {
-  const derivationPath = `${CHAIN_SIGNATURES_CONFIG.EPSILON_DERIVATION_PREFIX},${CHAIN_SIGNATURES_CONFIG.SOLANA_CHAIN_ID},${requester},${path}`;
-  const hash = keccak256(toHex(derivationPath));
-  return BigInt(hash);
-}
-
-/**
- * Convert public key string to elliptic curve point
- */
-function publicKeyToPoint(publicKey: string): { x: bigint; y: bigint } {
-  const cleanPubKey = publicKey.slice(4);
-  const x = cleanPubKey.slice(0, 64);
-  const y = cleanPubKey.slice(64, 128);
-  return {
-    x: BigInt('0x' + x),
-    y: BigInt('0x' + y),
-  };
-}
-
-/**
- * Convert elliptic curve point to public key string
- */
-function pointToPublicKey(point: { x: bigint; y: bigint }): string {
-  const x = point.x.toString(16).padStart(64, '0');
-  const y = point.y.toString(16).padStart(64, '0');
-  return '0x04' + x + y;
-}
-
-/**
- * Derive public key using epsilon and base public key
- */
-function derivePublicKey(
+function deriveChildPublicKey(
   path: string,
   requesterAddress: string,
   basePublicKey: string,
-): string {
-  try {
-    const epsilon = deriveEpsilon(requesterAddress, path);
-    const basePoint = publicKeyToPoint(basePublicKey);
-
-    const epsilonPoint = secp256k1.ProjectivePoint.BASE.multiply(epsilon);
-
-    const baseProjectivePoint = new secp256k1.ProjectivePoint(
-      basePoint.x,
-      basePoint.y,
-      BigInt(1),
-    );
-
-    const resultPoint = epsilonPoint.add(baseProjectivePoint);
-    const resultAffine = resultPoint.toAffine();
-
-    return pointToPublicKey({
-      x: resultAffine.x,
-      y: resultAffine.y,
-    });
-  } catch (error) {
-    throw new Error(
-      `Key derivation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    );
-  }
+): `04${string}` {
+  // signet.js expects the public key without 0x prefix (format: 04...)
+  const normalizedPubKey = basePublicKey.startsWith('0x')
+    ? basePublicKey.slice(2)
+    : basePublicKey;
+  return signetUtils.cryptography.deriveChildPublicKey(
+    normalizedPubKey as `04${string}`,
+    requesterAddress,
+    path,
+    CHAIN_SIGNATURES_CONFIG.SOLANA_CAIP2_ID,
+    CHAIN_SIGNATURES_CONFIG.KEY_VERSION,
+  );
 }
 
 /**
@@ -176,12 +133,12 @@ export function deriveEthereumAddress(
   requesterAddress: string,
   basePublicKey: string,
 ): string {
-  const derivedPublicKey = derivePublicKey(
+  const derivedPublicKey = deriveChildPublicKey(
     path,
     requesterAddress,
     basePublicKey,
   );
-  return publicKeyToAddress(derivedPublicKey as `0x${string}`);
+  return publicKeyToAddress(`0x${derivedPublicKey}` as `0x${string}`);
 }
 
 /**
@@ -199,15 +156,28 @@ export const GLOBAL_VAULT_AUTHORITY_PDA = PublicKey.findProgramAddressSync(
  */
 export const VAULT_ETHEREUM_ADDRESS = (() => {
   try {
-    const derivedPublicKey = derivePublicKey(
+    const derivedPublicKey = deriveChildPublicKey(
       'root',
       GLOBAL_VAULT_AUTHORITY_PDA.toString(),
       CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
     );
-    return publicKeyToAddress(derivedPublicKey as `0x${string}`);
+    return publicKeyToAddress(`0x${derivedPublicKey}` as `0x${string}`);
   } catch (error) {
     throw new Error(
       `Failed to derive vault address: ${error instanceof Error ? error.message : 'Unknown error'}`,
     );
   }
 })();
+
+/**
+ * Derive the MPC respond address for a given vault authority
+ * This address is used to verify respondBidirectional signatures in claim/complete operations
+ */
+export function deriveMpcRespondAddress(vaultAuthority: PublicKey): string {
+  const derivedPublicKey = deriveChildPublicKey(
+    SERVICE_CONFIG.CRYPTOGRAPHY.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+    vaultAuthority.toString(),
+    CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
+  );
+  return publicKeyToAddress(`0x${derivedPublicKey}` as `0x${string}`);
+}
