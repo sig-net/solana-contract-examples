@@ -1,4 +1,5 @@
 import * as anchor from "@coral-xyz/anchor";
+import { ComputeBudgetProgram } from "@solana/web3.js";
 import { expect } from "chai";
 import * as bitcoin from "bitcoinjs-lib";
 import ECPairFactory from "ecpair";
@@ -11,8 +12,8 @@ import {
   buildWithdrawalPlan,
   buildWithdrawalPsbt,
   computeSignatureRequestIds,
+  COMPUTE_UNITS,
   createFundedAuthority,
-  deriveMpcRespondAddress,
   executeSyntheticDeposit,
   fetchUserBalance,
   getBitcoinTestContext,
@@ -229,20 +230,19 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
 
       // Step 10: Call complete_withdraw_btc with the error response
       console.log("  🔄 Calling complete_withdraw_btc with error response...");
-      const expectedAddress = deriveMpcRespondAddress(
-        withdrawalPlan.globalVault.pda
-      );
       const completeTx = await program.methods
         .completeWithdrawBtc(
           planRequestIdBytes(withdrawalPlan),
           Buffer.from(readEvent.serializedOutput),
           readEvent.signature,
-          null,
-          expectedAddress
+          null
         )
         .accounts({
           payer: provider.wallet.publicKey,
         })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+        ])
         .rpc();
       await provider.connection.confirmTransaction(completeTx);
 

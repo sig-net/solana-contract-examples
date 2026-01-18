@@ -30,3 +30,5 @@ hex                  = "0.4"
 chain-signatures     = { git = "https://github.com/sig-net/signet-solana-program", branch = "btc-support-prod", features = ["cpi"] }
 base64ct             = { workspace = true }
 ruint                = { workspace = true }
+# Well-known secp256k1 library (Parity's implementation) for curve constants and point operations
+libsecp256k1         = { version = "0.6", default-features = false, features = ["static-context"] }

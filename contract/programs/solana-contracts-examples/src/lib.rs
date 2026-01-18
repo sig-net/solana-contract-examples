@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 
 pub mod constants;
 pub mod contexts;
+pub mod crypto;
 pub mod error;
 pub mod instructions;
 pub mod state;
@@ -53,7 +54,6 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
-        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::erc20_vault::claim_erc20(
             ctx,
@@ -61,7 +61,6 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             ethereum_tx_hash,
-            expected_address,
         )
     }
 
@@ -89,7 +88,6 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         ethereum_tx_hash: Option<[u8; 32]>,
-        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::erc20_vault::complete_withdraw_erc20(
             ctx,
@@ -97,7 +95,6 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             ethereum_tx_hash,
-            expected_address,
         )
     }
 
@@ -118,7 +115,6 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         bitcoin_tx_hash: Option<[u8; 32]>,
-        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::btc_vault::claim_btc(
             ctx,
@@ -126,7 +122,6 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             bitcoin_tx_hash,
-            expected_address,
         )
     }
 
@@ -154,7 +149,6 @@ pub mod solana_core_contracts {
         serialized_output: Vec<u8>,
         signature: Signature,
         bitcoin_tx_hash: Option<[u8; 32]>,
-        expected_address: [u8; 20],
     ) -> Result<()> {
         instructions::btc_vault::complete_withdraw_btc(
             ctx,
@@ -162,7 +156,6 @@ pub mod solana_core_contracts {
             serialized_output,
             signature,
             bitcoin_tx_hash,
-            expected_address,
         )
     }
 }

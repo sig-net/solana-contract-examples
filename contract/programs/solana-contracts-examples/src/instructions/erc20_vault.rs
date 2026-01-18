@@ -34,20 +34,6 @@ pub fn deposit_erc20(
     };
 
     // Build EVM transaction
-
-    msg!("Deposit: Building EVM transaction");
-    msg!("Chain ID: {}", tx_params.chain_id);
-    msg!("Nonce: {}", tx_params.nonce);
-    msg!("ERC20 address: {:?}", erc20_address);
-    msg!("Value: {}", tx_params.value);
-    msg!("Gas limit: {}", tx_params.gas_limit);
-    msg!("Max fee per gas: {}", tx_params.max_fee_per_gas);
-    msg!(
-        "Max priority fee per gas: {}",
-        tx_params.max_priority_fee_per_gas
-    );
-    msg!("Call data: {:?}", call.abi_encode());
-
     let evm_tx = TransactionBuilder::new::<EVM>()
         .chain_id(tx_params.chain_id)
         .nonce(tx_params.nonce)
@@ -64,21 +50,6 @@ pub fn deposit_erc20(
     // Generate CAIP-2 ID from chain ID
     let caip2_id = format!("eip155:{}", tx_params.chain_id);
 
-    // Add detailed logging
-    msg!("=== REQUEST ID CALCULATION DEBUG ===");
-    msg!("Sender (requester): {}", ctx.accounts.requester_pda.key());
-    msg!("Transaction data length: {}", rlp_encoded_tx.len());
-    msg!(
-        "Transaction data (first 32 bytes): {:?}",
-        &rlp_encoded_tx[..32.min(rlp_encoded_tx.len())]
-    );
-    msg!("CAIP-2 ID: {}", caip2_id);
-    msg!("Key version: {}", 0);
-    msg!("Path: {}", path);
-    msg!("Algo: {}", "ECDSA");
-    msg!("Dest: {}", "ethereum");
-    msg!("Params: {}", "");
-
     // Generate request ID and verify it matches the one passed in
     let computed_request_id = generate_sign_bidirectional_request_id(
         &ctx.accounts.requester_pda.key(),
@@ -90,10 +61,6 @@ pub fn deposit_erc20(
         "ethereum",
         "",
     );
-
-    msg!("Computed request ID: {:?}", computed_request_id);
-    msg!("Provided request ID: {:?}", request_id);
-    msg!("Request IDs match: {}", computed_request_id == request_id);
 
     require!(
         computed_request_id == request_id,
@@ -193,19 +160,22 @@ pub fn claim_erc20(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     ethereum_tx_hash: Option<[u8; 32]>,
-    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
+    let config = &ctx.accounts.config;
+
+    // Derive the expected address on-chain from MPC root public key + user's derivation path
+    let expected_address_bytes = crate::crypto::derive_deposit_expected_address(
+        &config.mpc_root_public_key,
+        &pending.requester,
+    )?;
 
     // Verify signature
     let message_hash = hash_message(&request_id, &serialized_output);
 
     // Verify the signature
-    let expected_address = format!("0x{}", hex::encode(expected_address));
-
+    let expected_address = format!("0x{}", hex::encode(expected_address_bytes));
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
-
-    msg!("Signature verified successfully");
 
     // Deserialize directly as bool (server now sends just the boolean)
     let success: bool = BorshDeserialize::try_from_slice(&serialized_output)
@@ -219,11 +189,6 @@ pub fn claim_erc20(
         .amount
         .checked_add(pending.amount)
         .ok_or(crate::error::ErrorCode::Overflow)?;
-
-    msg!(
-        "ERC20 deposit claimed successfully. New balance: {}",
-        balance.amount
-    );
 
     // Update transaction history to mark deposit as completed
     let history = &mut ctx.accounts.transaction_history;
@@ -259,27 +224,12 @@ pub fn withdraw_erc20(
         .checked_sub(amount)
         .ok_or(crate::error::ErrorCode::Underflow)?;
 
-    msg!("Optimistically decremented balance by {}", amount);
-
     // Create ERC20 transfer call
     let recipient = Address::from_slice(&recipient_address);
     let call = IERC20::transferCall {
         to: recipient,
         amount: U256::from(amount),
     };
-
-    msg!("Withdraw: Building EVM transaction");
-    msg!("Chain ID: {}", tx_params.chain_id);
-    msg!("Nonce: {}", tx_params.nonce);
-    msg!("ERC20 address: {:?}", erc20_address);
-    msg!("Value: {}", tx_params.value);
-    msg!("Gas limit: {}", tx_params.gas_limit);
-    msg!("Max fee per gas: {}", tx_params.max_fee_per_gas);
-    msg!(
-        "Max priority fee per gas: {}",
-        tx_params.max_priority_fee_per_gas
-    );
-    msg!("Call data: {:?}", call.abi_encode());
 
     // Build EVM transaction - note: this is FROM the hardcoded recipient address
     let evm_tx = TransactionBuilder::new::<EVM>()
@@ -309,9 +259,6 @@ pub fn withdraw_erc20(
         "ethereum",
         "",
     );
-
-    msg!("Computed request ID: {:?}", computed_request_id);
-    msg!("Provided request ID: {:?}", request_id);
 
     require!(
         computed_request_id == request_id,
@@ -413,13 +360,19 @@ pub fn complete_withdraw_erc20(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     ethereum_tx_hash: Option<[u8; 32]>,
-    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
+    let config = &ctx.accounts.config;
+
+    // Derive the expected address on-chain from MPC root public key + "root" path
+    // For withdrawals, the signer is always the global vault address
+    let expected_address_bytes = crate::crypto::derive_withdrawal_expected_address(
+        &config.mpc_root_public_key,
+    )?;
 
     let message_hash = hash_message(&request_id, &serialized_output);
     // Verify the signature
-    let expected_address = format!("0x{}", hex::encode(expected_address));
+    let expected_address = format!("0x{}", hex::encode(expected_address_bytes));
 
     verify_signature_from_address(&message_hash, &signature, &expected_address)?;
 
@@ -535,11 +488,6 @@ fn generate_sign_bidirectional_request_id(
 ) -> [u8; 32] {
     use alloy_sol_types::SolValue;
 
-    msg!("=== generate_sign_bidirectional_request_id ===");
-    msg!("Encoding with abi_encode_packed");
-
-    // Match TypeScript implementation using packed ABI encoding
-    // This matches: ethers.solidityPacked()
     let encoded = (
         sender.to_string(),
         transaction_data,
@@ -552,16 +500,7 @@ fn generate_sign_bidirectional_request_id(
     )
         .abi_encode_packed();
 
-    msg!("Encoded data length: {}", encoded.len());
-    msg!(
-        "Encoded data (first 32 bytes): {:?}",
-        &encoded[..32.min(encoded.len())]
-    );
-
-    let hash = keccak::hash(&encoded).to_bytes();
-    msg!("Resulting hash: {:?}", hash);
-
-    hash
+    keccak::hash(&encoded).to_bytes()
 }
 
 fn hash_message(request_id: &[u8; 32], serialized_output: &[u8]) -> [u8; 32] {
