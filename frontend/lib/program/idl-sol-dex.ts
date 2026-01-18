@@ -204,15 +204,6 @@ export type SolanaDexContract = {
               ]
             }
           }
-        },
-        {
-          "name": "expectedAddress",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
-          }
         }
       ]
     },
@@ -378,15 +369,6 @@ export type SolanaDexContract = {
                 32
               ]
             }
-          }
-        },
-        {
-          "name": "expectedAddress",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
           }
         }
       ]
@@ -585,15 +567,6 @@ export type SolanaDexContract = {
               ]
             }
           }
-        },
-        {
-          "name": "expectedAddress",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
-          }
         }
       ]
     },
@@ -762,15 +735,6 @@ export type SolanaDexContract = {
                 32
               ]
             }
-          }
-        },
-        {
-          "name": "expectedAddress",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
           }
         }
       ]

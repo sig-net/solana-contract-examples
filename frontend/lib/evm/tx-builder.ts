@@ -69,8 +69,12 @@ export async function buildErc20TransferTx(params: {
   const gasLimit = (estimatedGas * BigInt(120)) / BigInt(100); // 20% buffer
 
   const feeData = await provider.estimateFeesPerGas();
-  const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ?? parseGwei('2');
-  const maxFeePerGas = feeData.maxFeePerGas ?? parseGwei('20');
+  const minPriorityFee = parseGwei('2');
+  const estimatedPriorityFee = feeData.maxPriorityFeePerGas ?? parseGwei('3');
+  const maxPriorityFeePerGas =
+    estimatedPriorityFee > minPriorityFee ? estimatedPriorityFee : minPriorityFee;
+  const baseMaxFeePerGas = feeData.maxFeePerGas ?? parseGwei('30');
+  const maxFeePerGas = (baseMaxFeePerGas * 200n) / 100n; // 2x buffer for base fee volatility during MPC signing
 
   const txRequest: EvmTransactionRequest = {
     type: 2,
