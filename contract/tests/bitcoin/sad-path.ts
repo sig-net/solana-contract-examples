@@ -1,18 +1,20 @@
 import * as anchor from "@coral-xyz/anchor";
+import { ComputeBudgetProgram } from "@solana/web3.js";
 import { expect } from "chai";
 import BN from "bn.js";
 import {
   buildDepositPlan,
   buildWithdrawalPlan,
   computeMessageHash,
+  COMPUTE_UNITS,
   expectAnchorError,
   executeSyntheticDeposit,
   fetchUserBalance,
   getBitcoinTestContext,
-  getMpcRootAddressBytes,
   planRequestIdBytes,
   setupBitcoinTestContext,
-  signHashWithMpc,
+  signHashWithMpcForDeposit,
+  signHashWithMpcForWithdrawal,
   teardownBitcoinTestContext,
   createFundedAuthority,
 } from "./utils";
@@ -102,22 +104,23 @@ describe("BTC Sad Path", () => {
       planRequestIdBytes(plan),
       serializedOutput
     );
-    const validSignature = signHashWithMpc(messageHash);
+    const validSignature = await signHashWithMpcForDeposit(messageHash, plan.requester);
     const invalidSignature = JSON.parse(
       JSON.stringify(validSignature)
     ) as typeof validSignature;
     invalidSignature.s[0] ^= 0xff;
 
-    const rootAddress = getMpcRootAddressBytes();
     await expectAnchorError(
       program.methods
         .claimBtc(
           planRequestIdBytes(plan),
           serializedOutput,
           invalidSignature,
-          null,
-          rootAddress
+          null
         )
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+        ])
         .rpc(),
       /Invalid signature/
     );
@@ -127,9 +130,11 @@ describe("BTC Sad Path", () => {
         planRequestIdBytes(plan),
         serializedOutput,
         validSignature,
-        null,
-        rootAddress
+        null
       )
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
       .rpc();
     await provider.connection.confirmTransaction(claimTx);
   });
@@ -155,8 +160,9 @@ describe("BTC Sad Path", () => {
     await provider.connection.confirmTransaction(depositTx);
 
     const malformedOutput = Buffer.from([]);
-    const malformedSignature = signHashWithMpc(
-      computeMessageHash(planRequestIdBytes(plan), malformedOutput)
+    const malformedSignature = await signHashWithMpcForDeposit(
+      computeMessageHash(planRequestIdBytes(plan), malformedOutput),
+      plan.requester
     );
 
     await expectAnchorError(
@@ -165,9 +171,11 @@ describe("BTC Sad Path", () => {
           planRequestIdBytes(plan),
           malformedOutput,
           malformedSignature,
-          null,
-          getMpcRootAddressBytes()
+          null
         )
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+        ])
         .rpc(),
       /Invalid output format/
     );
@@ -194,8 +202,9 @@ describe("BTC Sad Path", () => {
     await provider.connection.confirmTransaction(depositTx);
 
     const failedOutput = Buffer.from([0]);
-    const failedSig = signHashWithMpc(
-      computeMessageHash(planRequestIdBytes(plan), failedOutput)
+    const failedSig = await signHashWithMpcForDeposit(
+      computeMessageHash(planRequestIdBytes(plan), failedOutput),
+      plan.requester
     );
 
     await expectAnchorError(
@@ -204,9 +213,11 @@ describe("BTC Sad Path", () => {
           planRequestIdBytes(plan),
           failedOutput,
           failedSig,
-          null,
-          getMpcRootAddressBytes()
+          null
         )
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+        ])
         .rpc(),
       /Transfer failed/
     );
@@ -319,7 +330,7 @@ describe("BTC Sad Path", () => {
     await provider.connection.confirmTransaction(withdrawTx);
 
     const serializedOutput = Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00]);
-    const refundSignature = signHashWithMpc(
+    const refundSignature = await signHashWithMpcForWithdrawal(
       computeMessageHash(planRequestIdBytes(withdrawPlan), serializedOutput)
     );
 
@@ -328,9 +339,11 @@ describe("BTC Sad Path", () => {
         planRequestIdBytes(withdrawPlan),
         serializedOutput,
         refundSignature,
-        null,
-        getMpcRootAddressBytes()
+        null
       )
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
       .rpc();
     await provider.connection.confirmTransaction(completeTx);
 

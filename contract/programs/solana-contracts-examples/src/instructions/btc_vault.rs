@@ -77,13 +77,6 @@ pub fn deposit_btc(
         }
     }
 
-    msg!("Deposit: Building Bitcoin SegWit transaction");
-    msg!("Total input value: {} sats", total_input_value);
-    msg!("Total output value: {} sats", total_output_value);
-    msg!("Total vault output value: {} sats", vault_output_value);
-    msg!("Inputs: {}", btc_inputs.len());
-    msg!("Outputs: {}", btc_outputs.len());
-
     // Build unsigned Bitcoin transaction (SegWit - Version::Two)
     let lock_time =
         LockTime::from_height(lock_time).map_err(|_| crate::error::ErrorCode::InvalidAddress)?;
@@ -99,17 +92,6 @@ pub fn deposit_btc(
     let mut txid_explorer_reversed_bytes = tx.compute_txid().as_byte_array();
     txid_explorer_reversed_bytes.reverse(); // Revert to get explorer format
 
-    msg!("=== TRANSACTION BUILD DEBUG ===");
-    msg!(
-        "Built transaction with {} inputs, {} outputs",
-        tx.input.len(),
-        tx.output.len()
-    );
-    msg!(
-        "Transaction TXID (explorer order): {}",
-        hex::encode(&txid_explorer_reversed_bytes)
-    );
-
     // Generate PSBT for MPC signing (includes metadata for signing)
     let mut psbt = Psbt::from_unsigned_tx(tx);
 
@@ -119,22 +101,9 @@ pub fn deposit_btc(
             .map_err(|_| crate::error::ErrorCode::SerializationError)?;
     }
 
-    msg!("Added witnessUtxo to {} PSBT inputs", psbt.inputs.len());
-
     let psbt_bytes = psbt
         .serialize()
         .map_err(|_| crate::error::ErrorCode::SerializationError)?;
-
-    // Use CAIP-2 ID from transaction params (network-specific genesis block hash)
-    msg!("=== REQUEST ID CALCULATION DEBUG ===");
-    msg!("Sender (requester): {}", ctx.accounts.requester_pda.key());
-    msg!(
-        "TXID (explorer order): {}",
-        hex::encode(&txid_explorer_reversed_bytes)
-    );
-    msg!("PSBT length: {} bytes", psbt_bytes.len());
-    msg!("CAIP-2 ID: {}", caip2_id);
-    msg!("Path: {}", path);
 
     // Generate request ID using TXID (deterministic!)
     let computed_request_id = generate_sign_bidirectional_request_id(
@@ -147,9 +116,6 @@ pub fn deposit_btc(
         "bitcoin",
         "",
     );
-
-    msg!("Computed request ID: {:?}", computed_request_id);
-    msg!("Provided request ID: {:?}", request_id);
 
     require!(
         computed_request_id == request_id,
@@ -220,8 +186,6 @@ pub fn deposit_btc(
         callback_schema,
     )?;
 
-    msg!("BTC deposit initiated with request_id: {:?}", request_id);
-
     // Add deposit transaction record
     let deposit_record = TransactionRecord {
         request_id,
@@ -236,7 +200,6 @@ pub fn deposit_btc(
 
     let history = &mut ctx.accounts.transaction_history;
     history.add_deposit(deposit_record);
-    msg!("Added BTC deposit to transaction history");
 
     Ok(())
 }
@@ -247,16 +210,21 @@ pub fn claim_btc(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     bitcoin_tx_hash: Option<[u8; 32]>,
-    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
+    let config = &ctx.accounts.config;
 
-    // Verify signature against the expected address (derived off-chain from root public key + sender PDA)
+    // Derive the expected address on-chain from MPC root public key + user's derivation path
+    // Formula: childPubKey = basePubKey + (epsilon × G), where epsilon = keccak256(derivation_path)
+    let expected_address_bytes = crate::crypto::derive_deposit_expected_address(
+        &config.mpc_root_public_key,
+        &pending.requester,
+    )?;
+
+    // Verify signature against the derived expected address
     let message_hash = hash_message(&request_id, &serialized_output);
-    let expected_address_str = format!("0x{}", hex::encode(expected_address));
+    let expected_address_str = format!("0x{}", hex::encode(expected_address_bytes));
     verify_signature_from_address(&message_hash, &signature, &expected_address_str)?;
-
-    msg!("Signature verified successfully");
 
     // Deserialize result as boolean
     let success: bool = BorshDeserialize::try_from_slice(&serialized_output)
@@ -271,15 +239,9 @@ pub fn claim_btc(
         .checked_add(pending.amount)
         .ok_or(crate::error::ErrorCode::Overflow)?;
 
-    msg!(
-        "BTC deposit claimed successfully. New balance: {} sats",
-        balance.amount
-    );
-
     // Update transaction history
     let history = &mut ctx.accounts.transaction_history;
     history.update_deposit_status(&request_id, TransactionStatus::Completed, bitcoin_tx_hash)?;
-    msg!("Updated deposit status to completed in transaction history");
 
     Ok(())
 }
@@ -318,11 +280,6 @@ pub fn withdraw_btc(
         .amount
         .checked_sub(total_debit)
         .ok_or(crate::error::ErrorCode::Underflow)?;
-
-    msg!(
-        "Optimistically decremented balance by {} sats (amount + fee)",
-        total_debit
-    );
 
     // Build Bitcoin transaction inputs
     let mut btc_inputs = Vec::new();
@@ -371,21 +328,9 @@ pub fn withdraw_btc(
         });
     }
 
-    let total_output_value = amount
+    let _total_output_value = amount
         .checked_add(change_output_value)
         .ok_or(crate::error::ErrorCode::Overflow)?;
-
-    msg!("Total input value: {} sats", total_input_value);
-    msg!("Total output value: {} sats", total_output_value);
-    msg!("Declared fee: {} sats", fee);
-
-    msg!("Withdraw: Building Bitcoin SegWit transaction");
-    msg!("Inputs: {}", btc_inputs.len());
-    msg!("Outputs: {}", btc_outputs.len());
-    msg!(
-        "Total change value (to vault): {} sats",
-        change_output_value
-    );
 
     // Change is derived deterministically, so no extra validation required beyond initial checks.
 
@@ -404,17 +349,6 @@ pub fn withdraw_btc(
     let mut txid_explorer_reversed_bytes = tx.compute_txid().as_byte_array();
     txid_explorer_reversed_bytes.reverse(); // Revert to get explorer format
 
-    msg!("=== TRANSACTION BUILD DEBUG ===");
-    msg!(
-        "Built transaction with {} inputs, {} outputs",
-        tx.input.len(),
-        tx.output.len()
-    );
-    msg!(
-        "Transaction TXID (explorer order): {}",
-        hex::encode(&txid_explorer_reversed_bytes)
-    );
-
     // Generate PSBT for MPC signing (includes metadata for signing)
     let mut psbt = Psbt::from_unsigned_tx(tx);
 
@@ -424,21 +358,9 @@ pub fn withdraw_btc(
             .map_err(|_| crate::error::ErrorCode::SerializationError)?;
     }
 
-    msg!("Added witnessUtxo to {} PSBT inputs", psbt.inputs.len());
-
     let psbt_bytes = psbt
         .serialize()
         .map_err(|_| crate::error::ErrorCode::SerializationError)?;
-
-    msg!("=== REQUEST ID CALCULATION DEBUG ===");
-    msg!("Sender (requester): {}", ctx.accounts.requester.key());
-    msg!(
-        "TXID (explorer order): {}",
-        hex::encode(&txid_explorer_reversed_bytes)
-    );
-    msg!("PSBT length: {} bytes", psbt_bytes.len());
-    msg!("CAIP-2 ID: {}", caip2_id);
-    msg!("Path: {}", path);
 
     // Generate request ID using TXID (deterministic!)
     let computed_request_id = generate_sign_bidirectional_request_id(
@@ -451,9 +373,6 @@ pub fn withdraw_btc(
         "bitcoin",
         "",
     );
-
-    msg!("Computed request ID: {:?}", computed_request_id);
-    msg!("Provided request ID: {:?}", request_id);
 
     require!(
         computed_request_id == request_id,
@@ -543,13 +462,19 @@ pub fn complete_withdraw_btc(
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
     bitcoin_tx_hash: Option<[u8; 32]>,
-    expected_address: [u8; 20],
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
+    let config = &ctx.accounts.config;
 
-    // Verify signature against the expected address (derived off-chain from root public key + sender PDA)
+    // Derive the expected address on-chain from MPC root public key + "root" path
+    // For withdrawals, the signer is always the global vault address
+    let expected_address_bytes = crate::crypto::derive_withdrawal_expected_address(
+        &config.mpc_root_public_key,
+    )?;
+
+    // Verify signature against the derived expected address
     let message_hash = hash_message(&request_id, &serialized_output);
-    let expected_address_str = format!("0x{}", hex::encode(expected_address));
+    let expected_address_str = format!("0x{}", hex::encode(expected_address_bytes));
     verify_signature_from_address(&message_hash, &signature, &expected_address_str)?;
 
     msg!("Signature verified successfully");

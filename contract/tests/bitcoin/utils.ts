@@ -1,5 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import { ComputeBudgetProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { SolanaCoreContracts } from "../../target/types/solana_core_contracts.js";
 import { ChainSignaturesProject } from "../../types/chain_signatures_project.js";
@@ -18,6 +19,7 @@ import {
   RequestIdGenerator,
   BitcoinAdapterFactory,
   IBitcoinAdapter,
+  CryptoUtils,
 } from "fakenet-signer";
 import { CONFIG, SERVER_CONFIG } from "../../utils/envConfig";
 import { randomBytes } from "crypto";
@@ -121,6 +123,9 @@ const requireContext = (): BitcoinTestContext => {
 
 // Bitcoin conversion
 export const SATS_PER_BTC = 100_000_000;
+
+// Compute budget for on-chain address derivation
+export const COMPUTE_UNITS = 1_400_000;
 
 // Bitcoin transaction constants
 const BTC_TX_VERSION = 2;
@@ -841,29 +846,81 @@ export const computeMessageHash = (
   return Buffer.from(ethers.keccak256(payload).slice(2), "hex");
 };
 
-const SOLANA_RESPOND_PATH = "solana response key";
-
-/**
- * Derives the MPC response address for a given sender PDA.
- * This is the Ethereum address that the MPC will use to sign responses.
- */
-export const deriveMpcRespondAddress = (
-  senderPda: anchor.web3.PublicKey
-): number[] => {
-  const derivedPublicKey = signetUtils.cryptography.deriveChildPublicKey(
-    CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
-    senderPda.toString(),
-    SOLANA_RESPOND_PATH,
-    CONFIG.SOLANA_CAIP2_ID,
-    CONFIG.KEY_VERSION
-  );
-  const address = ethers.computeAddress("0x" + derivedPublicKey);
-  // Convert "0x..." address to byte array (without the 0x prefix)
-  return Array.from(Buffer.from(address.slice(2), "hex"));
-};
-
 export const signHashWithMpc = (hash: Buffer): ChainSignaturePayload => {
   const signingKey = new ethers.SigningKey(CONFIG.MPC_ROOT_PRIVATE_KEY);
+  const signature = signingKey.sign(hash);
+  const rBytes = Buffer.from(ethers.getBytes(signature.r));
+  const sBytes = Buffer.from(ethers.getBytes(signature.s));
+  const recoveryId =
+    Number(signature.v) >= 27 ? Number(signature.v) - 27 : Number(signature.v);
+
+  return {
+    bigR: {
+      x: Array.from(rBytes),
+      y: Array(32).fill(0),
+    },
+    s: Array.from(sBytes),
+    recoveryId,
+  };
+};
+
+/**
+ * Signs a hash using the derived MPC key for deposit claims.
+ * Uses vault_authority PDA (derived from requester) + SOLANA_RESPOND_BIDIRECTIONAL_PATH.
+ */
+export const signHashWithMpcForDeposit = async (
+  hash: Buffer,
+  requester: anchor.web3.PublicKey
+): Promise<ChainSignaturePayload> => {
+  const { program } = requireContext();
+  const [vaultAuthorityPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("vault_authority"), requester.toBuffer()],
+    program.programId
+  );
+
+  const derivedKeyHex = await CryptoUtils.deriveSigningKey(
+    CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+    vaultAuthorityPda.toString(),
+    CONFIG.MPC_ROOT_PRIVATE_KEY
+  );
+
+  const signingKey = new ethers.SigningKey(derivedKeyHex);
+  const signature = signingKey.sign(hash);
+  const rBytes = Buffer.from(ethers.getBytes(signature.r));
+  const sBytes = Buffer.from(ethers.getBytes(signature.s));
+  const recoveryId =
+    Number(signature.v) >= 27 ? Number(signature.v) - 27 : Number(signature.v);
+
+  return {
+    bigR: {
+      x: Array.from(rBytes),
+      y: Array(32).fill(0),
+    },
+    s: Array.from(sBytes),
+    recoveryId,
+  };
+};
+
+/**
+ * Signs a hash using the derived MPC key for withdrawal completions.
+ * Uses global_vault_authority PDA + SOLANA_RESPOND_BIDIRECTIONAL_PATH.
+ */
+export const signHashWithMpcForWithdrawal = async (
+  hash: Buffer
+): Promise<ChainSignaturePayload> => {
+  const { program } = requireContext();
+  const [globalVaultPda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("global_vault_authority")],
+    program.programId
+  );
+
+  const derivedKeyHex = await CryptoUtils.deriveSigningKey(
+    CONFIG.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
+    globalVaultPda.toString(),
+    CONFIG.MPC_ROOT_PRIVATE_KEY
+  );
+
+  const signingKey = new ethers.SigningKey(derivedKeyHex);
   const signature = signingKey.sign(hash);
   const rBytes = Buffer.from(ethers.getBytes(signature.r));
   const sBytes = Buffer.from(ethers.getBytes(signature.s));
@@ -956,19 +1013,16 @@ export async function executeSyntheticDeposit(
 
     const readEvent = await eventPromises.readRespond;
 
-    // Derive expected address from vault_authority PDA
-    const expectedAddress = deriveMpcRespondAddress(
-      preparedPlan.vaultAuthority.pda
-    );
-
     const claimTx = await program.methods
       .claimBtc(
         requestIdToBytes(requestIdHex),
         Buffer.from(readEvent.serializedOutput),
         readEvent.signature,
-        null,
-        expectedAddress
+        null
       )
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
       .rpc();
     await provider.connection.confirmTransaction(claimTx);
   } finally {

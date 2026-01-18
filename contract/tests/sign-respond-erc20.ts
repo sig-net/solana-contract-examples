@@ -1,15 +1,17 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import { ComputeBudgetProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { SolanaCoreContracts } from "../target/types/solana_core_contracts";
 import { ChainSignaturesProject } from "../types/chain_signatures_project";
 import IDL from "../idl/chain_signatures_project.json";
 import { expect } from "chai";
 import { ethers } from "ethers";
-import { secp256k1 } from "@noble/curves/secp256k1";
 import { contracts, utils as signetUtils } from "signet.js";
 import { ChainSignatureServer, RequestIdGenerator } from "fakenet-signer";
 import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
+
+const COMPUTE_UNITS = 1_400_000;
 
 interface TransactionParams {
   nonce: BN;
@@ -258,11 +260,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
     console.log("  🔑 MPC Respond address:", mpcRespondAddress);
-
-    const mpcRespondAddressBytes = Array.from(
-      Buffer.from(mpcRespondAddress.slice(2), "hex")
-    );
-
     console.log("  👛 Wallet:", provider.wallet.publicKey.toString());
     console.log(
       "  🔑 Chain Signatures Program ID:",
@@ -414,12 +411,14 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
         respondBidirectionalEvent.signature,
-        null,
-        mpcRespondAddressBytes
+        null
       )
       .accounts({
         userBalance: accounts.userBalance,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
       .rpc();
 
     console.log("  ✅ Claim transaction:", claimTx);
@@ -505,10 +504,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
 
     console.log("  🔑 MPC Respond address:", mpcRespondAddress);
-
-    const mpcRespondAddressBytes = Array.from(
-      Buffer.from(mpcRespondAddress.slice(2), "hex")
-    );
 
     const recipientAddress = CONFIG.WITHDRAWAL_RECIPIENT_ADDRESS;
     const recipientAddressBytes = Array.from(
@@ -707,12 +702,14 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
         respondBidirectionalEvent.signature,
-        null,
-        mpcRespondAddressBytes
+        null
       )
       .accounts({
         userBalance,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
       .rpc();
 
     // Check if withdrawal was successful by checking balance
@@ -817,10 +814,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       CONFIG.KEY_VERSION
     );
     const mpcRespondAddress = ethers.computeAddress("0x" + mpcRespondPublicKey);
-
-    const mpcRespondAddressBytes = Array.from(
-      Buffer.from(mpcRespondAddress.slice(2), "hex")
-    );
 
     // Get current nonce for MPC signer
     const ethprovider = ethUtils.getProvider();
@@ -992,12 +985,14 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
         respondBidirectionalEvent.signature,
-        null,
-        mpcRespondAddressBytes
+        null
       )
       .accounts({
         userBalance,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
       .rpc();
 
     // =====================================================
