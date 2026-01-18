@@ -1,6 +1,6 @@
 import { Connection } from '@solana/web3.js';
 import { Wallet } from '@coral-xyz/anchor';
-import { serializeTransaction, type Hex, type PublicClient } from 'viem';
+import { type Hex, type PublicClient } from 'viem';
 
 import { DexContract } from '@/lib/contracts/dex-contract';
 import { ChainSignaturesContract } from '@/lib/contracts/chain-signatures-contract';
@@ -9,7 +9,7 @@ import type {
   RespondBidirectionalEvent,
 } from '@/lib/types/chain-signatures.types';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
-import { retryWithBackoff } from '@/lib/utils/retry';
+import { submitWithRetry } from '@/lib/evm/tx-submitter';
 
 export interface CrossChainConfig {
   eventTimeoutMs?: number;
@@ -149,52 +149,25 @@ export class CrossChainOrchestrator {
 
     console.log(`[${op}] Submitting to Ethereum...`);
 
-    const signedTx = serializeTransaction(
-      {
-        chainId: txParams.chainId,
-        nonce: txParams.nonce,
-        maxPriorityFeePerGas: txParams.maxPriorityFeePerGas,
-        maxFeePerGas: txParams.maxFeePerGas,
-        gas: txParams.gasLimit,
-        to: txParams.to,
-        value: txParams.value,
-        data: txParams.data,
-      },
+    const { txHash, receipt } = await submitWithRetry(
+      this.client,
+      txParams,
       {
         r: ethereumSignature.r as Hex,
         s: ethereumSignature.s as Hex,
-        yParity: Number(ethereumSignature.v) - 27,
+        v: ethereumSignature.v,
+      },
+      {
+        maxBroadcastAttempts: 3,
+        receiptTimeoutMs: 180_000,
       },
     );
 
-    let txHash: Hex;
-    try {
-      txHash = await retryWithBackoff(() =>
-        this.client.sendRawTransaction({ serializedTransaction: signedTx }),
-      );
-      console.log(`[${op}] Broadcast successful, txHash: ${txHash}`);
-    } catch (broadcastError) {
-      console.error(`[${op}] Broadcast failed:`, broadcastError);
-      throw broadcastError;
-    }
-
-    console.log(`[${op}] Waiting for Ethereum receipt...`);
-    const txReceipt = await this.client.waitForTransactionReceipt({
-      hash: txHash,
-      confirmations: this.config.ethereumConfirmations,
-    });
-
     console.log(`[${op}] Receipt received:`, {
-      status: txReceipt.status,
-      blockNumber: txReceipt.blockNumber,
-      gasUsed: txReceipt.gasUsed?.toString(),
+      status: receipt.status,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed?.toString(),
     });
-
-    if (txReceipt.status !== 'success') {
-      throw new Error(
-        `Ethereum transaction failed with status: ${txReceipt.status}`,
-      );
-    }
 
     return txHash;
   }

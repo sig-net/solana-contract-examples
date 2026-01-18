@@ -4,7 +4,6 @@ import { publicKeyToAddress } from 'viem/accounts';
 
 import { getClientEnv } from '@/lib/config/env.config';
 import { IDL } from '@/lib/program/idl-sol-dex';
-import { SERVICE_CONFIG } from '@/lib/constants/service.config';
 
 const env = getClientEnv();
 
@@ -168,16 +167,3 @@ export const VAULT_ETHEREUM_ADDRESS = (() => {
     );
   }
 })();
-
-/**
- * Derive the MPC respond address for a given vault authority
- * This address is used to verify respondBidirectional signatures in claim/complete operations
- */
-export function deriveMpcRespondAddress(vaultAuthority: PublicKey): string {
-  const derivedPublicKey = deriveChildPublicKey(
-    SERVICE_CONFIG.CRYPTOGRAPHY.SOLANA_RESPOND_BIDIRECTIONAL_PATH,
-    vaultAuthority.toString(),
-    CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
-  );
-  return publicKeyToAddress(`0x${derivedPublicKey}` as `0x${string}`);
-}

@@ -198,15 +198,6 @@
               ]
             }
           }
-        },
-        {
-          "name": "expected_address",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
-          }
         }
       ]
     },
@@ -372,15 +363,6 @@
                 32
               ]
             }
-          }
-        },
-        {
-          "name": "expected_address",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
           }
         }
       ]
@@ -579,15 +561,6 @@
               ]
             }
           }
-        },
-        {
-          "name": "expected_address",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
-          }
         }
       ]
     },
@@ -756,15 +729,6 @@
                 32
               ]
             }
-          }
-        },
-        {
-          "name": "expected_address",
-          "type": {
-            "array": [
-              "u8",
-              20
-            ]
           }
         }
       ]

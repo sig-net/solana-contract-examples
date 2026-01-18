@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer';
 
 import {
+  ComputeBudgetProgram,
   Connection,
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
@@ -19,6 +20,8 @@ import {
 } from '@/lib/constants/addresses';
 
 import { ChainSignaturesSignature } from '../types/chain-signatures.types';
+
+const COMPUTE_UNITS_FOR_DERIVATION = 400_000;
 
 export class DexContract {
   private program: Program<SolanaDexContract> | null = null;
@@ -117,6 +120,11 @@ export class DexContract {
         feePayer: payerKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({
+          units: COMPUTE_UNITS_FOR_DERIVATION,
+        }),
+      ])
       .rpc();
   }
 
@@ -127,7 +135,6 @@ export class DexContract {
     erc20AddressBytes,
     requester,
     ethereumTxHashBytes,
-    expectedAddressBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: number[];
@@ -135,7 +142,6 @@ export class DexContract {
     erc20AddressBytes: number[];
     requester: PublicKey;
     ethereumTxHashBytes?: number[];
-    expectedAddressBytes: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
@@ -149,11 +155,15 @@ export class DexContract {
         ethereumTxHashBytes
           ? (Array.from(ethereumTxHashBytes) as unknown as number[])
           : null,
-        expectedAddressBytes as unknown as number[],
       )
       .accounts({
         userBalance: userBalancePda,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({
+          units: COMPUTE_UNITS_FOR_DERIVATION,
+        }),
+      ])
       .rpc();
   }
 
@@ -187,6 +197,11 @@ export class DexContract {
         feePayer: authority,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({
+          units: COMPUTE_UNITS_FOR_DERIVATION,
+        }),
+      ])
       .rpc();
   }
 
@@ -197,7 +212,6 @@ export class DexContract {
     erc20AddressBytes,
     requester,
     ethereumTxHashBytes,
-    expectedAddressBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: number[];
@@ -205,7 +219,6 @@ export class DexContract {
     erc20AddressBytes: number[];
     requester: PublicKey;
     ethereumTxHashBytes?: number[];
-    expectedAddressBytes: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
@@ -219,11 +232,15 @@ export class DexContract {
         ethereumTxHashBytes
           ? (Array.from(ethereumTxHashBytes) as unknown as number[])
           : null,
-        expectedAddressBytes as unknown as number[],
       )
       .accounts({
         userBalance: userBalancePda,
       })
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({
+          units: COMPUTE_UNITS_FOR_DERIVATION,
+        }),
+      ])
       .rpc();
   }
 

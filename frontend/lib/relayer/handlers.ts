@@ -16,8 +16,6 @@ import {
   deriveVaultAuthorityPda,
   derivePendingDepositPda,
   derivePendingWithdrawalPda,
-  deriveMpcRespondAddress,
-  GLOBAL_VAULT_AUTHORITY_PDA,
 } from '@/lib/constants/addresses';
 import { withEmbeddedSigner } from '@/lib/relayer/embedded-signer';
 
@@ -96,7 +94,6 @@ async function executeDeposit(args: {
         const ethereumTxHashBytes = ethereumTxHash
           ? Array.from(toBytes(ethereumTxHash))
           : undefined;
-        const mpcRespondAddress = deriveMpcRespondAddress(vaultAuthority);
         return await dexContract.claimErc20({
           requester: pendingDeposit.requester,
           requestIdBytes,
@@ -104,7 +101,6 @@ async function executeDeposit(args: {
           signature: respondBidirectionalEvent.signature,
           erc20AddressBytes: pendingDeposit.erc20Address,
           ethereumTxHashBytes,
-          expectedAddressBytes: Array.from(toBytes(mpcRespondAddress as Hex)),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -174,7 +170,6 @@ async function executeWithdrawal(args: {
       const ethereumTxHashBytes = ethereumTxHash
         ? Array.from(toBytes(ethereumTxHash))
         : undefined;
-      const mpcRespondAddress = deriveMpcRespondAddress(GLOBAL_VAULT_AUTHORITY_PDA);
 
       return await dexContract.completeWithdrawErc20({
         requester: new PublicKey(pendingWithdrawal.requester),
@@ -183,7 +178,6 @@ async function executeWithdrawal(args: {
         signature: respondBidirectionalEvent.signature,
         erc20AddressBytes,
         ethereumTxHashBytes,
-        expectedAddressBytes: Array.from(toBytes(mpcRespondAddress as Hex)),
       });
     },
   );
