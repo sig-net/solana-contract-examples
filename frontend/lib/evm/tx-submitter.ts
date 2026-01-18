@@ -2,6 +2,7 @@ import {
   type Hex,
   type PublicClient,
   type TransactionReceipt,
+  keccak256,
   serializeTransaction,
 } from 'viem';
 
@@ -10,7 +11,7 @@ import type { EvmTransactionRequest } from '@/lib/types/shared.types';
 export interface TxSubmitterConfig {
   maxBroadcastAttempts?: number;
   receiptTimeoutMs?: number;
-  pollIntervalMs?: number;
+  pollingIntervalMs?: number;
 }
 
 interface EthereumSignature {
@@ -26,8 +27,8 @@ interface SubmitResult {
 
 const DEFAULT_CONFIG: Required<TxSubmitterConfig> = {
   maxBroadcastAttempts: 3,
-  receiptTimeoutMs: 180_000, // 3 minutes
-  pollIntervalMs: 4_000,
+  receiptTimeoutMs: 180_000,
+  pollingIntervalMs: 4_000,
 };
 
 /**
@@ -38,7 +39,7 @@ const DEFAULT_CONFIG: Required<TxSubmitterConfig> = {
  * - Retry broadcasting the same signed transaction if it was dropped
  * - Wait longer for confirmation with robust monitoring
  *
- * For better success rates, ensure adequate gas buffer at signing time (1.5-2x).
+ * For better success rates, ensure adequate gas buffer at signing time.
  */
 export async function submitWithRetry(
   client: PublicClient,
@@ -48,7 +49,6 @@ export async function submitWithRetry(
 ): Promise<SubmitResult> {
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  // Serialize once - we can only rebroadcast the same signed tx
   const signedTx = serializeTransaction(
     {
       chainId: txParams.chainId,
@@ -67,63 +67,21 @@ export async function submitWithRetry(
     },
   );
 
-  let txHash: Hex | null = null;
-  let lastError: Error | null = null;
+  const expectedTxHash = keccak256(signedTx);
+  const txHash = await broadcastWithRetry(client, signedTx, expectedTxHash, cfg.maxBroadcastAttempts);
 
-  // Try to broadcast (may need retries if RPC is flaky)
-  for (let attempt = 1; attempt <= cfg.maxBroadcastAttempts; attempt++) {
-    try {
-      txHash = await client.sendRawTransaction({
-        serializedTransaction: signedTx,
-      });
-      console.log(`[TX-SUBMITTER] Broadcast successful: ${txHash}`);
-      break;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+  // Verify tx is in mempool, re-broadcast if not
+  await verifyInMempoolOrRebroadcast(client, signedTx, txHash);
 
-      // If nonce too low, tx might have been mined already
-      if (lastError.message.includes('nonce too low')) {
-        throw new Error(
-          `Nonce ${txParams.nonce} already used. Transaction may have been mined or replaced.`,
-        );
-      }
-
-      // If already known, the tx is in mempool - treat as success
-      if (
-        lastError.message.includes('already known') ||
-        lastError.message.includes('AlreadyKnown')
-      ) {
-        // Need to compute hash from signed tx
-        console.log(`[TX-SUBMITTER] Transaction already in mempool`);
-        break;
-      }
-
-      console.error(
-        `[TX-SUBMITTER] Broadcast attempt ${attempt} failed:`,
-        lastError.message,
-      );
-
-      if (attempt < cfg.maxBroadcastAttempts) {
-        await sleep(2000 * attempt); // Backoff before retry
-      }
-    }
-  }
-
-  if (!txHash) {
-    throw new Error(
-      `Failed to broadcast transaction after ${cfg.maxBroadcastAttempts} attempts: ${lastError?.message}`,
-    );
-  }
-
-  // Wait for receipt with monitoring
-  console.log(`[TX-SUBMITTER] Waiting for receipt (timeout: ${cfg.receiptTimeoutMs}ms)...`);
-  const receipt = await waitForReceiptWithMonitoring(
-    client,
-    txHash,
-    txParams.nonce,
-    cfg.receiptTimeoutMs,
-    cfg.pollIntervalMs,
-  );
+  const receipt = await client.waitForTransactionReceipt({
+    hash: txHash,
+    timeout: cfg.receiptTimeoutMs,
+    pollingInterval: cfg.pollingIntervalMs,
+    retryCount: 10,
+    onReplaced: (replacement) => {
+      console.log(`[TX-SUBMITTER] Transaction replaced:`, replacement.reason);
+    },
+  });
 
   if (receipt.status !== 'success') {
     throw new Error(`Transaction reverted: ${txHash}`);
@@ -132,84 +90,83 @@ export async function submitWithRetry(
   return { txHash, receipt };
 }
 
-async function waitForReceiptWithMonitoring(
+async function broadcastWithRetry(
   client: PublicClient,
-  txHash: Hex,
-  expectedNonce: number,
-  timeoutMs: number,
-  pollIntervalMs: number,
-): Promise<TransactionReceipt> {
-  const deadline = Date.now() + timeoutMs;
-  const fromAddress = await getFromAddress(client, txHash);
+  signedTx: Hex,
+  expectedHash: Hex,
+  maxAttempts: number,
+): Promise<Hex> {
+  let lastError: Error | null = null;
 
-  while (Date.now() < deadline) {
-    // Check if tx is mined
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const receipt = await client.getTransactionReceipt({ hash: txHash });
-      if (receipt) {
-        return receipt;
-      }
-    } catch {
-      // Not mined yet
-    }
+      const txHash = await client.sendRawTransaction({ serializedTransaction: signedTx });
+      console.log(`[TX-SUBMITTER] Broadcast successful: ${txHash}`);
+      return txHash;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const msg = lastError.message.toLowerCase();
 
-    // Check if tx is still in mempool
-    const txInMempool = await isTxInMempool(client, txHash);
-
-    if (!txInMempool && fromAddress) {
-      // Tx might have been dropped - check if nonce was used
-      const confirmedNonce = await client.getTransactionCount({
-        address: fromAddress,
-        blockTag: 'latest',
-      });
-
-      if (confirmedNonce > expectedNonce) {
-        // Nonce was used - either our tx or another one
-        // Try to get receipt one more time
-        try {
-          const receipt = await client.getTransactionReceipt({ hash: txHash });
-          if (receipt) {
-            return receipt;
-          }
-        } catch {
-          // Our tx wasn't mined, but nonce was used by another
-          throw new Error(
-            `Nonce ${expectedNonce} was used by a different transaction`,
-          );
-        }
+      if (msg.includes('nonce too low')) {
+        throw new Error(`Nonce already used - transaction may have been mined or replaced`);
       }
 
-      // Tx was dropped from mempool and nonce not yet used
-      throw new Error(`Transaction ${txHash} was dropped from mempool`);
-    }
+      if (msg.includes('already known') || msg.includes('alreadyknown')) {
+        console.log(`[TX-SUBMITTER] Transaction already in mempool`);
+        return expectedHash;
+      }
 
-    await sleep(pollIntervalMs);
+      console.error(`[TX-SUBMITTER] Broadcast attempt ${attempt} failed:`, lastError.message);
+
+      if (attempt < maxAttempts) {
+        await sleep(2000 * attempt);
+      }
+    }
   }
 
-  throw new Error(`Timeout waiting for transaction ${txHash}`);
+  throw new Error(`Failed to broadcast after ${maxAttempts} attempts: ${lastError?.message}`);
 }
 
-async function isTxInMempool(
+async function verifyInMempoolOrRebroadcast(
   client: PublicClient,
+  signedTx: Hex,
   txHash: Hex,
-): Promise<boolean> {
+): Promise<void> {
+  await sleep(2000);
+
+  if (await isInMempool(client, txHash)) {
+    return;
+  }
+
+  console.log(`[TX-SUBMITTER] TX not found in mempool, re-broadcasting...`);
+
+  for (let retry = 1; retry <= 2; retry++) {
+    try {
+      await client.sendRawTransaction({ serializedTransaction: signedTx });
+      console.log(`[TX-SUBMITTER] Re-broadcast ${retry} successful`);
+      await sleep(2000);
+
+      if (await isInMempool(client, txHash)) {
+        console.log(`[TX-SUBMITTER] TX now in mempool`);
+        return;
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message.toLowerCase() : '';
+      if (msg.includes('already known') || msg.includes('alreadyknown')) {
+        console.log(`[TX-SUBMITTER] TX confirmed in mempool (already known)`);
+        return;
+      }
+      console.log(`[TX-SUBMITTER] Re-broadcast ${retry} failed: ${msg}`);
+    }
+  }
+}
+
+async function isInMempool(client: PublicClient, txHash: Hex): Promise<boolean> {
   try {
     const tx = await client.getTransaction({ hash: txHash });
     return tx !== null;
   } catch {
     return false;
-  }
-}
-
-async function getFromAddress(
-  client: PublicClient,
-  txHash: Hex,
-): Promise<Hex | null> {
-  try {
-    const tx = await client.getTransaction({ hash: txHash });
-    return tx?.from ?? null;
-  } catch {
-    return null;
   }
 }
 
