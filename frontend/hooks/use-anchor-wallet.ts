@@ -5,14 +5,15 @@ import { PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import type { Wallet } from '@coral-xyz/anchor';
 
 export function useAnchorWallet(): Wallet | null {
-  const { account, isConnected } = useWallet();
+  const { isConnected } = useWallet();
   const { signer, ready } = useTransactionSigner();
 
-  if (!isConnected || !account || !ready || !signer) {
+  if (!isConnected || !ready || !signer) {
     return null;
   }
 
-  const publicKey = new PublicKey(account);
+  // Use the signer's address to ensure consistency with signing operations
+  const publicKey = new PublicKey(signer.address);
 
   return {
     publicKey,

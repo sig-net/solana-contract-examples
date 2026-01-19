@@ -184,7 +184,8 @@ export class DexContract {
   }): Promise<string> {
     const program = this.getDexProgram();
 
-    return await program.methods
+    // Build the transaction without sending
+    const tx = await program.methods
       .withdrawErc20(
         Array.from(requestIdBytes) as unknown as number[],
         Array.from(erc20AddressBytes) as unknown as number[],
@@ -202,7 +203,22 @@ export class DexContract {
           units: COMPUTE_UNITS_FOR_DERIVATION,
         }),
       ])
-      .rpc();
+      .transaction();
+
+    // Set transaction properties
+    tx.feePayer = authority;
+    tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+
+    // Sign the transaction (this is where wallet confirmation happens)
+    const signedTx = await this.wallet.signTransaction(tx);
+
+    // Send without waiting for confirmation - dialog closes after signing
+    const signature = await this.connection.sendRawTransaction(
+      signedTx.serialize(),
+      { skipPreflight: true },
+    );
+
+    return signature;
   }
 
   async completeWithdrawErc20({

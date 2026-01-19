@@ -12,6 +12,7 @@ export interface TxSubmitterConfig {
   maxBroadcastAttempts?: number;
   receiptTimeoutMs?: number;
   pollingIntervalMs?: number;
+  confirmations?: number;
 }
 
 interface EthereumSignature {
@@ -29,17 +30,17 @@ const DEFAULT_CONFIG: Required<TxSubmitterConfig> = {
   maxBroadcastAttempts: 3,
   receiptTimeoutMs: 180_000,
   pollingIntervalMs: 4_000,
+  confirmations: 1,
 };
 
 /**
- * Submits an MPC-signed Ethereum transaction with retry logic.
+ * Submits an MPC-signed Ethereum transaction and waits for confirmation.
  *
  * NOTE: Gas bumping is NOT possible with MPC signatures because changing
- * gas values invalidates the signature. This function can only:
- * - Retry broadcasting the same signed transaction if it was dropped
- * - Wait longer for confirmation with robust monitoring
+ * gas values invalidates the signature. For better success rates, ensure
+ * adequate gas buffer at signing time.
  *
- * For better success rates, ensure adequate gas buffer at signing time.
+ * Returns only after the receipt is confirmed on-chain.
  */
 export async function submitWithRetry(
   client: PublicClient,
@@ -67,42 +68,25 @@ export async function submitWithRetry(
     },
   );
 
-  const expectedTxHash = keccak256(signedTx);
-  const txHash = await broadcastWithRetry(client, signedTx, expectedTxHash, cfg.maxBroadcastAttempts);
+  const txHash = keccak256(signedTx);
+  await broadcastWithRetry(client, signedTx, cfg.maxBroadcastAttempts);
 
-  // Verify tx is in mempool, re-broadcast if not
-  await verifyInMempoolOrRebroadcast(client, signedTx, txHash);
+  const receipt = await waitForConfirmedReceipt(client, signedTx, txHash, cfg);
 
-  const receipt = await client.waitForTransactionReceipt({
-    hash: txHash,
-    timeout: cfg.receiptTimeoutMs,
-    pollingInterval: cfg.pollingIntervalMs,
-    retryCount: 10,
-    onReplaced: (replacement) => {
-      console.log(`[TX-SUBMITTER] Transaction replaced:`, replacement.reason);
-    },
-  });
-
-  if (receipt.status !== 'success') {
-    throw new Error(`Transaction reverted: ${txHash}`);
-  }
-
-  return { txHash, receipt };
+  return { txHash: receipt.transactionHash, receipt };
 }
 
 async function broadcastWithRetry(
   client: PublicClient,
   signedTx: Hex,
-  expectedHash: Hex,
   maxAttempts: number,
-): Promise<Hex> {
+): Promise<void> {
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const txHash = await client.sendRawTransaction({ serializedTransaction: signedTx });
-      console.log(`[TX-SUBMITTER] Broadcast successful: ${txHash}`);
-      return txHash;
+      await client.sendRawTransaction({ serializedTransaction: signedTx });
+      return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       const msg = lastError.message.toLowerCase();
@@ -112,11 +96,8 @@ async function broadcastWithRetry(
       }
 
       if (msg.includes('already known') || msg.includes('alreadyknown')) {
-        console.log(`[TX-SUBMITTER] Transaction already in mempool`);
-        return expectedHash;
+        return;
       }
-
-      console.error(`[TX-SUBMITTER] Broadcast attempt ${attempt} failed:`, lastError.message);
 
       if (attempt < maxAttempts) {
         await sleep(2000 * attempt);
@@ -127,49 +108,61 @@ async function broadcastWithRetry(
   throw new Error(`Failed to broadcast after ${maxAttempts} attempts: ${lastError?.message}`);
 }
 
-async function verifyInMempoolOrRebroadcast(
+async function waitForConfirmedReceipt(
   client: PublicClient,
   signedTx: Hex,
   txHash: Hex,
-): Promise<void> {
-  await sleep(2000);
+  cfg: Required<TxSubmitterConfig>,
+): Promise<TransactionReceipt> {
+  const startTime = Date.now();
 
-  if (await isInMempool(client, txHash)) {
-    return;
-  }
-
-  console.log(`[TX-SUBMITTER] TX not found in mempool, re-broadcasting...`);
-
-  for (let retry = 1; retry <= 2; retry++) {
+  while (Date.now() - startTime < cfg.receiptTimeoutMs) {
     try {
-      await client.sendRawTransaction({ serializedTransaction: signedTx });
-      console.log(`[TX-SUBMITTER] Re-broadcast ${retry} successful`);
-      await sleep(2000);
+      const receipt = await client.waitForTransactionReceipt({
+        hash: txHash,
+        confirmations: cfg.confirmations,
+        timeout: Math.min(30_000, cfg.receiptTimeoutMs - (Date.now() - startTime)),
+        pollingInterval: cfg.pollingIntervalMs,
+      });
 
-      if (await isInMempool(client, txHash)) {
-        console.log(`[TX-SUBMITTER] TX now in mempool`);
-        return;
+      if (receipt.status === 'reverted') {
+        throw new Error(`Transaction reverted: ${txHash}`);
       }
+
+      return receipt;
     } catch (error) {
       const msg = error instanceof Error ? error.message.toLowerCase() : '';
-      if (msg.includes('already known') || msg.includes('alreadyknown')) {
-        console.log(`[TX-SUBMITTER] TX confirmed in mempool (already known)`);
-        return;
+
+      if (msg.includes('reverted')) {
+        throw error;
       }
-      console.log(`[TX-SUBMITTER] Re-broadcast ${retry} failed: ${msg}`);
+
+      if (msg.includes('not found') || msg.includes('timeout')) {
+        try {
+          await client.sendRawTransaction({ serializedTransaction: signedTx });
+        } catch (rebroadcastError) {
+          const rebroadcastMsg =
+            rebroadcastError instanceof Error
+              ? rebroadcastError.message.toLowerCase()
+              : '';
+          if (
+            !rebroadcastMsg.includes('already known') &&
+            !rebroadcastMsg.includes('alreadyknown') &&
+            !rebroadcastMsg.includes('nonce too low')
+          ) {
+            throw rebroadcastError;
+          }
+        }
+        continue;
+      }
+
+      throw error;
     }
   }
-}
 
-async function isInMempool(client: PublicClient, txHash: Hex): Promise<boolean> {
-  try {
-    const tx = await client.getTransaction({ hash: txHash });
-    return tx !== null;
-  } catch {
-    return false;
-  }
+  throw new Error(`Transaction receipt timeout after ${cfg.receiptTimeoutMs}ms: ${txHash}`);
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

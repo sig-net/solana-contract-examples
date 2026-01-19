@@ -68,18 +68,18 @@ export function WithdrawDialog({
   };
 
   const handleClose = () => {
-    setIsProcessing(false);
     onOpenChange(false);
   };
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setIsProcessing(false);
+    }
+    onOpenChange(nextOpen);
+  };
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={nextOpen => {
-        if (isProcessing) return;
-        onOpenChange(nextOpen);
-      }}
-    >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className='flex max-h-[90vh] max-w-md flex-col overflow-hidden p-6 sm:p-8'>
         <DialogTitle>Send</DialogTitle>
         <div className='min-h-0 flex-1 overflow-y-auto'>
