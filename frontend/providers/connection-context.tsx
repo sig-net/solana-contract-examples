@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext } from 'react';
 import { Connection, ConnectionConfig } from '@solana/web3.js';
 
 interface ConnectionContextState {
@@ -20,10 +20,7 @@ export function ConnectionProvider({
   config,
   children,
 }: ConnectionProviderProps) {
-  const connection = useMemo(
-    () => new Connection(endpoint, config),
-    [endpoint, config],
-  );
+  const connection = new Connection(endpoint, config);
 
   return (
     <ConnectionContext.Provider value={{ connection }}>

@@ -12,7 +12,6 @@ export function useAnchorWallet(): Wallet | null {
     return null;
   }
 
-  // Use the signer's address to ensure consistency with signing operations
   const publicKey = new PublicKey(signer.address);
 
   return {

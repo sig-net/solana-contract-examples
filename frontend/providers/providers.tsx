@@ -23,6 +23,13 @@ const connectorConfig = getDefaultConfig({
   appName: 'Signet Bridge',
   network: 'devnet',
   autoConnect: true,
+  clusters: [
+    {
+      id: 'solana:devnet' as const,
+      label: 'Devnet',
+      url: endpoint,
+    },
+  ],
 });
 
 interface ProvidersProps {
