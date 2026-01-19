@@ -8,9 +8,10 @@ import {
   NETWORKS_WITH_TOKENS,
 } from '@/lib/constants/token-metadata';
 import type { DexContract } from '@/lib/contracts/dex-contract';
-import { getTokenInfo } from '@/lib/utils/token-formatting';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
 import { getAlchemyProvider } from '@/lib/rpc';
+
+const decimalsCache = new Map<string, number>();
 
 /**
  * TokenBalanceService handles all token balance operations including
@@ -26,14 +27,25 @@ export class TokenBalanceService {
     this.rpcManager = getRPCManager(dexContract.getConnection());
   }
 
-  // Decimals resolution delegated to shared token info (Alchemy-backed)
   private async resolveDecimals(erc20Address: string): Promise<number> {
+    const normalized = erc20Address.toLowerCase();
+    const cached = decimalsCache.get(normalized);
+    if (cached !== undefined) return cached;
+
+    const localMeta = getTokenMetadata(erc20Address);
+    if (localMeta) {
+      decimalsCache.set(normalized, localMeta.decimals);
+      return localMeta.decimals;
+    }
+
     try {
-      const info = await getTokenInfo(erc20Address);
-      return info.decimals;
+      const meta = await this.alchemy.core.getTokenMetadata(erc20Address);
+      const decimals = meta?.decimals ?? 18;
+      decimalsCache.set(normalized, decimals);
+      return decimals;
     } catch {
-      const tokenMetadata = getTokenMetadata(erc20Address);
-      return tokenMetadata?.decimals || 18;
+      decimalsCache.set(normalized, 18);
+      return 18;
     }
   }
 
@@ -64,24 +76,12 @@ export class TokenBalanceService {
       for (const tokenBalance of balances.tokenBalances) {
         const balance = BigInt(tokenBalance.tokenBalance || '0');
 
-        if (balance > BigInt(0)) {
-          // Only fetch decimals for non-zero balances
-          const decimals = await this.resolveDecimals(
-            tokenBalance.contractAddress,
-          );
-          results.push({
-            address: tokenBalance.contractAddress,
-            balance,
-            decimals,
-          });
-        } else {
-          // Include zero balances with default decimals
-          results.push({
-            address: tokenBalance.contractAddress,
-            balance: BigInt(0),
-            decimals: 18,
-          });
-        }
+        const decimals = await this.resolveDecimals(tokenBalance.contractAddress);
+        results.push({
+          address: tokenBalance.contractAddress,
+          balance,
+          decimals,
+        });
       }
 
       return results;
@@ -108,12 +108,8 @@ export class TokenBalanceService {
         const balance = tokenBalances?.tokenBalances?.[0]?.tokenBalance || '0';
         const balanceBigInt = BigInt(balance || '0');
 
-        if (balanceBigInt > BigInt(0)) {
-          const decimals = await this.resolveDecimals(tokenAddress);
-          return { address: tokenAddress, balance: balanceBigInt, decimals };
-        } else {
-          return { address: tokenAddress, balance: BigInt(0), decimals: 18 };
-        }
+        const decimals = await this.resolveDecimals(tokenAddress);
+        return { address: tokenAddress, balance: balanceBigInt, decimals };
       } catch (error) {
         console.error(`Error fetching balance for ${tokenAddress}:`, error);
         return { address: tokenAddress, balance: BigInt(0), decimals: 18 };
@@ -175,15 +171,14 @@ export class TokenBalanceService {
           erc20Address,
         );
         if (balance !== '0') {
-          const decimals = await this.resolveDecimals(erc20Address);
           const tokenMetadata = getTokenMetadata(erc20Address);
           return {
             erc20Address,
             amount: balance,
-            decimals,
-            symbol: tokenMetadata?.symbol || 'Unknown',
-            name: tokenMetadata?.name || 'Unknown Token',
-            chain: tokenMetadata?.chain || 'ethereum',
+            decimals: 18, // Solana contract stores all ERC20 balances with 18 decimals
+            symbol: tokenMetadata?.symbol ?? 'Unknown',
+            name: tokenMetadata?.name ?? 'Unknown Token',
+            chain: tokenMetadata?.chain ?? 'ethereum',
           };
         }
         return null;

@@ -201,16 +201,27 @@ export class WithdrawalService {
           evmParams,
         });
       } catch (txError) {
-        console.log('txError', txError);
+        const originalError =
+          txError &&
+          typeof txError === 'object' &&
+          'originalError' in txError &&
+          txError.originalError instanceof Error
+            ? txError.originalError
+            : null;
+        console.error('txError', txError, 'originalError', originalError);
+
         const errorMessage =
           txError instanceof Error ? txError.message : String(txError);
+        const originalMessage = originalError?.message ?? '';
+        const fullMessage = `${errorMessage}${originalMessage ? `: ${originalMessage}` : ''}`;
+
         if (
-          errorMessage.includes('already been processed') ||
-          errorMessage.includes('AlreadyProcessed')
+          fullMessage.includes('already been processed') ||
+          fullMessage.includes('AlreadyProcessed')
         ) {
           console.log('Transaction already processed, continuing...');
         } else {
-          throw txError;
+          throw originalError ?? txError;
         }
       }
 
