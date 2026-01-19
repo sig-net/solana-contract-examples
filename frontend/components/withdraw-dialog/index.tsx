@@ -25,12 +25,15 @@ interface WithdrawDialogProps {
   preSelectedToken?: WithdrawToken | null;
 }
 
-export function WithdrawDialog({
-  open,
-  onOpenChange,
+function WithdrawDialogContent({
   availableTokens,
   preSelectedToken,
-}: WithdrawDialogProps) {
+  onClose,
+}: {
+  availableTokens: WithdrawToken[];
+  preSelectedToken?: WithdrawToken | null;
+  onClose: () => void;
+}) {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const withdrawEvmMutation = useWithdrawEvmMutation();
@@ -59,41 +62,48 @@ export function WithdrawDialog({
         });
       }
 
-      handleClose();
+      onClose();
     } catch (err) {
       console.error('Withdrawal failed:', err);
-
       setIsProcessing(false);
     }
-  };
-
-  const handleClose = () => {
-    onOpenChange(false);
-  };
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      setIsProcessing(false);
-    }
-    onOpenChange(nextOpen);
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <>
+      <DialogTitle>Send</DialogTitle>
+      <div className='min-h-0 flex-1 overflow-y-auto'>
+        {!isProcessing && (
+          <AmountInput
+            availableTokens={availableTokens}
+            onSubmit={handleAmountSubmit}
+            preSelectedToken={preSelectedToken}
+          />
+        )}
+        {isProcessing && (
+          <LoadingState message='Awaiting wallet confirmation…' />
+        )}
+      </div>
+    </>
+  );
+}
+
+export function WithdrawDialog({
+  open,
+  onOpenChange,
+  availableTokens,
+  preSelectedToken,
+}: WithdrawDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='flex max-h-[90vh] max-w-md flex-col overflow-hidden p-6 sm:p-8'>
-        <DialogTitle>Send</DialogTitle>
-        <div className='min-h-0 flex-1 overflow-y-auto'>
-          {!isProcessing && (
-            <AmountInput
-              availableTokens={availableTokens}
-              onSubmit={handleAmountSubmit}
-              preSelectedToken={preSelectedToken}
-            />
-          )}
-          {isProcessing && (
-            <LoadingState message='Awaiting wallet confirmation…' />
-          )}
-        </div>
+        {open && (
+          <WithdrawDialogContent
+            availableTokens={availableTokens}
+            preSelectedToken={preSelectedToken}
+            onClose={() => onOpenChange(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
