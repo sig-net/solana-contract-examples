@@ -184,7 +184,6 @@ export class DexContract {
   }): Promise<string> {
     const program = this.getDexProgram();
 
-    // Build the transaction without sending
     const tx = await program.methods
       .withdrawErc20(
         Array.from(requestIdBytes) as unknown as number[],
@@ -205,14 +204,12 @@ export class DexContract {
       ])
       .transaction();
 
-    // Set transaction properties
     tx.feePayer = authority;
-    tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+    const { blockhash } = await this.connection.getLatestBlockhash();
+    tx.recentBlockhash = blockhash;
 
-    // Sign the transaction (this is where wallet confirmation happens)
     const signedTx = await this.wallet.signTransaction(tx);
 
-    // Send without waiting for confirmation - dialog closes after signing
     const signature = await this.connection.sendRawTransaction(
       signedTx.serialize(),
       { skipPreflight: true },
