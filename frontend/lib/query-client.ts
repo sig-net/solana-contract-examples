@@ -28,10 +28,8 @@ export const queryKeys = {
       [...queryKeys.solana.all, 'userBalances', publicKey] as const,
     unclaimedBalances: (publicKey: string) =>
       [...queryKeys.solana.all, 'unclaimedBalances', publicKey] as const,
-    outgoingTransfers: (publicKey: string) =>
-      [...queryKeys.solana.all, 'outgoingTransfers', publicKey] as const,
-    incomingDeposits: (publicKey: string) =>
-      [...queryKeys.solana.all, 'incomingDeposits', publicKey] as const,
+    txList: (publicKey: string) =>
+      [...queryKeys.solana.all, 'txList', publicKey] as const,
   },
 } as const;
 
@@ -44,25 +42,5 @@ export function invalidateBalanceQueries(
   });
   queryClient.invalidateQueries({
     queryKey: queryKeys.solana.unclaimedBalances(account),
-  });
-}
-
-export function invalidateDepositQueries(
-  queryClient: QueryClient,
-  account: string,
-) {
-  invalidateBalanceQueries(queryClient, account);
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.solana.incomingDeposits(account),
-  });
-}
-
-export function invalidateWithdrawalQueries(
-  queryClient: QueryClient,
-  account: string,
-) {
-  invalidateBalanceQueries(queryClient, account);
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.solana.outgoingTransfers(account),
   });
 }

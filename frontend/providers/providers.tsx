@@ -10,6 +10,8 @@ import { wagmiConfig } from '@/lib/wagmi/config';
 import { queryClient } from '@/lib/query-client';
 import { getAlchemySolanaDevnetRpcUrl } from '@/lib/rpc';
 import { ConnectionProvider } from './connection-context';
+import { PendingTransactionsProvider } from './pending-transactions-context';
+import { TransactionStatusTracker } from '@/components/transaction-status-tracker';
 
 const endpoint = getAlchemySolanaDevnetRpcUrl();
 
@@ -42,7 +44,10 @@ export function Providers({ children }: ProvidersProps) {
       <WagmiProvider config={wagmiConfig}>
         <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
           <AppProvider connectorConfig={connectorConfig}>
-            {children}
+            <PendingTransactionsProvider>
+              {children}
+              <TransactionStatusTracker />
+            </PendingTransactionsProvider>
           </AppProvider>
         </ConnectionProvider>
       </WagmiProvider>

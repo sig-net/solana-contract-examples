@@ -1,7 +1,9 @@
 import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
+import { keccak256, encodePacked } from 'viem';
 
 import { handleDeposit } from '@/lib/relayer/handlers';
+import { registerTx } from '@/lib/relayer/tx-registry';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -19,12 +21,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Generate a trackingId from inputs (deterministic, frontend can compute too)
+    const trackingId = keccak256(
+      encodePacked(
+        ['string', 'string', 'string', 'string'],
+        [userAddress, erc20Address, ethereumAddress, Date.now().toString()],
+      ),
+    );
+
+    // Register in KV before background processing
+    await registerTx(trackingId, 'deposit', userAddress);
+
     after(async () => {
       try {
         const result = await handleDeposit({
           userAddress,
           erc20Address,
           ethereumAddress,
+          trackingId,
         });
         if (!result.ok) {
           console.error('Deposit processing failed:', result.error);
@@ -36,7 +50,8 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    return NextResponse.json({ accepted: true }, { status: 202 });
+    // Return trackingId so frontend can poll status
+    return NextResponse.json({ accepted: true, trackingId }, { status: 202 });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 500 });

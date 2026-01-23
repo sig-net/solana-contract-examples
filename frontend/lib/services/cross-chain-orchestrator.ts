@@ -60,6 +60,7 @@ export class CrossChainOrchestrator {
       ethereumTxHash?: string,
     ) => Promise<T>,
     initialSolanaFn?: () => Promise<string>,
+    onEthereumPending?: () => Promise<void>,
   ): Promise<
     CrossChainResult & { initialSolanaTxHash?: string; solanaResult?: T }
   > {
@@ -84,6 +85,7 @@ export class CrossChainOrchestrator {
       const ethereumTxHash = await this.executeEthereumTransaction(
         eventPromises,
         ethereumTxParams,
+        onEthereumPending,
       );
 
       console.log(`[${op}] Ethereum tx: ${ethereumTxHash}`);
@@ -123,9 +125,72 @@ export class CrossChainOrchestrator {
     }
   }
 
+  /**
+   * Recovery flow - attempts to complete a stuck transaction by querying
+   * historical events and completing the Solana side
+   */
+  async recoverSignatureFlow<T>(
+    requestId: string,
+    solanaCompletionFn: (
+      respondBidirectionalEvent: RespondBidirectionalEvent,
+      ethereumTxHash?: string,
+    ) => Promise<T>,
+  ): Promise<CrossChainResult & { solanaResult?: T }> {
+    const op = this.config.operationName;
+    console.log(`[${op}] Starting recovery flow for ${requestId}`);
+
+    // Set up event listeners
+    console.log(`[${op}] Setting up event listeners for recovery...`);
+    const eventPromises =
+      this.chainSignaturesContract.setupEventListeners(requestId);
+
+    try {
+      // Immediately trigger backfill to look for historical events
+      console.log(`[${op}] Triggering backfill for historical events...`);
+      await eventPromises.backfillRead();
+
+      // Wait for read response (either from backfill or live)
+      console.log(`[${op}] Waiting for read response...`);
+      const respondBidirectionalEvent = await this.waitWithTimeout(
+        eventPromises.respondBidirectional,
+        this.config.eventTimeoutMs,
+        `Read response timeout for recovery ${op}`,
+      );
+
+      console.log(`[${op}] Completing on Solana...`);
+      const solanaResult = await solanaCompletionFn(respondBidirectionalEvent, undefined);
+
+      console.log(`[${op}] Recovery completed successfully`);
+
+      return {
+        ethereumTxHash: '',
+        success: true,
+        solanaResult,
+      };
+    } catch (error) {
+      console.error(error);
+      if (error && typeof error === 'object' && 'logs' in error) {
+        console.error(`[${op}] Transaction logs:`, (error as { logs: string[] }).logs);
+      }
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[${op}] Recovery failed:`, errorMessage);
+
+      return {
+        ethereumTxHash: '',
+        success: false,
+        error: errorMessage,
+      };
+    } finally {
+      console.log(`[${op}] Cleaning up event listeners`);
+      eventPromises.cleanup();
+    }
+  }
+
   private async executeEthereumTransaction(
     eventPromises: EventPromises,
     txParams: EvmTransactionRequest,
+    onEthereumPending?: () => Promise<void>,
   ): Promise<string> {
     const op = this.config.operationName;
     console.log(`[${op}] Waiting for signature...`);
@@ -148,6 +213,11 @@ export class CrossChainOrchestrator {
     );
 
     console.log(`[${op}] Submitting to Ethereum...`);
+
+    // Notify that we're about to submit to Ethereum
+    if (onEthereumPending) {
+      await onEthereumPending();
+    }
 
     const { txHash, receipt } = await submitWithRetry(
       this.client,

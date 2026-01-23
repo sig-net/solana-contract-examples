@@ -33,6 +33,8 @@ const serverEnvSchema = z.object({
     )
     .optional(),
   INFURA_API_KEY: z.string().min(1, 'Infura API key is required'),
+  REDIS_URL: z.string().min(1, 'Redis URL is required'),
+  REDIS_TOKEN: z.string().min(1, 'Redis token is required'),
 });
 
 // Full environment schema (client + server)
@@ -96,6 +98,10 @@ export function getFullEnv(): FullEnv {
     RELAYER_PRIVATE_KEY: process.env.RELAYER_PRIVATE_KEY,
     MPC_ROOT_KEY: process.env.MPC_ROOT_KEY,
     INFURA_API_KEY: process.env.INFURA_API_KEY,
+    REDIS_URL:
+      process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL,
+    REDIS_TOKEN:
+      process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN,
   };
 
   try {
