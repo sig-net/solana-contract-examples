@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     );
 
     // Register in KV before background processing
-    await registerTx(trackingId, 'deposit', userAddress);
+    await registerTx(trackingId, 'deposit', userAddress, ethereumAddress);
 
     after(async () => {
       try {

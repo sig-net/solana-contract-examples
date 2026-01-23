@@ -143,7 +143,7 @@ async function executeDeposit(args: {
 
         // Phase 3: Signature pending
         await updateTxStatus(trackingId, 'signature_pending', {
-          solanaTxHash: tx,
+          solanaInitTxHash: tx,
         });
 
         return tx;
@@ -165,7 +165,7 @@ async function executeDeposit(args: {
     // Phase 6: Completed
     await updateTxStatus(trackingId, 'completed', {
       ethereumTxHash: result.ethereumTxHash,
-      solanaTxHash: result.solanaResult,
+      solanaFinalizeTxHash: result.solanaResult,
     });
 
     return {
@@ -251,7 +251,7 @@ async function executeWithdrawal(args: {
 
     await updateTxStatus(requestId, 'completed', {
       ethereumTxHash: result.ethereumTxHash,
-      solanaTxHash: result.solanaResult,
+      solanaFinalizeTxHash: result.solanaResult,
     });
 
     return {
@@ -313,7 +313,7 @@ export async function recoverDeposit(
     }
 
     await updateTxStatus(requestId, 'completed', {
-      solanaTxHash: result.solanaResult,
+      solanaFinalizeTxHash: result.solanaResult,
     });
 
     return { ok: true, solanaTx: result.solanaResult };
@@ -372,7 +372,7 @@ export async function recoverWithdrawal(
     }
 
     await updateTxStatus(requestId, 'completed', {
-      solanaTxHash: result.solanaResult,
+      solanaFinalizeTxHash: result.solanaResult,
     });
 
     return { ok: true, solanaTx: result.solanaResult };

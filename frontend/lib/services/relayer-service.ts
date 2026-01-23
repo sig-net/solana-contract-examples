@@ -38,11 +38,13 @@ export async function notifyWithdrawal({
   requestId,
   erc20Address,
   userAddress,
+  recipientAddress,
   transactionParams,
 }: {
   requestId: string;
   erc20Address: string;
   userAddress: string;
+  recipientAddress: string;
   transactionParams?: EvmTransactionRequestNotifyWithdrawal;
 }): Promise<void> {
   const env = getClientEnv();
@@ -57,6 +59,7 @@ export async function notifyWithdrawal({
       requestId,
       erc20Address,
       userAddress,
+      recipientAddress,
       transactionParams,
     }),
   });
