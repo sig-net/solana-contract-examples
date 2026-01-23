@@ -25,11 +25,14 @@ export interface TxEntry {
   type: 'deposit' | 'withdrawal';
   status: TxStatus;
   userAddress: string;
+  ethereumAddress?: string;
   error?: string;
   createdAt: number;
   updatedAt: number;
+  // Transaction hashes for the full flow
+  solanaInitTxHash?: string;
   ethereumTxHash?: string;
-  solanaTxHash?: string;
+  solanaFinalizeTxHash?: string;
 }
 
 const TX_PREFIX = 'tx:';
@@ -40,12 +43,14 @@ export async function registerTx(
   id: string,
   type: TxEntry['type'],
   userAddress: string,
+  ethereumAddress?: string,
 ): Promise<void> {
   const redis = getRedisClient();
   const entry: TxEntry = {
     id,
     type,
     userAddress,
+    ethereumAddress,
     status: 'pending',
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -60,7 +65,7 @@ export async function updateTxStatus(
   id: string,
   status: TxStatus,
   metadata?: Partial<
-    Pick<TxEntry, 'error' | 'ethereumTxHash' | 'solanaTxHash' | 'requestId'>
+    Pick<TxEntry, 'error' | 'ethereumTxHash' | 'solanaInitTxHash' | 'solanaFinalizeTxHash' | 'requestId' | 'ethereumAddress'>
   >,
 ): Promise<void> {
   const redis = getRedisClient();
@@ -89,6 +94,8 @@ export async function getTxStatus(id: string): Promise<TxEntry | null> {
   return redis.get<TxEntry>(`${TX_PREFIX}${id}`);
 }
 
+const MAX_USER_TRANSACTIONS = 5;
+
 export async function getUserTransactions(
   userAddress: string,
 ): Promise<TxEntry[]> {
@@ -100,7 +107,29 @@ export async function getUserTransactions(
     txIds.map(id => redis.get<TxEntry>(`${TX_PREFIX}${id}`)),
   );
 
-  return transactions
-    .filter((tx): tx is TxEntry => tx !== null)
-    .sort((a, b) => b.createdAt - a.createdAt);
+  // Filter nulls and deduplicate by id
+  const validTxs = transactions.filter((tx): tx is TxEntry => tx !== null);
+  const uniqueTxs = validTxs.filter(
+    (tx, index, self) => self.findIndex(t => t.id === tx.id) === index,
+  );
+
+  // Sort by creation time (newest first) and limit to MAX_USER_TRANSACTIONS
+  const sortedTxs = uniqueTxs.sort((a, b) => b.createdAt - a.createdAt);
+  const recentTxs = sortedTxs.slice(0, MAX_USER_TRANSACTIONS);
+
+  // Clean up old transaction IDs from the user's set (fire and forget)
+  if (sortedTxs.length > MAX_USER_TRANSACTIONS) {
+    const oldTxIds = sortedTxs.slice(MAX_USER_TRANSACTIONS).map(tx => tx.id);
+    redis.srem(`${USER_TX_PREFIX}${userAddress}`, ...oldTxIds).catch(() => {});
+  }
+
+  // Also clean up any IDs that no longer have data
+  const nullIds = txIds.filter(
+    id => !validTxs.some(tx => tx.id === id),
+  );
+  if (nullIds.length > 0) {
+    redis.srem(`${USER_TX_PREFIX}${userAddress}`, ...nullIds).catch(() => {});
+  }
+
+  return recentTxs;
 }

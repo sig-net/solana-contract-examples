@@ -67,15 +67,16 @@ function buildTransactionsFromRedis(
     fromToken: {
       symbol: tx.type === 'deposit' ? 'WALLET' : 'USDC',
       chain: 'ethereum',
-      amount: tx.type === 'deposit' ? tx.userAddress : 'USDC',
+      amount: tx.type === 'deposit' ? (tx.ethereumAddress ?? '') : 'USDC',
       usdValue: '',
     },
     toToken: {
       symbol: tx.type === 'deposit' ? 'USDC' : 'WALLET',
       chain: 'ethereum',
-      amount: tx.type === 'deposit' ? 'USDC' : tx.userAddress,
+      amount: tx.type === 'deposit' ? 'USDC' : (tx.ethereumAddress ?? ''),
       usdValue: '',
     },
+    address: tx.ethereumAddress,
     timestamp: formatActivityDate(tx.createdAt),
     timestampRaw: tx.createdAt,
     status: mapTxStatus(tx.status),
@@ -161,12 +162,14 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
   const redisTxs = buildTransactionsFromRedis(txList ?? []);
   const solanaTxsFormatted = buildSolanaTransactions(solanaTxs, account);
 
-  // Combine and sort by timestamp (newest first)
-  const allTransactions = [...redisTxs, ...solanaTxsFormatted].sort((a, b) => {
-    const aTime = a.timestampRaw || 0;
-    const bTime = b.timestampRaw || 0;
-    return bTime - aTime;
-  });
+  // Combine, deduplicate by ID, and sort by timestamp (newest first)
+  const allTransactions = [...redisTxs, ...solanaTxsFormatted]
+    .filter((tx, index, self) => self.findIndex(t => t.id === tx.id) === index)
+    .sort((a, b) => {
+      const aTime = a.timestampRaw || 0;
+      const bTime = b.timestampRaw || 0;
+      return bTime - aTime;
+    });
 
   const displayTransactions = allTransactions.slice(0, 5);
 

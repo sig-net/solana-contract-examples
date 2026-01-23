@@ -268,25 +268,36 @@ export function TransactionDetailsDialog({
             </div>
           )}
 
-          {/* Transaction hashes */}
+          {/* Transaction hashes - ordered by execution flow */}
           <div className='mt-4 space-y-2 border-t pt-4'>
-            {txStatus?.solanaTxHash && (
-              <div className='flex items-center justify-between text-sm'>
-                <span className='text-gray-500'>Solana Tx</span>
+            <p className='text-xs font-medium text-gray-500 mb-2'>Transaction Flow</p>
+
+            {/* Step 1: Solana Init (deposit or withdrawal initiation) */}
+            <div className='flex items-center justify-between text-sm'>
+              <span className='text-gray-500'>
+                1. Solana {isDeposit ? 'Init Deposit' : 'Init Withdraw'}
+              </span>
+              {txStatus?.solanaInitTxHash ? (
                 <a
-                  href={`https://explorer.solana.com/tx/${txStatus.solanaTxHash}?cluster=devnet`}
+                  href={`https://explorer.solana.com/tx/${txStatus.solanaInitTxHash}?cluster=devnet`}
                   target='_blank'
                   rel='noopener noreferrer'
                   className='flex items-center gap-1 text-blue-600 hover:underline'
                 >
-                  {txStatus.solanaTxHash.slice(0, 8)}...
+                  {txStatus.solanaInitTxHash.slice(0, 8)}...
                   <ExternalLink className='h-3 w-3' />
                 </a>
-              </div>
-            )}
-            {(txStatus?.ethereumTxHash || transaction.transactionHash) && (
-              <div className='flex items-center justify-between text-sm'>
-                <span className='text-gray-500'>Ethereum Tx</span>
+              ) : (
+                <span className='text-gray-400'>Pending...</span>
+              )}
+            </div>
+
+            {/* Step 2: Ethereum Transaction */}
+            <div className='flex items-center justify-between text-sm'>
+              <span className='text-gray-500'>
+                2. Ethereum {isDeposit ? 'Deposit' : 'Withdraw'}
+              </span>
+              {txStatus?.ethereumTxHash || transaction.transactionHash ? (
                 <a
                   href={`https://sepolia.etherscan.io/tx/${txStatus?.ethereumTxHash || transaction.transactionHash}`}
                   target='_blank'
@@ -296,8 +307,30 @@ export function TransactionDetailsDialog({
                   {(txStatus?.ethereumTxHash || transaction.transactionHash)?.slice(0, 10)}...
                   <ExternalLink className='h-3 w-3' />
                 </a>
-              </div>
-            )}
+              ) : (
+                <span className='text-gray-400'>Pending...</span>
+              )}
+            </div>
+
+            {/* Step 3: Solana Finalize (claim or complete withdrawal) */}
+            <div className='flex items-center justify-between text-sm'>
+              <span className='text-gray-500'>
+                3. Solana {isDeposit ? 'Claim' : 'Finalize'}
+              </span>
+              {txStatus?.solanaFinalizeTxHash ? (
+                <a
+                  href={`https://explorer.solana.com/tx/${txStatus.solanaFinalizeTxHash}?cluster=devnet`}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className='flex items-center gap-1 text-blue-600 hover:underline'
+                >
+                  {txStatus.solanaFinalizeTxHash.slice(0, 8)}...
+                  <ExternalLink className='h-3 w-3' />
+                </a>
+              ) : (
+                <span className='text-gray-400'>Pending...</span>
+              )}
+            </div>
           </div>
 
           {/* Retry button for failed transactions */}

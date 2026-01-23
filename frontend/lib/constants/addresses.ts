@@ -37,7 +37,6 @@ const BRIDGE_PDA_SEEDS = {
   PENDING_ERC20_DEPOSIT: 'pending_erc20_deposit',
   PENDING_ERC20_WITHDRAWAL: 'pending_erc20_withdrawal',
   USER_ERC20_BALANCE: 'user_erc20_balance',
-  USER_TRANSACTION_HISTORY: 'user_transaction_history',
 } as const;
 
 /**
@@ -85,18 +84,6 @@ export function deriveUserBalancePda(
       Buffer.from(BRIDGE_PDA_SEEDS.USER_ERC20_BALANCE),
       userPublicKey.toBuffer(),
       erc20AddressBytes,
-    ],
-    BRIDGE_PROGRAM_ID,
-  );
-}
-
-export function deriveUserTransactionHistoryPda(
-  userPublicKey: PublicKey,
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [
-      Buffer.from(BRIDGE_PDA_SEEDS.USER_TRANSACTION_HISTORY),
-      userPublicKey.toBuffer(),
     ],
     BRIDGE_PROGRAM_ID,
   );

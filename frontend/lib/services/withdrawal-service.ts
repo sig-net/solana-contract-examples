@@ -174,10 +174,13 @@ export class WithdrawalService {
 
       const requestIdBytes = Array.from(toBytes(requestId));
 
+      // IMPORTANT: Notify the relayer FIRST so it starts listening for events
+      // before the user's transaction emits the signature request
       await notifyWithdrawal({
         requestId,
         erc20Address,
         userAddress: publicKey.toBase58(),
+        recipientAddress: checksummedAddress,
         transactionParams: {
           ...txRequest,
           maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas.toString(),
@@ -192,8 +195,11 @@ export class WithdrawalService {
         note: 'Setting up withdrawal monitoring...',
       });
 
+      // Then sign and submit the Solana withdrawal transaction
+      // The relayer is now listening and will catch the signature request event
+      let solanaInitTxHash: string | undefined;
       try {
-        await this.dexContract.withdrawErc20({
+        solanaInitTxHash = await this.dexContract.withdrawErc20({
           authority: publicKey,
           requestIdBytes,
           erc20AddressBytes,
@@ -201,6 +207,15 @@ export class WithdrawalService {
           recipientAddressBytes,
           evmParams,
         });
+
+        // Send the Solana tx hash to backend for tracking
+        if (solanaInitTxHash) {
+          fetch('/api/tx-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: requestId, solanaInitTxHash }),
+          }).catch(err => console.error('Failed to update solanaInitTxHash:', err));
+        }
       } catch (txError) {
         const originalError =
           txError &&
@@ -239,10 +254,4 @@ export class WithdrawalService {
     }
   }
 
-  /**
-   * Fetch all user withdrawals (pending + historical)
-   */
-  async fetchAllUserWithdrawals(publicKey: PublicKey) {
-    return this.dexContract.fetchAllUserWithdrawals(publicKey);
-  }
 }
