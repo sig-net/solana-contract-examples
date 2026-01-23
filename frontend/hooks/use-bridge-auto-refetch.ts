@@ -104,8 +104,7 @@ export function useBridgeAutoRefetch() {
 
             if (isCompletion || isInitiation) {
               queriesToInvalidate.push(
-                { queryKey: queryKeys.solana.incomingDeposits(pk) },
-                { queryKey: queryKeys.solana.outgoingTransfers(pk) },
+                { queryKey: queryKeys.solana.txList(pk) },
               );
             }
 

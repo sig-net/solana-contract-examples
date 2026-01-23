@@ -25,3 +25,5 @@ infra/.env.prod
 infra/.env.local
 
 target/
+.vercel
+.env*.local

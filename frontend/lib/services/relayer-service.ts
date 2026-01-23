@@ -1,6 +1,11 @@
 import type { EvmTransactionRequestNotifyWithdrawal } from '@/lib/types/shared.types';
 import { getClientEnv } from '@/lib/config/env.config';
 
+export interface NotifyDepositResponse {
+  accepted: boolean;
+  trackingId: string;
+}
+
 export async function notifyDeposit({
   userAddress,
   erc20Address,
@@ -9,7 +14,7 @@ export async function notifyDeposit({
   userAddress: string;
   erc20Address: string;
   ethereumAddress: string;
-}): Promise<void> {
+}): Promise<NotifyDepositResponse> {
   const env = getClientEnv();
   const url = env.NEXT_PUBLIC_NOTIFY_DEPOSIT_URL;
   if (!url) {
@@ -26,15 +31,18 @@ export async function notifyDeposit({
       `Relayer notifyDeposit failed: ${res.status} ${res.statusText} - ${text}`,
     );
   }
+  return res.json();
 }
 
 export async function notifyWithdrawal({
   requestId,
   erc20Address,
+  userAddress,
   transactionParams,
 }: {
   requestId: string;
   erc20Address: string;
+  userAddress: string;
   transactionParams?: EvmTransactionRequestNotifyWithdrawal;
 }): Promise<void> {
   const env = getClientEnv();
@@ -48,6 +56,7 @@ export async function notifyWithdrawal({
     body: JSON.stringify({
       requestId,
       erc20Address,
+      userAddress,
       transactionParams,
     }),
   });
@@ -58,4 +67,27 @@ export async function notifyWithdrawal({
       `Relayer notification failed: ${response.status} ${response.statusText} - ${errorText}`,
     );
   }
+}
+
+export async function recoverTransaction({
+  requestId,
+  type,
+  userAddress,
+  erc20Address,
+}: {
+  requestId: string;
+  type: 'deposit' | 'withdrawal';
+  userAddress: string;
+  erc20Address?: string;
+}): Promise<{ accepted: boolean; message: string }> {
+  const res = await fetch('/api/recover-pending', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId, type, userAddress, erc20Address }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Recovery failed: ${res.status} - ${text}`);
+  }
+  return res.json();
 }

@@ -1,16 +1,9 @@
 import { useWallet } from '@solana/connector/react';
-import { useEffect } from 'react';
-import { toast } from 'sonner';
+import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { useIncomingTransfers } from '@/hooks/use-incoming-transfers';
-import { useDepositAddress } from '@/hooks/use-deposit-address';
-import { useOutgoingTransfers } from '@/hooks/use-outgoing-transfers';
-import {
-  getTokenInfoSync,
-  preloadTokenInfo,
-} from '@/lib/utils/token-formatting';
+import { useTxList } from '@/hooks/use-tx-list';
 import { formatTokenBalanceSync } from '@/lib/utils/balance-formatter';
 import { formatActivityDate } from '@/lib/utils/date-formatting';
 import {
@@ -26,9 +19,11 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { useSolanaTransactions } from '@/hooks/use-solana-transactions';
+import type { TxEntry, TxStatus } from '@/lib/relayer/tx-registry';
 
 import { DetailsCell } from './details-cell';
 import { StatusBadge } from './status-badge';
+import { TransactionDetailsDialog } from './transaction-details-dialog';
 
 export interface ActivityTransaction {
   id: string;
@@ -48,7 +43,7 @@ export interface ActivityTransaction {
   address?: string;
   timestamp: string;
   timestampRaw?: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'failed';
   transactionHash?: string;
   explorerUrl?: string;
 }
@@ -57,242 +52,128 @@ interface ActivityListTableProps {
   className?: string;
 }
 
-function buildTransactionsList(
-  depositAddress: string | undefined,
-  incomingTransfers: ReturnType<typeof useIncomingTransfers>['data'],
-  outgoingTransfers: ReturnType<typeof useOutgoingTransfers>['data'],
+function mapTxStatus(status: TxStatus): 'pending' | 'completed' | 'failed' {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  return 'pending';
+}
+
+function buildTransactionsFromRedis(
+  txList: TxEntry[],
+): ActivityTransaction[] {
+  return txList.map(tx => ({
+    id: tx.id,
+    type: tx.type === 'deposit' ? 'Deposit' : 'Withdraw',
+    fromToken: {
+      symbol: tx.type === 'deposit' ? 'WALLET' : 'USDC',
+      chain: 'ethereum',
+      amount: tx.type === 'deposit' ? tx.userAddress : 'USDC',
+      usdValue: '',
+    },
+    toToken: {
+      symbol: tx.type === 'deposit' ? 'USDC' : 'WALLET',
+      chain: 'ethereum',
+      amount: tx.type === 'deposit' ? 'USDC' : tx.userAddress,
+      usdValue: '',
+    },
+    timestamp: formatActivityDate(tx.createdAt),
+    timestampRaw: tx.createdAt,
+    status: mapTxStatus(tx.status),
+    transactionHash: tx.ethereumTxHash,
+    explorerUrl: tx.ethereumTxHash
+      ? getTransactionExplorerUrl(tx.ethereumTxHash)
+      : undefined,
+  }));
+}
+
+function buildSolanaTransactions(
   solanaTxs: ReturnType<typeof useSolanaTransactions>['data'],
   account: string | null,
 ): ActivityTransaction[] {
-  const allTransactions: ActivityTransaction[] = [];
+  if (!solanaTxs || solanaTxs.length === 0) return [];
 
-  // Process incoming transfers (deposits)
-  if (incomingTransfers) {
-    const incomingTxs = incomingTransfers.map(transfer => {
-      const tokenInfo = getTokenInfoSync(transfer.tokenAddress);
-      const formattedAmount = formatTokenBalanceSync(
-        transfer.value,
-        tokenInfo.decimals,
-        tokenInfo.displaySymbol,
-        { showSymbol: true },
-      );
+  const solanaAddress = account ?? '';
+  return solanaTxs.map(tx => {
+    const formattedAmount = formatTokenBalanceSync(
+      tx.amount,
+      tx.decimals,
+      tx.symbol,
+      { showSymbol: true },
+    );
 
-      const usdPrice = tokenInfo.displaySymbol === 'USDC' ? 1.0 : 0;
-      const usdValue =
-        usdPrice > 0
-          ? formatTokenBalanceSync(
-              transfer.value,
-              tokenInfo.decimals,
-              undefined,
-              { showUsd: true, usdPrice },
-            )
-          : '$0.00';
+    const isIncoming = tx.direction === 'in';
 
-      return {
-        id: transfer.requestId,
-        type: 'Deposit' as const,
-        fromToken: depositAddress
-          ? {
-              symbol: 'WALLET',
-              chain: 'ethereum',
-              amount: depositAddress,
-              usdValue: '',
-            }
-          : undefined,
-        toToken: {
-          symbol: tokenInfo.displaySymbol,
-          chain: 'ethereum',
-          amount: formattedAmount,
-          usdValue: usdValue,
-        },
-        address: undefined,
-        timestamp: transfer.timestamp
-          ? formatActivityDate(transfer.timestamp)
-          : 'Unknown',
-        timestampRaw: transfer.timestamp,
-        status: transfer.status,
-        transactionHash: transfer.transactionHash,
-        explorerUrl: transfer.transactionHash
-          ? getTransactionExplorerUrl(transfer.transactionHash)
-          : undefined,
-      };
-    });
-    allTransactions.push(...incomingTxs);
-  }
-
-  // Process outgoing transfers (withdrawals)
-  if (outgoingTransfers) {
-    const outgoingTxs = outgoingTransfers.map(transfer => {
-      const tokenInfo = getTokenInfoSync(transfer.tokenAddress);
-      const formattedAmount = formatTokenBalanceSync(
-        transfer.value,
-        tokenInfo.decimals,
-        tokenInfo.displaySymbol,
-        { showSymbol: true },
-      );
-
-      const usdPrice = tokenInfo.displaySymbol === 'USDC' ? 1.0 : 0;
-      const usdValue =
-        usdPrice > 0
-          ? formatTokenBalanceSync(
-              transfer.value,
-              tokenInfo.decimals,
-              undefined,
-              { showUsd: true, usdPrice },
-            )
-          : '$0.00';
-
-      return {
-        id: `${transfer.requestId}-outgoing`,
-        type: 'Withdraw' as const,
-        fromToken: {
-          symbol: tokenInfo.displaySymbol,
-          chain: 'ethereum',
-          amount: formattedAmount,
-          usdValue: usdValue,
-        },
-        toToken: {
-          symbol: 'WALLET',
-          chain: 'ethereum',
-          amount: transfer.recipient,
-          usdValue: '',
-        },
-        address: transfer.recipient,
-        timestamp: transfer.timestamp
-          ? formatActivityDate(transfer.timestamp)
-          : 'Unknown',
-        timestampRaw: transfer.timestamp,
-        status: transfer.status,
-        transactionHash: transfer.transactionHash,
-        explorerUrl: transfer.transactionHash
-          ? getTransactionExplorerUrl(transfer.transactionHash)
-          : undefined,
-      };
-    });
-    allTransactions.push(...outgoingTxs);
-  }
-
-  // Include Solana wallet transactions
-  if (solanaTxs && solanaTxs.length > 0) {
-    const solanaAddress = account ?? '';
-    const walletTxs: ActivityTransaction[] = solanaTxs.map(tx => {
-      const formattedAmount = formatTokenBalanceSync(
-        tx.amount,
-        tx.decimals,
-        tx.symbol,
-        { showSymbol: true },
-      );
-
-      const isIncoming = tx.direction === 'in';
-
-      return {
-        id: `${tx.signature}-${tx.mint ?? 'SOL'}`,
-        type: (isIncoming ? 'Deposit' : 'Withdraw') as ActivityTransaction['type'],
-        fromToken: isIncoming
-          ? {
-              symbol: 'WALLET',
-              chain: 'solana',
-              amount: solanaAddress,
-              usdValue: '',
-            }
-          : {
-              symbol: tx.symbol,
-              chain: 'solana',
-              amount: formattedAmount,
-              usdValue: '$0.00',
-            },
-        toToken: isIncoming
-          ? {
-              symbol: tx.symbol,
-              chain: 'solana',
-              amount: formattedAmount,
-              usdValue: '$0.00',
-            }
-          : {
-              symbol: 'WALLET',
-              chain: 'solana',
-              amount: solanaAddress,
-              usdValue: '',
-            },
-        address: solanaAddress,
-        timestamp: formatActivityDate(tx.timestamp),
-        timestampRaw: tx.timestamp,
-        status: 'completed',
-        transactionHash: tx.signature,
-        explorerUrl: getSolanaExplorerUrl(tx.signature),
-      };
-    });
-    allTransactions.push(...walletTxs);
-  }
-
-  // Sort all transactions by timestamp (newest first)
-  return allTransactions.sort((a, b) => {
-    const aTime = a.timestampRaw || 0;
-    const bTime = b.timestampRaw || 0;
-    return bTime - aTime;
+    return {
+      id: `${tx.signature}-${tx.mint ?? 'SOL'}`,
+      type: (isIncoming ? 'Deposit' : 'Withdraw') as ActivityTransaction['type'],
+      fromToken: isIncoming
+        ? {
+            symbol: 'WALLET',
+            chain: 'solana',
+            amount: solanaAddress,
+            usdValue: '',
+          }
+        : {
+            symbol: tx.symbol,
+            chain: 'solana',
+            amount: formattedAmount,
+            usdValue: '$0.00',
+          },
+      toToken: isIncoming
+        ? {
+            symbol: tx.symbol,
+            chain: 'solana',
+            amount: formattedAmount,
+            usdValue: '$0.00',
+          }
+        : {
+            symbol: 'WALLET',
+            chain: 'solana',
+            amount: solanaAddress,
+            usdValue: '',
+          },
+      address: solanaAddress,
+      timestamp: formatActivityDate(tx.timestamp),
+      timestampRaw: tx.timestamp,
+      status: 'completed',
+      transactionHash: tx.signature,
+      explorerUrl: getSolanaExplorerUrl(tx.signature),
+    };
   });
 }
 
 export function ActivityListTable({ className }: ActivityListTableProps) {
   const { isConnected, account } = useWallet();
-  const { data: depositAddress } = useDepositAddress();
-  const {
-    data: incomingTransfers,
-    isLoading: isLoadingIncoming,
-    error: incomingError,
-  } = useIncomingTransfers();
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<ActivityTransaction | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
-  const {
-    data: outgoingTransfers,
-    isLoading: isLoadingOutgoing,
-    error: outgoingError,
-  } = useOutgoingTransfers();
+  const { data: txList, isLoading: isLoadingTxList } = useTxList();
 
   const {
     data: solanaTxs,
     isLoading: isLoadingSolanaTxs,
-    error: solanaTxsError,
   } = useSolanaTransactions(25);
 
-  const isLoadingTransfers =
-    isLoadingIncoming || isLoadingOutgoing || isLoadingSolanaTxs;
-  const error = incomingError || outgoingError || solanaTxsError;
+  const isLoading = isLoadingTxList || isLoadingSolanaTxs;
 
-  useEffect(() => {
-    if (error) {
-      console.error('Failed to load transfers:', error);
-      if (
-        error instanceof Error &&
-        /429|rate\s*limit|too\s*many\s*requests/i.test(error.message)
-      ) {
-        toast.warning('Rate limit reached. Please try again in a moment.');
-      }
-    }
-  }, [error]);
+  // Build transactions from Redis (cross-chain) and Solana wallet
+  const redisTxs = buildTransactionsFromRedis(txList ?? []);
+  const solanaTxsFormatted = buildSolanaTransactions(solanaTxs, account);
 
-  // Preload token information when transfers are loaded
-  useEffect(() => {
-    const allTransfers = [
-      ...(incomingTransfers || []),
-      ...(outgoingTransfers || []),
-    ];
-    if (allTransfers.length) {
-      const tokenAddresses = Array.from(
-        new Set(allTransfers.map(transfer => transfer.tokenAddress)),
-      );
-      preloadTokenInfo(tokenAddresses);
-    }
-  }, [incomingTransfers, outgoingTransfers]);
+  // Combine and sort by timestamp (newest first)
+  const allTransactions = [...redisTxs, ...solanaTxsFormatted].sort((a, b) => {
+    const aTime = a.timestampRaw || 0;
+    const bTime = b.timestampRaw || 0;
+    return bTime - aTime;
+  });
 
-  const realTransactions = buildTransactionsList(
-    depositAddress,
-    incomingTransfers,
-    outgoingTransfers,
-    solanaTxs,
-    account,
-  );
+  const displayTransactions = allTransactions.slice(0, 5);
 
-  const displayTransactions = realTransactions.slice(0, 5);
+  const handleRowClick = (transaction: ActivityTransaction) => {
+    setSelectedTransaction(transaction);
+    setDialogOpen(true);
+  };
 
   return (
     <div className={cn('w-full', className)}>
@@ -318,7 +199,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {isLoadingTransfers ? (
+          {isLoading ? (
             Array.from({ length: 3 }).map((_, index) => (
               <TableRow key={`loading-${index}`}>
                 <TableCell>
@@ -346,7 +227,11 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
             ))
           ) : displayTransactions.length > 0 ? (
             displayTransactions.map(transaction => (
-              <TableRow key={transaction.id}>
+              <TableRow
+                key={transaction.id}
+                className='cursor-pointer transition-colors hover:bg-gray-50'
+                onClick={() => handleRowClick(transaction)}
+              >
                 <TableCell>
                   <div className='text-tundora-50 text-xs font-medium sm:text-sm'>
                     {transaction.type}
@@ -361,7 +246,10 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={transaction.status} />
+                  <StatusBadge
+                    status={transaction.status}
+                    trackingId={transaction.id}
+                  />
                 </TableCell>
                 <TableCell>
                   {transaction.explorerUrl ? (
@@ -370,6 +258,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
                       target='_blank'
                       rel='noopener noreferrer'
                       className='inline-block h-5 w-5 transition-opacity hover:opacity-80'
+                      onClick={e => e.stopPropagation()}
                     >
                       <ExternalLink className='text-tundora-50 h-5 w-5' />
                     </a>
@@ -388,6 +277,12 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
           )}
         </TableBody>
       </Table>
+
+      <TransactionDetailsDialog
+        transaction={selectedTransaction}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
     </div>
   );
 }

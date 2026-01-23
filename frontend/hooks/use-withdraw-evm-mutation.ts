@@ -2,9 +2,11 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/connector/react';
+import { toast } from 'sonner';
 
-import { queryKeys, invalidateWithdrawalQueries } from '@/lib/query-client';
+import { queryKeys } from '@/lib/query-client';
 import type { StatusCallback } from '@/lib/types/shared.types';
+import { usePendingTransactions } from '@/providers/pending-transactions-context';
 
 import { useWithdrawalService } from './use-withdrawal-service';
 import { useSolanaPublicKey } from './use-solana-public-key';
@@ -14,6 +16,7 @@ export function useWithdrawEvmMutation() {
   const withdrawalService = useWithdrawalService();
   const queryClient = useQueryClient();
   const publicKey = useSolanaPublicKey();
+  const { addPendingTransaction } = usePendingTransactions();
 
   return useMutation({
     mutationFn: async ({
@@ -38,9 +41,24 @@ export function useWithdrawEvmMutation() {
         onStatusChange,
       );
     },
-    onSuccess: () => {
+    onSuccess: (requestId, variables) => {
+      // Add to pending transactions for tracking
       if (account) {
-        invalidateWithdrawalQueries(queryClient, account);
+        addPendingTransaction({
+          id: requestId,
+          type: 'withdrawal',
+          erc20Address: variables.erc20Address,
+          userAddress: account,
+          startedAt: Date.now(),
+        });
+
+        toast.info('Withdrawal initiated', {
+          description: 'Processing your withdrawal...',
+        });
+
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.solana.txList(account),
+        });
       }
     },
     onError: (error, variables) => {
@@ -52,11 +70,9 @@ export function useWithdrawEvmMutation() {
         });
       }
 
-      if (account) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.solana.outgoingTransfers(account),
-        });
-      }
+      toast.error('Withdrawal failed', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
     },
   });
 }

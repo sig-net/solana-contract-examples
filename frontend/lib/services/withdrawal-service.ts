@@ -177,6 +177,7 @@ export class WithdrawalService {
       await notifyWithdrawal({
         requestId,
         erc20Address,
+        userAddress: publicKey.toBase58(),
         transactionParams: {
           ...txRequest,
           maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas.toString(),
