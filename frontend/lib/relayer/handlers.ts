@@ -51,7 +51,7 @@ async function executeDeposit(args: {
     const { orchestrator, provider, relayerWallet } =
       await initializeRelayerSetup({
         operationName: 'DEPOSIT',
-        eventTimeoutMs: 60000,
+        eventTimeoutMs: 300000,
       });
     const dexContract = orchestrator.getDexContract();
 
@@ -241,7 +241,7 @@ async function executeWithdrawal(args: {
   try {
     const { orchestrator, provider } = await initializeRelayerSetup({
       operationName: 'WITHDRAW',
-      eventTimeoutMs: 60000,
+      eventTimeoutMs: 300000,
     });
 
     // Phase: Gas top-up for vault if needed
@@ -336,7 +336,7 @@ export async function recoverDeposit(
 
     const { orchestrator } = await initializeRelayerSetup({
       operationName: 'RECOVER_DEPOSIT',
-      eventTimeoutMs: 60000,
+      eventTimeoutMs: 300000,
     });
     const dexContract = orchestrator.getDexContract();
     const requestIdBytes = Array.from(toBytes(requestId));
@@ -400,7 +400,7 @@ export async function recoverWithdrawal(
 
     const { orchestrator } = await initializeRelayerSetup({
       operationName: 'RECOVER_WITHDRAWAL',
-      eventTimeoutMs: 60000,
+      eventTimeoutMs: 300000,
     });
     const dexContract = orchestrator.getDexContract();
     const requestIdBytes = Array.from(toBytes(requestId));
