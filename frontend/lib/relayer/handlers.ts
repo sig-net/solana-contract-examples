@@ -19,7 +19,7 @@ import {
 } from '@/lib/constants/addresses';
 import { withEmbeddedSigner } from '@/lib/relayer/embedded-signer';
 import { updateTxStatus } from '@/lib/relayer/tx-registry';
-import { fetchErc20Decimals, getTokenMetadata } from '@/lib/constants/token-metadata';
+import { fetchErc20Decimals, getErc20Token } from '@/lib/constants/token-metadata';
 
 export async function handleDeposit(args: {
   userAddress: string;
@@ -68,7 +68,7 @@ async function executeDeposit(args: {
 
     // Fetch decimals from chain (throws if token not in allowlist)
     const decimals = await fetchErc20Decimals(erc20Address);
-    const tokenMetadata = getTokenMetadata(erc20Address);
+    const tokenMetadata = getErc20Token(erc20Address);
 
     const path = userAddress;
     const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));

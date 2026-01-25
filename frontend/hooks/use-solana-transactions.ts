@@ -7,7 +7,7 @@ import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { useConnection } from '@/providers/connection-context';
 import { queryKeys } from '@/lib/query-client';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
-import { getAllNetworks } from '@/lib/constants/token-metadata';
+import { getSolanaTokens } from '@/lib/constants/token-metadata';
 
 import { useSolanaPublicKey } from './use-solana-public-key';
 
@@ -44,23 +44,20 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
       const rpcManager = getRPCManager(connection);
       const userAddress = publicKey.toBase58();
 
-      const tokens =
-        getAllNetworks().find(n => n.chain === 'solana')?.tokens ?? [];
+      const tokens = getSolanaTokens();
 
       if (tokens.length === 0) return [];
 
-      const tokenMap = new Map(
-        tokens.map(t => [
-          t.address,
-          { symbol: t.symbol, decimals: t.decimals },
-        ]),
+      // Map mint address to symbol for display (decimals come from transaction data)
+      const tokenSymbolMap = new Map(
+        tokens.map(t => [t.erc20Address, t.symbol]),
       );
 
       const ataSignatures = await Promise.all(
         tokens.map(async token => {
           try {
             const ata = await getAssociatedTokenAddress(
-              new PublicKey(token.address),
+              new PublicKey(token.erc20Address),
               publicKey,
               true,
             );
@@ -133,15 +130,13 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
             const delta = change.post - change.pre;
             if (delta === BigInt(0)) return;
 
-            const tokenInfo = tokenMap.get(mint);
-
             transfers.push({
               id: `${signature}-${mint}`,
               signature,
               timestamp: Math.floor(timestamp),
               direction: delta > BigInt(0) ? 'in' : 'out',
-              symbol: tokenInfo?.symbol ?? 'SPL',
-              decimals: tokenInfo?.decimals ?? change.decimals,
+              symbol: tokenSymbolMap.get(mint) ?? 'SPL',
+              decimals: change.decimals, // Decimals from on-chain transaction data
               amount: delta > BigInt(0) ? delta : -delta,
               mint,
             });

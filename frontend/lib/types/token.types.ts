@@ -1,10 +1,10 @@
-// Core token interface with all required fields
+// Core token interface with balance - decimals required (fetched from chain)
 export interface Token {
   erc20Address: string;
   symbol: string;
   name: string;
   decimals: number;
-  chain: string;
+  chain: 'ethereum' | 'solana';
 }
 
 // Token balance with string amount (for service/API data)

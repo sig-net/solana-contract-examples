@@ -2,54 +2,61 @@ import { erc20Abi, type Hex } from 'viem';
 
 import { getEthereumProvider } from '@/lib/rpc';
 
-export interface TokenMetadata {
-  address: string;
+// Token display info - decimals come from on-chain fetching
+export interface TokenConfig {
+  erc20Address: string;
   symbol: string;
   name: string;
-  decimals?: number;
+  chain: 'ethereum' | 'solana';
 }
 
-export interface NetworkData {
-  chain: string;
-  chainName: string;
-  symbol: string;
-  tokens: TokenMetadata[];
-}
+// Type alias for UI components
+export type TokenMetadata = TokenConfig;
 
-// ERC20 tokens on Sepolia - hardcoded display metadata
-const ERC20_TOKENS: TokenMetadata[] = [
+// ERC20 tokens on Sepolia
+const ERC20_TOKENS: TokenConfig[] = [
   {
-    address: '0xbe72e441bf55620febc26715db68d3494213d8cb',
+    erc20Address: '0xbe72e441bf55620febc26715db68d3494213d8cb',
     symbol: 'USDC',
     name: 'USD Coin',
+    chain: 'ethereum',
   },
   {
-    address: '0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D',
+    erc20Address: '0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D',
     symbol: 'DAI',
     name: 'Dai',
+    chain: 'ethereum',
   },
   {
-    address: '0x0625aFB445C3B6B7B929342a04A22599fd5dBB59',
+    erc20Address: '0x0625aFB445C3B6B7B929342a04A22599fd5dBB59',
     symbol: 'COW',
     name: 'Cow Protocol',
+    chain: 'ethereum',
   },
 ];
 
-// Solana tokens (decimals hardcoded since no standard on-chain query)
-const SOLANA_TOKENS: (TokenMetadata & { decimals: number })[] = [
+// Solana tokens
+const SOLANA_TOKENS: TokenConfig[] = [
   {
-    address: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+    erc20Address: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
     symbol: 'USDC',
     name: 'USD Coin',
-    decimals: 6,
+    chain: 'solana',
   },
   {
-    address: 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',
+    erc20Address: 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',
     symbol: 'EURC',
     name: 'Euro',
-    decimals: 6,
+    chain: 'solana',
   },
 ];
+
+export interface NetworkData {
+  chain: 'ethereum' | 'solana';
+  chainName: string;
+  symbol: string;
+  tokens: TokenConfig[];
+}
 
 export const NETWORKS_WITH_TOKENS: NetworkData[] = [
   {
@@ -66,9 +73,9 @@ export const NETWORKS_WITH_TOKENS: NetworkData[] = [
   },
 ];
 
-// ERC20 allowlist lookup
+// ERC20 functions
 const ERC20_ALLOWLIST_SET = new Set(
-  ERC20_TOKENS.map(t => t.address.toLowerCase()),
+  ERC20_TOKENS.map(t => t.erc20Address.toLowerCase()),
 );
 
 export function isErc20Allowed(address: string): boolean {
@@ -76,56 +83,43 @@ export function isErc20Allowed(address: string): boolean {
 }
 
 export function getErc20Allowlist(): string[] {
-  return ERC20_TOKENS.map(t => t.address);
+  return ERC20_TOKENS.map(t => t.erc20Address);
 }
 
-export function getSolanaTokens(): (TokenMetadata & { decimals: number })[] {
+export function getAllErc20Tokens(): TokenConfig[] {
+  return ERC20_TOKENS;
+}
+
+const ERC20_TOKEN_MAP = new Map<string, TokenConfig>(
+  ERC20_TOKENS.map(token => [token.erc20Address.toLowerCase(), token]),
+);
+
+export function getErc20Token(address: string): TokenConfig | undefined {
+  return ERC20_TOKEN_MAP.get(address.toLowerCase());
+}
+
+// Solana functions
+export function getSolanaTokens(): TokenConfig[] {
   return SOLANA_TOKENS;
 }
 
+const SOLANA_TOKEN_MAP = new Map<string, TokenConfig>(
+  SOLANA_TOKENS.map(token => [token.erc20Address, token]),
+);
+
+export function getSolanaToken(address: string): TokenConfig | undefined {
+  return SOLANA_TOKEN_MAP.get(address);
+}
+
+// Network functions
 export function getAllNetworks(): NetworkData[] {
   return NETWORKS_WITH_TOKENS;
 }
 
-export interface Erc20TokenMetadata extends TokenMetadata {
-  chain: string;
-  chainName: string;
-}
-
-export function getAllErc20Tokens(): Erc20TokenMetadata[] {
-  return ERC20_TOKENS.map(token => ({
-    ...token,
-    chain: 'ethereum',
-    chainName: 'Ethereum',
-  }));
-}
-
-const TOKEN_METADATA_MAP = new Map<string, Erc20TokenMetadata>(
-  getAllErc20Tokens().map(token => [token.address.toLowerCase(), token]),
-);
-
-export function getTokenMetadata(
-  address: string,
-): Erc20TokenMetadata | undefined {
-  return TOKEN_METADATA_MAP.get(address.toLowerCase());
-}
-
-// Cache for on-chain decimals
-const erc20DecimalsCache = new Map<string, number>();
-
-/**
- * Fetch ERC20 decimals from chain. Display metadata (name/symbol) comes from hardcoded allowlist.
- */
+// Fetch ERC20 decimals from chain
 export async function fetchErc20Decimals(address: string): Promise<number> {
-  const normalizedAddress = address.toLowerCase();
-
-  if (!isErc20Allowed(normalizedAddress)) {
+  if (!isErc20Allowed(address)) {
     throw new Error(`Token not supported: ${address}`);
-  }
-
-  const cached = erc20DecimalsCache.get(normalizedAddress);
-  if (cached !== undefined) {
-    return cached;
   }
 
   const client = getEthereumProvider();
@@ -135,6 +129,5 @@ export async function fetchErc20Decimals(address: string): Promise<number> {
     functionName: 'decimals',
   });
 
-  erc20DecimalsCache.set(normalizedAddress, decimals);
   return decimals;
 }

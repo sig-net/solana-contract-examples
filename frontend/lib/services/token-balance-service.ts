@@ -3,7 +3,7 @@ import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 
 import type { TokenBalance } from '@/lib/types/token.types';
 import {
-  getTokenMetadata,
+  getErc20Token,
   getAllErc20Tokens,
   getSolanaTokens,
   fetchErc20Decimals,
@@ -12,13 +12,9 @@ import type { DexContract } from '@/lib/contracts/dex-contract';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
 import { getAlchemyProvider } from '@/lib/rpc';
 
-const decimalsCache = new Map<string, number>();
-
 /**
  * TokenBalanceService handles all token balance operations including
  * fetching and processing ERC20 token balances.
- *
- * OPTIMIZED VERSION: Uses efficient RPC calls with filtering
  */
 export class TokenBalanceService {
   private alchemy = getAlchemyProvider();
@@ -26,17 +22,6 @@ export class TokenBalanceService {
 
   constructor(private dexContract: DexContract) {
     this.rpcManager = getRPCManager(dexContract.getConnection());
-  }
-
-  private async resolveDecimals(erc20Address: string): Promise<number> {
-    const normalized = erc20Address.toLowerCase();
-    const cached = decimalsCache.get(normalized);
-    if (cached !== undefined) return cached;
-
-    // Fetch from chain - throws if token not in allowlist
-    const decimals = await fetchErc20Decimals(erc20Address);
-    decimalsCache.set(normalized, decimals);
-    return decimals;
   }
 
   /**
@@ -66,7 +51,7 @@ export class TokenBalanceService {
       for (const tokenBalance of balances.tokenBalances) {
         const balance = BigInt(tokenBalance.tokenBalance || '0');
 
-        const decimals = await this.resolveDecimals(tokenBalance.contractAddress);
+        const decimals = await fetchErc20Decimals(tokenBalance.contractAddress);
         results.push({
           address: tokenBalance.contractAddress,
           balance,
@@ -98,7 +83,7 @@ export class TokenBalanceService {
         const balance = tokenBalances?.tokenBalances?.[0]?.tokenBalance || '0';
         const balanceBigInt = BigInt(balance || '0');
 
-        const decimals = await this.resolveDecimals(tokenAddress);
+        const decimals = await fetchErc20Decimals(tokenAddress);
         return { address: tokenAddress, balance: balanceBigInt, decimals };
       } catch (error) {
         console.error(`Error fetching balance for ${tokenAddress}:`, error);
@@ -116,7 +101,7 @@ export class TokenBalanceService {
     derivedAddress: string,
   ): Promise<TokenBalance[]> {
     try {
-      const tokenAddresses = getAllErc20Tokens().map(token => token.address);
+      const tokenAddresses = getAllErc20Tokens().map(token => token.erc20Address);
 
       // Use batch fetching to reduce RPC calls
       const batchResults = await this.batchFetchErc20Balances(
@@ -128,14 +113,14 @@ export class TokenBalanceService {
 
       for (const result of batchResults) {
         if (result.balance > BigInt(0)) {
-          const tokenMetadata = getTokenMetadata(result.address);
+          const tokenMetadata = getErc20Token(result.address);
           results.push({
             erc20Address: result.address,
             amount: result.balance.toString(),
-            symbol: tokenMetadata?.symbol || 'Unknown',
-            name: tokenMetadata?.name || 'Unknown Token',
+            symbol: tokenMetadata?.symbol ?? 'Unknown',
+            name: tokenMetadata?.name ?? 'Unknown Token',
             decimals: result.decimals,
-            chain: tokenMetadata?.chain || 'ethereum',
+            chain: 'ethereum',
           });
         }
       }
@@ -152,7 +137,7 @@ export class TokenBalanceService {
    */
   async fetchUserBalances(publicKey: PublicKey): Promise<TokenBalance[]> {
     try {
-      const tokenAddresses = getAllErc20Tokens().map(token => token.address);
+      const tokenAddresses = getAllErc20Tokens().map(token => token.erc20Address);
 
       // Fetch ERC20 balances from the bridge contract
       const balancesPromises = tokenAddresses.map(async erc20Address => {
@@ -161,14 +146,14 @@ export class TokenBalanceService {
           erc20Address,
         );
         if (balance !== '0') {
-          const tokenMetadata = getTokenMetadata(erc20Address);
+          const tokenMetadata = getErc20Token(erc20Address);
           return {
             erc20Address,
             amount: balance,
             decimals: 18, // Solana contract stores all ERC20 balances with 18 decimals
             symbol: tokenMetadata?.symbol ?? 'Unknown',
             name: tokenMetadata?.name ?? 'Unknown Token',
-            chain: tokenMetadata?.chain ?? 'ethereum',
+            chain: 'ethereum',
           };
         }
         return null;
@@ -178,89 +163,57 @@ export class TokenBalanceService {
         (result): result is TokenBalance => result !== null,
       );
 
-      // OPTIMIZED: Fetch SPL balances using getMultipleAccountsInfo instead of getParsedTokenAccountsByOwner
+      // Fetch SPL balances using parsed account info to get decimals from chain
       const splResults: TokenBalance[] = [];
       const solanaTokens = getSolanaTokens();
       if (solanaTokens.length > 0) {
         try {
-          // Pre-compute all ATAs for known SPL tokens
-          const ataAddresses: PublicKey[] = [];
-          const tokenInfoMap = new Map<
-            string,
-            (typeof solanaTokens)[0]
-          >();
-
-          for (const token of solanaTokens) {
+          // Fetch each token balance with parsed data (includes decimals)
+          const balancePromises = solanaTokens.map(async token => {
             try {
-              const mintPubkey = new PublicKey(token.address);
+              const mintPubkey = new PublicKey(token.erc20Address);
               const ata = getAssociatedTokenAddressSync(
                 mintPubkey,
                 publicKey,
-                true, // Allow owner off curve
+                true,
               );
-              ataAddresses.push(ata);
-              tokenInfoMap.set(ata.toBase58(), token);
+
+              // Get parsed account info to get decimals from chain
+              const result = await this.dexContract.getConnection().getParsedAccountInfo(ata);
+              const accountInfo = result.value;
+
+              if (
+                accountInfo &&
+                'parsed' in accountInfo.data &&
+                accountInfo.data.parsed?.info?.tokenAmount
+              ) {
+                const tokenAmount = accountInfo.data.parsed.info.tokenAmount;
+                return {
+                  erc20Address: token.erc20Address,
+                  amount: tokenAmount.amount ?? '0',
+                  decimals: tokenAmount.decimals,
+                  symbol: token.symbol,
+                  name: token.name,
+                  chain: 'solana' as const,
+                };
+              }
+
+              // Account doesn't exist or no balance
+              return null;
             } catch (e) {
-              console.warn(`Failed to derive ATA for ${token.address}:`, e);
+              console.warn(`Failed to fetch balance for ${token.symbol}:`, e);
+              return null;
             }
-          }
+          });
 
-          // Batch fetch all ATAs in a single request using the RPC manager
-          const accounts =
-            await this.rpcManager.getMultipleAccountsInfo(ataAddresses);
-
-          for (let i = 0; i < accounts.length; i++) {
-            const account = accounts[i];
-            const ata = ataAddresses[i];
-            if (!ata) continue;
-            const ataAddress = ata.toBase58();
-            const tokenInfo = tokenInfoMap.get(ataAddress);
-            if (!tokenInfo) continue;
-
-            let amount = '0';
-
-            if (account && account.data && 'parsed' in account.data) {
-              // Account exists and is parsed
-              const parsed = account.data.parsed;
-              if (parsed?.info?.tokenAmount?.amount) {
-                amount = parsed.info.tokenAmount.amount;
-              }
-            } else if (
-              account &&
-              account.data &&
-              Buffer.isBuffer(account.data)
-            ) {
-              // Account exists but needs manual parsing
-              // Token account layout: first 64 bytes are mint and owner, next 8 bytes are amount
-              if (account.data.length >= 72) {
-                const amountBuffer = account.data.subarray(64, 72);
-                const amountBigInt = amountBuffer.readBigUInt64LE();
-                amount = amountBigInt.toString();
-              }
+          const results = await Promise.all(balancePromises);
+          for (const result of results) {
+            if (result) {
+              splResults.push(result);
             }
-
-            splResults.push({
-              erc20Address: tokenInfo.address,
-              amount,
-              decimals: tokenInfo.decimals,
-              symbol: tokenInfo.symbol,
-              name: tokenInfo.name,
-              chain: 'solana',
-            });
           }
         } catch (error) {
           console.error('Error fetching SPL balances:', error);
-          // If batch fetch fails, include zeros for all tokens
-          for (const token of solanaTokens) {
-            splResults.push({
-              erc20Address: token.address,
-              amount: '0',
-              decimals: token.decimals,
-              symbol: token.symbol,
-              name: token.name,
-              chain: 'solana',
-            });
-          }
         }
       }
 

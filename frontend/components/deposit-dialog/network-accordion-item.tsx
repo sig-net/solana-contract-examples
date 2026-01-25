@@ -65,7 +65,7 @@ export function NetworkAccordionItem({
           <div className='space-y-0'>
             {network.tokens.map((token, index) => (
               <button
-                key={`${token.address}-${index}`}
+                key={`${token.erc20Address}-${index}`}
                 type='button'
                 onClick={() => onTokenSelect(token, network)}
                 className='hover:bg-pastels-green-white-300 flex w-full items-center gap-3 rounded px-3 py-2 text-left transition-colors'
