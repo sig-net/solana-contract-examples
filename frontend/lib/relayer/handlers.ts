@@ -62,10 +62,11 @@ async function executeDeposit(args: {
       provider,
     );
     if (!actualAmount) {
+      const balanceError = `No token balance detected at ${ethereumAddress} for token ${erc20Address} after 5 minutes`;
       await updateTxStatus(trackingId, 'failed', {
-        error: 'No balance detected after 5 minutes',
+        error: balanceError,
       });
-      return { ok: false, error: 'No token balance detected' };
+      return { ok: false, error: balanceError };
     }
 
     const processAmount = applyContractSafetyReduction(actualAmount);
@@ -186,10 +187,11 @@ async function executeDeposit(args: {
     );
 
     if (!result.success) {
+      const depositError = result.error ?? `Deposit flow failed for request ${trackingId}`;
       await updateTxStatus(trackingId, 'failed', {
-        error: result.error ?? 'Deposit failed',
+        error: depositError,
       });
-      return { ok: false, error: result.error ?? 'Deposit failed' };
+      return { ok: false, error: depositError };
     }
 
     // Phase 6: Completed
@@ -206,8 +208,11 @@ async function executeDeposit(args: {
       claimTx: result.solanaResult,
     };
   } catch (error) {
+    const errorMessage = error instanceof Error
+      ? error.message
+      : `Unexpected error during deposit: ${String(error)}`;
     await updateTxStatus(trackingId, 'failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     });
     throw error;
   }
@@ -287,10 +292,11 @@ async function executeWithdrawal(args: {
     );
 
     if (!result.success) {
+      const withdrawalError = result.error ?? `Withdrawal flow failed for request ${requestId}`;
       await updateTxStatus(requestId, 'failed', {
-        error: result.error ?? 'Withdrawal failed',
+        error: withdrawalError,
       });
-      return { ok: false, error: result.error ?? 'Withdrawal failed' };
+      return { ok: false, error: withdrawalError };
     }
 
     await updateTxStatus(requestId, 'completed', {
@@ -305,8 +311,11 @@ async function executeWithdrawal(args: {
       solanaTx: result.solanaResult,
     };
   } catch (error) {
+    const errorMessage = error instanceof Error
+      ? error.message
+      : `Unexpected error during withdrawal: ${String(error)}`;
     await updateTxStatus(requestId, 'failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     });
     throw error;
   }
@@ -350,10 +359,11 @@ export async function recoverDeposit(
     );
 
     if (!result.success) {
+      const recoveryError = result.error ?? `Deposit recovery failed: no signature event found for ${requestId}`;
       await updateTxStatus(requestId, 'failed', {
-        error: result.error ?? 'Recovery failed',
+        error: recoveryError,
       });
-      return { ok: false, error: result.error ?? 'Recovery failed' };
+      return { ok: false, error: recoveryError };
     }
 
     await updateTxStatus(requestId, 'completed', {
@@ -362,12 +372,15 @@ export async function recoverDeposit(
 
     return { ok: true, solanaTx: result.solanaResult };
   } catch (error) {
+    const errorMessage = error instanceof Error
+      ? error.message
+      : `Unexpected error during deposit recovery: ${String(error)}`;
     await updateTxStatus(requestId, 'failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     });
     return {
       ok: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     };
   }
 }
@@ -409,10 +422,11 @@ export async function recoverWithdrawal(
     );
 
     if (!result.success) {
+      const recoveryError = result.error ?? `Withdrawal recovery failed: no signature event found for ${requestId}`;
       await updateTxStatus(requestId, 'failed', {
-        error: result.error ?? 'Recovery failed',
+        error: recoveryError,
       });
-      return { ok: false, error: result.error ?? 'Recovery failed' };
+      return { ok: false, error: recoveryError };
     }
 
     await updateTxStatus(requestId, 'completed', {
@@ -421,12 +435,15 @@ export async function recoverWithdrawal(
 
     return { ok: true, solanaTx: result.solanaResult };
   } catch (error) {
+    const errorMessage = error instanceof Error
+      ? error.message
+      : `Unexpected error during withdrawal recovery: ${String(error)}`;
     await updateTxStatus(requestId, 'failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     });
     return {
       ok: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     };
   }
 }
@@ -447,6 +464,8 @@ async function monitorTokenBalance(
   let intervalMs = config.pollIntervalMs;
   const deadline = Date.now() + config.maxDurationMs;
 
+  let lastError: Error | null = null;
+
   while (Date.now() < deadline) {
     try {
       const balance = await client.readContract({
@@ -456,8 +475,14 @@ async function monitorTokenBalance(
         args: [address as Hex],
       });
       if (balance > 0n) return balance;
-    } catch {
-      // Swallow and retry - RPC errors are common
+      lastError = null; // Reset on successful read
+    } catch (error) {
+      // Log once per unique error to help debugging without flooding logs
+      const currentError = error instanceof Error ? error : new Error(String(error));
+      if (!lastError || lastError.message !== currentError.message) {
+        console.warn(`[BalanceMonitor] RPC error for ${address}: ${currentError.message}`);
+        lastError = currentError;
+      }
     }
 
     await sleep(intervalMs);

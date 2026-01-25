@@ -110,8 +110,9 @@ export class CrossChainOrchestrator {
       if (error && typeof error === 'object' && 'logs' in error) {
         console.error(`[${op}] Transaction logs:`, (error as { logs: string[] }).logs);
       }
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error
+        ? error.message
+        : `Unexpected error in signature flow for ${requestId}: ${String(error)}`;
       console.error(`[${op}] Flow failed:`, errorMessage);
 
       return {
@@ -154,7 +155,7 @@ export class CrossChainOrchestrator {
       const respondBidirectionalEvent = await this.waitWithTimeout(
         eventPromises.respondBidirectional,
         this.config.eventTimeoutMs,
-        `Read response timeout for recovery ${op}`,
+        `Read response timeout for recovery (requestId: ${requestId})`,
       );
 
       console.log(`[${op}] Completing on Solana...`);
@@ -172,8 +173,9 @@ export class CrossChainOrchestrator {
       if (error && typeof error === 'object' && 'logs' in error) {
         console.error(`[${op}] Transaction logs:`, (error as { logs: string[] }).logs);
       }
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error
+        ? error.message
+        : `Unexpected error in recovery flow for ${requestId}: ${String(error)}`;
       console.error(`[${op}] Recovery failed:`, errorMessage);
 
       return {

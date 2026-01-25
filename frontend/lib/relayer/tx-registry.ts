@@ -87,7 +87,10 @@ export async function updateTxStatus(
 ): Promise<void> {
   const redis = getRedisClient();
   const entry = await redis.get<TxEntry>(`${TX_PREFIX}${id}`);
-  if (!entry) return;
+  if (!entry) {
+    console.warn(`[TxRegistry] Attempted to update non-existent transaction: ${id} to status: ${status}`);
+    return;
+  }
 
   const updated: TxEntry = {
     ...entry,
