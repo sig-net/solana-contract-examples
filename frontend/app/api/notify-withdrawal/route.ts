@@ -31,7 +31,16 @@ function parseTransactionParams(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { requestId, erc20Address, transactionParams, userAddress, recipientAddress } = body;
+    const {
+      requestId,
+      erc20Address,
+      transactionParams,
+      userAddress,
+      recipientAddress,
+      tokenAmount,
+      tokenDecimals,
+      tokenSymbol,
+    } = body;
 
     if (!requestId || !erc20Address || !transactionParams || !userAddress) {
       return NextResponse.json(
@@ -42,7 +51,12 @@ export async function POST(request: NextRequest) {
 
     // Register in KV before background processing
     // For withdrawals, store the recipient Ethereum wallet address
-    await registerTx(requestId, 'withdrawal', userAddress, recipientAddress);
+    await registerTx(requestId, 'withdrawal', userAddress, recipientAddress, {
+      tokenMint: erc20Address,
+      tokenAmount,
+      tokenDecimals,
+      tokenSymbol,
+    });
 
     after(async () => {
       try {

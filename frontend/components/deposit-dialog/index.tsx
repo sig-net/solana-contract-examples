@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { TokenMetadata, NetworkData } from '@/lib/constants/token-metadata';
+import { TokenMetadata, NetworkData, fetchErc20Decimals } from '@/lib/constants/token-metadata';
 import { useDepositAddress, useDepositSol } from '@/hooks';
 import { useDepositEvmMutation } from '@/hooks/use-deposit-evm-mutation';
 
@@ -72,10 +72,14 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
     }
 
     try {
+      // Fetch decimals from chain
+      const decimals = await fetchErc20Decimals(selectedToken.address);
+
       await depositEvmMutation.mutateAsync({
         erc20Address: selectedToken.address,
         amount: '',
-        decimals: selectedToken.decimals,
+        decimals,
+        tokenSymbol: selectedToken.symbol,
       });
       handleClose();
     } catch (err) {

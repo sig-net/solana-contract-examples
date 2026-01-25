@@ -33,6 +33,11 @@ export interface TxEntry {
   solanaInitTxHash?: string;
   ethereumTxHash?: string;
   solanaFinalizeTxHash?: string;
+  // Token info for display
+  tokenMint?: string;
+  tokenAmount?: string;
+  tokenDecimals?: number;
+  tokenSymbol?: string;
 }
 
 const TX_PREFIX = 'tx:';
@@ -44,6 +49,12 @@ export async function registerTx(
   type: TxEntry['type'],
   userAddress: string,
   ethereumAddress?: string,
+  tokenInfo?: {
+    tokenMint?: string;
+    tokenAmount?: string;
+    tokenDecimals?: number;
+    tokenSymbol?: string;
+  },
 ): Promise<void> {
   const redis = getRedisClient();
   const entry: TxEntry = {
@@ -54,6 +65,10 @@ export async function registerTx(
     status: 'pending',
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    tokenMint: tokenInfo?.tokenMint,
+    tokenAmount: tokenInfo?.tokenAmount,
+    tokenDecimals: tokenInfo?.tokenDecimals,
+    tokenSymbol: tokenInfo?.tokenSymbol,
   };
   await redis.set(`${TX_PREFIX}${id}`, entry, { ex: TX_TTL_SECONDS });
   // Track transaction ID in user's list
@@ -65,7 +80,7 @@ export async function updateTxStatus(
   id: string,
   status: TxStatus,
   metadata?: Partial<
-    Pick<TxEntry, 'error' | 'ethereumTxHash' | 'solanaInitTxHash' | 'solanaFinalizeTxHash' | 'requestId' | 'ethereumAddress'>
+    Pick<TxEntry, 'error' | 'ethereumTxHash' | 'solanaInitTxHash' | 'solanaFinalizeTxHash' | 'requestId' | 'ethereumAddress' | 'tokenMint' | 'tokenAmount' | 'tokenDecimals' | 'tokenSymbol'>
   >,
 ): Promise<void> {
   const redis = getRedisClient();
@@ -79,14 +94,6 @@ export async function updateTxStatus(
     updatedAt: Date.now(),
   };
   await redis.set(`${TX_PREFIX}${id}`, updated, { ex: TX_TTL_SECONDS });
-
-  // Always update requestId index if we have one (either new or existing)
-  const requestId = metadata?.requestId ?? entry.requestId;
-  if (requestId && requestId !== id) {
-    await redis.set(`${TX_PREFIX}${requestId}`, updated, {
-      ex: TX_TTL_SECONDS,
-    });
-  }
 }
 
 export async function getTxStatus(id: string): Promise<TxEntry | null> {

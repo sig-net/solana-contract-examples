@@ -25,7 +25,8 @@ export class DepositService {
     publicKey: PublicKey,
     erc20Address: string,
     amount: string,
-    _decimals = 6,
+    decimals = 6,
+    tokenSymbol?: string,
     onStatusChange?: StatusCallback,
   ): Promise<DepositResult> {
     try {
@@ -42,6 +43,8 @@ export class DepositService {
         userAddress: publicKey.toString(),
         erc20Address,
         ethereumAddress: derivedAddress,
+        tokenDecimals: decimals,
+        tokenSymbol,
       });
 
       onStatusChange?.({

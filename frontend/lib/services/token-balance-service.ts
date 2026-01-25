@@ -5,7 +5,8 @@ import type { TokenBalance } from '@/lib/types/token.types';
 import {
   getTokenMetadata,
   getAllErc20Tokens,
-  NETWORKS_WITH_TOKENS,
+  getSolanaTokens,
+  fetchErc20Decimals,
 } from '@/lib/constants/token-metadata';
 import type { DexContract } from '@/lib/contracts/dex-contract';
 import { getRPCManager } from '@/lib/utils/rpc-manager';
@@ -32,21 +33,10 @@ export class TokenBalanceService {
     const cached = decimalsCache.get(normalized);
     if (cached !== undefined) return cached;
 
-    const localMeta = getTokenMetadata(erc20Address);
-    if (localMeta) {
-      decimalsCache.set(normalized, localMeta.decimals);
-      return localMeta.decimals;
-    }
-
-    try {
-      const meta = await this.alchemy.core.getTokenMetadata(erc20Address);
-      const decimals = meta?.decimals ?? 18;
-      decimalsCache.set(normalized, decimals);
-      return decimals;
-    } catch {
-      decimalsCache.set(normalized, 18);
-      return 18;
-    }
+    // Fetch from chain - throws if token not in allowlist
+    const decimals = await fetchErc20Decimals(erc20Address);
+    decimalsCache.set(normalized, decimals);
+    return decimals;
   }
 
   /**
@@ -112,7 +102,7 @@ export class TokenBalanceService {
         return { address: tokenAddress, balance: balanceBigInt, decimals };
       } catch (error) {
         console.error(`Error fetching balance for ${tokenAddress}:`, error);
-        return { address: tokenAddress, balance: BigInt(0), decimals: 18 };
+        throw error;
       }
     });
 
@@ -189,21 +179,18 @@ export class TokenBalanceService {
       );
 
       // OPTIMIZED: Fetch SPL balances using getMultipleAccountsInfo instead of getParsedTokenAccountsByOwner
-      const solanaNetwork = NETWORKS_WITH_TOKENS.find(
-        n => n.chain === 'solana',
-      );
-
       const splResults: TokenBalance[] = [];
-      if (solanaNetwork && solanaNetwork.tokens.length > 0) {
+      const solanaTokens = getSolanaTokens();
+      if (solanaTokens.length > 0) {
         try {
           // Pre-compute all ATAs for known SPL tokens
           const ataAddresses: PublicKey[] = [];
           const tokenInfoMap = new Map<
             string,
-            (typeof solanaNetwork.tokens)[0]
+            (typeof solanaTokens)[0]
           >();
 
-          for (const token of solanaNetwork.tokens) {
+          for (const token of solanaTokens) {
             try {
               const mintPubkey = new PublicKey(token.address);
               const ata = getAssociatedTokenAddressSync(
@@ -264,7 +251,7 @@ export class TokenBalanceService {
         } catch (error) {
           console.error('Error fetching SPL balances:', error);
           // If batch fetch fails, include zeros for all tokens
-          for (const token of solanaNetwork.tokens) {
+          for (const token of solanaTokens) {
             splResults.push({
               erc20Address: token.address,
               amount: '0',

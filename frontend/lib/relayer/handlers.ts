@@ -19,6 +19,7 @@ import {
 } from '@/lib/constants/addresses';
 import { withEmbeddedSigner } from '@/lib/relayer/embedded-signer';
 import { updateTxStatus } from '@/lib/relayer/tx-registry';
+import { fetchErc20Decimals, getTokenMetadata } from '@/lib/constants/token-metadata';
 
 export async function handleDeposit(args: {
   userAddress: string;
@@ -65,6 +66,10 @@ async function executeDeposit(args: {
 
     const processAmount = applyContractSafetyReduction(actualAmount);
 
+    // Fetch decimals from chain (throws if token not in allowlist)
+    const decimals = await fetchErc20Decimals(erc20Address);
+    const tokenMetadata = getTokenMetadata(erc20Address);
+
     const path = userAddress;
     const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
 
@@ -92,8 +97,14 @@ async function executeDeposit(args: {
     const evmParams = evmParamsToProgram(txRequest);
     const amountBN = new BN(processAmount.toString());
 
-    // Phase 2: Solana pending - link requestId
-    await updateTxStatus(trackingId, 'solana_pending', { requestId });
+    // Phase 2: Solana pending - link requestId and store token info
+    await updateTxStatus(trackingId, 'solana_pending', {
+      requestId,
+      tokenMint: erc20Address,
+      tokenAmount: processAmount.toString(),
+      tokenDecimals: decimals,
+      tokenSymbol: tokenMetadata?.symbol ?? 'Unknown',
+    });
 
     const result = await orchestrator.executeSignatureFlow(
       requestId,
