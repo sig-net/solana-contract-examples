@@ -51,7 +51,7 @@ export function encodeErc20Transfer(recipient: string, amount: bigint): Hex {
   });
 }
 
-async function estimateFees(provider: PublicClient): Promise<{
+export async function estimateFees(provider: PublicClient): Promise<{
   maxFeePerGas: bigint;
   maxPriorityFeePerGas: bigint;
 }> {

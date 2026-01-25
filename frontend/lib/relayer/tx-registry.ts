@@ -12,6 +12,7 @@ function getRedisClient() {
 export type TxStatus =
   | 'pending'
   | 'balance_polling'
+  | 'gas_topup_pending'
   | 'solana_pending'
   | 'signature_pending'
   | 'ethereum_pending'
@@ -30,6 +31,7 @@ export interface TxEntry {
   createdAt: number;
   updatedAt: number;
   // Transaction hashes for the full flow
+  gasTopUpTxHash?: string;
   solanaInitTxHash?: string;
   ethereumTxHash?: string;
   solanaFinalizeTxHash?: string;
@@ -80,7 +82,7 @@ export async function updateTxStatus(
   id: string,
   status: TxStatus,
   metadata?: Partial<
-    Pick<TxEntry, 'error' | 'ethereumTxHash' | 'solanaInitTxHash' | 'solanaFinalizeTxHash' | 'requestId' | 'ethereumAddress' | 'tokenMint' | 'tokenAmount' | 'tokenDecimals' | 'tokenSymbol'>
+    Pick<TxEntry, 'error' | 'gasTopUpTxHash' | 'ethereumTxHash' | 'solanaInitTxHash' | 'solanaFinalizeTxHash' | 'requestId' | 'ethereumAddress' | 'tokenMint' | 'tokenAmount' | 'tokenDecimals' | 'tokenSymbol'>
   >,
 ): Promise<void> {
   const redis = getRedisClient();

@@ -43,6 +43,11 @@ const DEPOSIT_STEPS: StepConfig[] = [
     description: 'Waiting for your deposit to be confirmed on Ethereum',
   },
   {
+    status: 'gas_topup_pending',
+    label: 'Funding Gas',
+    description: 'Sending ETH to cover transaction gas fees',
+  },
+  {
     status: 'solana_pending',
     label: 'Processing on Solana',
     description: 'Creating deposit record on Solana',
@@ -74,6 +79,11 @@ const WITHDRAWAL_STEPS: StepConfig[] = [
     status: 'pending',
     label: 'Initiated',
     description: 'Withdrawal request submitted to relayer',
+  },
+  {
+    status: 'gas_topup_pending',
+    label: 'Funding Gas',
+    description: 'Sending ETH to cover transaction gas fees',
   },
   {
     status: 'signature_pending',
@@ -185,7 +195,11 @@ export function TransactionDetailsDialog({
 
   // Determine which steps to show based on transaction type
   const isDeposit = transaction?.type === 'Deposit';
-  const steps = isDeposit ? DEPOSIT_STEPS : WITHDRAWAL_STEPS;
+  const hasGasTopUp = !!txStatus?.gasTopUpTxHash;
+  const baseSteps = isDeposit ? DEPOSIT_STEPS : WITHDRAWAL_STEPS;
+  const steps = hasGasTopUp
+    ? baseSteps
+    : baseSteps.filter(s => s.status !== 'gas_topup_pending');
 
   // Get current status - prefer real-time status from API if available
   const currentStatus: TxStatus =
@@ -272,10 +286,26 @@ export function TransactionDetailsDialog({
           <div className='mt-4 space-y-2 border-t pt-4'>
             <p className='text-xs font-medium text-gray-500 mb-2'>Transaction Flow</p>
 
-            {/* Step 1: Solana Init (deposit or withdrawal initiation) */}
+            {/* Step 1: Gas Top-Up (only shown if a top-up was needed) */}
+            {txStatus?.gasTopUpTxHash && (
+              <div className='flex items-center justify-between text-sm'>
+                <span className='text-gray-500'>1. Gas Top-Up</span>
+                <a
+                  href={`https://sepolia.etherscan.io/tx/${txStatus.gasTopUpTxHash}`}
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className='flex items-center gap-1 text-blue-600 hover:underline'
+                >
+                  {txStatus.gasTopUpTxHash.slice(0, 10)}...
+                  <ExternalLink className='h-3 w-3' />
+                </a>
+              </div>
+            )}
+
+            {/* Step 2: Solana Init (deposit or withdrawal initiation) */}
             <div className='flex items-center justify-between text-sm'>
               <span className='text-gray-500'>
-                1. Solana {isDeposit ? 'Init Deposit' : 'Init Withdraw'}
+                {txStatus?.gasTopUpTxHash ? '2' : '1'}. Solana {isDeposit ? 'Init Deposit' : 'Init Withdraw'}
               </span>
               {txStatus?.solanaInitTxHash ? (
                 <a
@@ -292,10 +322,10 @@ export function TransactionDetailsDialog({
               )}
             </div>
 
-            {/* Step 2: Ethereum Transaction */}
+            {/* Step 3: Ethereum Transaction */}
             <div className='flex items-center justify-between text-sm'>
               <span className='text-gray-500'>
-                2. Ethereum {isDeposit ? 'Deposit' : 'Withdraw'}
+                {txStatus?.gasTopUpTxHash ? '3' : '2'}. Ethereum {isDeposit ? 'Deposit' : 'Withdraw'}
               </span>
               {txStatus?.ethereumTxHash || transaction.transactionHash ? (
                 <a
@@ -312,10 +342,10 @@ export function TransactionDetailsDialog({
               )}
             </div>
 
-            {/* Step 3: Solana Finalize (claim or complete withdrawal) */}
+            {/* Step 4: Solana Finalize (claim or complete withdrawal) */}
             <div className='flex items-center justify-between text-sm'>
               <span className='text-gray-500'>
-                3. Solana {isDeposit ? 'Claim' : 'Finalize'}
+                {txStatus?.gasTopUpTxHash ? '4' : '3'}. Solana {isDeposit ? 'Claim' : 'Finalize'}
               </span>
               {txStatus?.solanaFinalizeTxHash ? (
                 <a

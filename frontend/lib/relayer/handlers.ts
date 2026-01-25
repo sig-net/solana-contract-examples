@@ -8,6 +8,10 @@ import {
   serializeEvmTx,
   applyContractSafetyReduction,
 } from '@/lib/evm/tx-builder';
+import {
+  ensureGasForErc20Transfer,
+  ensureGasForTransaction,
+} from '@/lib/evm/gas-topup';
 import { initializeRelayerSetup } from '@/lib/utils/relayer-setup';
 import { generateRequestId, evmParamsToProgram } from '@/lib/program/utils';
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
@@ -69,6 +73,21 @@ async function executeDeposit(args: {
     // Fetch decimals from chain (throws if token not in allowlist)
     const decimals = await fetchErc20Decimals(erc20Address);
     const tokenMetadata = getErc20Token(erc20Address);
+
+    // Phase 1.5: Gas top-up if needed
+    const { topUpTxHash } = await ensureGasForErc20Transfer(
+      provider,
+      ethereumAddress as Hex,
+      erc20Address as Hex,
+      VAULT_ETHEREUM_ADDRESS,
+      processAmount,
+    );
+    if (topUpTxHash) {
+      console.log(`[DEPOSIT] Gas top-up sent: ${topUpTxHash}`);
+      await updateTxStatus(trackingId, 'gas_topup_pending', {
+        gasTopUpTxHash: topUpTxHash,
+      });
+    }
 
     const path = userAddress;
     const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
@@ -209,14 +228,28 @@ async function executeWithdrawal(args: {
 }) {
   const { requestId, erc20Address, transactionParams } = args;
 
-  // Update status to signature_pending (tx already registered in API route)
-  await updateTxStatus(requestId, 'signature_pending');
-
   try {
-    const { orchestrator } = await initializeRelayerSetup({
+    const { orchestrator, provider } = await initializeRelayerSetup({
       operationName: 'WITHDRAW',
       eventTimeoutMs: 60000,
     });
+
+    // Phase: Gas top-up for vault if needed
+    const { topUpTxHash } = await ensureGasForTransaction(
+      provider,
+      VAULT_ETHEREUM_ADDRESS,
+      transactionParams.gasLimit,
+      transactionParams.maxFeePerGas,
+    );
+    if (topUpTxHash) {
+      console.log(`[WITHDRAW] Gas top-up sent: ${topUpTxHash}`);
+      await updateTxStatus(requestId, 'gas_topup_pending', {
+        gasTopUpTxHash: topUpTxHash,
+      });
+    }
+
+    // Update status to signature_pending
+    await updateTxStatus(requestId, 'signature_pending');
 
     const result = await orchestrator.executeSignatureFlow(
       requestId,
