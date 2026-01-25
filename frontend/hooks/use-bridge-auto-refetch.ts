@@ -20,7 +20,7 @@ function buildUserBalancePdaSet(publicKey: PublicKey | null) {
   const set = new Set<string>();
   for (const token of getAllErc20Tokens()) {
     try {
-      const erc20Bytes = Buffer.from(token.address.replace('0x', ''), 'hex');
+      const erc20Bytes = Buffer.from(token.erc20Address.replace('0x', ''), 'hex');
       const [pda] = deriveUserBalancePda(publicKey, erc20Bytes);
       set.add(pda.toBase58());
     } catch {}

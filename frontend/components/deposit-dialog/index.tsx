@@ -73,10 +73,10 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
 
     try {
       // Fetch decimals from chain
-      const decimals = await fetchErc20Decimals(selectedToken.address);
+      const decimals = await fetchErc20Decimals(selectedToken.erc20Address);
 
       await depositEvmMutation.mutateAsync({
-        erc20Address: selectedToken.address,
+        erc20Address: selectedToken.erc20Address,
         amount: '',
         decimals,
         tokenSymbol: selectedToken.symbol,
