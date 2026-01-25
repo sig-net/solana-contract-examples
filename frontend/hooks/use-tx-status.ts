@@ -34,6 +34,7 @@ export function getStatusLabel(status: TxStatus): string {
   const labels: Record<TxStatus, string> = {
     pending: 'Pending',
     balance_polling: 'Waiting for deposit',
+    gas_topup_pending: 'Funding gas',
     solana_pending: 'Processing on Solana',
     signature_pending: 'Awaiting signature',
     ethereum_pending: 'Processing on Ethereum',
@@ -52,6 +53,7 @@ export function getStatusProgress(status: TxStatus): number {
   const progressMap: Record<TxStatus, number> = {
     pending: 0,
     balance_polling: 15,
+    gas_topup_pending: 22,
     solana_pending: 30,
     signature_pending: 50,
     ethereum_pending: 70,
