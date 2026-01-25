@@ -6,7 +6,6 @@ import { getAssociatedTokenAddress } from '@solana/spl-token';
 
 import { useConnection } from '@/providers/connection-context';
 import { queryKeys } from '@/lib/query-client';
-import { getRPCManager } from '@/lib/utils/rpc-manager';
 import { getSolanaTokens } from '@/lib/constants/token-metadata';
 
 import { useSolanaPublicKey } from './use-solana-public-key';
@@ -41,7 +40,6 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
     queryFn: async (): Promise<SolanaWalletTransactionItem[]> => {
       if (!publicKey) throw new Error('No public key available');
 
-      const rpcManager = getRPCManager(connection);
       const userAddress = publicKey.toBase58();
 
       const tokens = getSolanaTokens();
@@ -61,7 +59,7 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
               publicKey,
               true,
             );
-            return await rpcManager.getSignaturesForAddress(ata, { limit: 10 });
+            return await connection.getSignaturesForAddress(ata, { limit: 10 });
           } catch {
             return [];
           }
@@ -78,7 +76,7 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
 
       const transactions = await Promise.all(
         uniqueSignatures.map(sig =>
-          rpcManager.getTransaction(sig.signature, {
+          connection.getTransaction(sig.signature, {
             maxSupportedTransactionVersion: 0,
           }),
         ),

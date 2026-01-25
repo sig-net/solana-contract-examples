@@ -23,10 +23,6 @@ export const SERVICE_CONFIG = {
     SOLANA_RESPOND_BIDIRECTIONAL_PATH: 'solana response key',
   },
   TIMEOUTS: {
-    /** Cache TTL for token decimals (5 minutes) */
-    CACHE_TTL: 300000,
-    /** Fallback cache TTL (1 minute) */
-    FALLBACK_CACHE_TTL: 60000,
     /** Auto-cleanup interval for expired subscriptions (30 minutes) */
     CLEANUP_INTERVAL: 1800000,
     /** Maximum age for subscriptions before auto-cleanup (2 hours) */
