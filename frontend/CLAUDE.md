@@ -12,90 +12,109 @@ pnpm lint:fix     # ESLint auto-fix
 pnpm typecheck    # TypeScript type checking
 pnpm format       # Prettier check
 pnpm format:fix   # Prettier format
+pnpm generate:idl # Regenerate Anchor IDL types from ../contract
 ```
 
 ## Architecture Overview
 
-This is a cross-chain bridge frontend enabling asset transfers between Solana and EVM chains using MPC (Multi-Party Computation) signatures via the Chain Signatures protocol.
+Cross-chain bridge frontend enabling ERC20 transfers between Solana and EVM chains using MPC signatures via Chain Signatures protocol.
 
 ### Provider Hierarchy
 
-```
+```text
 QueryClientProvider (TanStack Query)
   └── WagmiProvider (EVM wallets)
        └── ConnectionProvider (Solana RPC)
-            └── AppProvider (@solana/connector)
-                 └── App
+            └── AppProvider (@solana/connector headless wallet)
+                 └── PendingTransactionsProvider
+                      └── App
 ```
 
-### Data Flow Architecture
-
-```
-Components → Hooks → Services → Contracts → Blockchain
-                        ↓
-                  CrossChainOrchestrator
-                        ↓
-            ┌──────────┴──────────┐
-      BridgeContract    ChainSignaturesContract
-            ↓                    ↓
-    Anchor Program         MPC Signing
-```
-
-### Key Architectural Patterns
+### Key Layers
 
 **Service Layer** (`lib/services/`):
-- `CrossChainOrchestrator` - Coordinates multi-step cross-chain transactions
-- `DepositService` / `WithdrawalService` - Handle specific operations
-- `TokenBalanceService` - Manages on-chain balance queries
+
+- `CrossChainOrchestrator` - Coordinates MPC signature events with timeouts and backfill
+- `DepositService` / `WithdrawalService` - Build Solana instructions for bridge operations
+- `TokenBalanceService` - On-chain balance queries
 
 **Contract Clients** (`lib/contracts/`):
-- `BridgeContract` - Wraps Anchor program methods (deposit, claim, withdraw)
-- `ChainSignaturesContract` - Handles MPC signature events and verification
 
-**Relayer Handlers** (`lib/relayer/handlers.ts`):
-- Server-side execution of cross-chain flows
-- Called via Next.js API routes (`/api/notify-deposit`, `/api/notify-withdrawal`)
+- `DexContract` - Wraps Anchor program (deposit, claim, withdraw instructions)
+- `ChainSignaturesContract` - Listens for MPC `Signature` and `RespondBidirectional` events
 
-### Cross-Chain Flow
+**Relayer** (`lib/relayer/`):
 
-1. **Deposit**: User deposits ERC20 → Relayer detects → Calls `depositErc20` on Solana → MPC signs → EVM tx executes → `claimErc20` completes
-2. **Withdraw**: User calls `withdrawErc20` → MPC signs → EVM tx executes → `completeWithdrawErc20` finalizes
+- `handlers.ts` - Server-side `handleDeposit`/`handleWithdrawal` flows
+- `tx-registry.ts` - Redis-backed transaction tracking (7-day TTL)
+- `embedded-signer.ts` - MPC signer setup
+
+**EVM Layer** (`lib/evm/`):
+
+- `tx-builder.ts` - Builds ERC20 transfer transactions
+- `tx-submitter.ts` - Submits with retry logic
+- `gas-topup.ts` - Automatic gas funding when needed
+
+### Transaction Status Flow
+
+```text
+pending → balance_polling → gas_topup_pending → solana_pending →
+signature_pending → ethereum_pending → completing → completed|failed
+```
+
+Status tracked in Redis via `tx:{trackingId}` keys, polled by frontend every 2s.
+
+### Cross-Chain Flows
+
+**Deposit (EVM → Solana):**
+
+1. User sends ERC20 to derived deposit address
+2. `/api/notify-deposit` spawns background handler via `after()`
+3. Relayer polls for token arrival → gas topup if needed → builds EVM tx
+4. Waits for MPC signature event (30s backfill at timeout)
+5. Submits to Ethereum → calls `claimErc20` on Solana
+
+**Withdrawal (Solana → EVM):**
+
+1. Frontend submits `withdrawErc20` instruction
+2. `/api/notify-withdrawal` processes with pre-built EVM tx params
+3. Waits for MPC signature → submits to Ethereum
+4. Calls `completeWithdrawErc20` on Solana
 
 ### PDA Derivation
 
-All Program Derived Addresses are centralized in `lib/constants/addresses.ts`:
+Centralized in `lib/constants/addresses.ts`:
+
 - `deriveVaultAuthorityPda(userPublicKey)` - Per-user vault
 - `derivePendingDepositPda(requestIdBytes)` - Pending deposit accounts
 - `derivePendingWithdrawalPda(requestIdBytes)` - Pending withdrawal accounts
 - `deriveUserBalancePda(userPublicKey, erc20AddressBytes)` - User token balances
 - `deriveEthereumAddress(path, requesterAddress, basePublicKey)` - Derives EVM address from MPC key
 
-### Query Keys
+### Query Keys & Cache Invalidation
 
-React Query keys are centralized in `lib/query-client.ts` via `queryKeys` object. Always use these for cache invalidation.
+React Query keys in `lib/query-client.ts` via `queryKeys` object. Use `invalidateBalanceQueries()` helper for balance refreshes.
+
+Real-time updates via `useBridgeAutoRefetch` hook which subscribes to Solana program logs and invalidates queries on relevant instructions.
 
 ## Environment Configuration
 
-Environment variables are validated via Zod in `lib/config/env.config.ts`:
+Validated via Zod in `lib/config/env.config.ts`:
+
 - `getClientEnv()` - Client-safe vars (NEXT_PUBLIC_*)
-- `getFullEnv()` - Server-side only (includes RELAYER_PRIVATE_KEY)
+- `getFullEnv()` - Server-side only (includes secrets)
 
-Required variables:
-- `NEXT_PUBLIC_ALCHEMY_API_KEY` - Alchemy RPC
-- `NEXT_PUBLIC_CHAIN_SIGNATURES_PROGRAM_ID` - MPC program ID
-- `NEXT_PUBLIC_RESPONDER_ADDRESS` - Solana responder
-- `NEXT_PUBLIC_BASE_PUBLIC_KEY` - MPC root public key
-- `RELAYER_PRIVATE_KEY` - Server-side relayer key (JSON array format)
+Server-side requires: `RELAYER_PRIVATE_KEY` (JSON array), `REDIS_URL`, `REDIS_TOKEN`
 
-## Tech Stack
+## API Routes
 
-- **Next.js 16** with Turbopack, React 19, React Compiler
-- **TailwindCSS 4** with Radix UI primitives
-- **TanStack Query** for server state
-- **wagmi/viem** for EVM interactions
-- **@solana/connector** for Solana wallet (headless)
-- **@coral-xyz/anchor** for Solana program interaction
-- **Zod** for runtime validation
+All routes use `runtime: 'nodejs'` with `maxDuration: 300` for long-running relayer operations:
+
+- `/api/notify-deposit` - Trigger deposit monitoring
+- `/api/notify-withdrawal` - Process withdrawal
+- `/api/tx-status/[id]` - Poll transaction status
+- `/api/tx-list` - List user transactions
+- `/api/recover-pending` - Recover stuck transactions
 
 ## Code Conventions
 
@@ -103,17 +122,14 @@ Required variables:
 - Unused variables must be prefixed with `_`
 - TypeScript strict mode with `noUncheckedIndexedAccess`
 - All pages are client components (`'use client'`) with `export const dynamic = 'force-dynamic'`
-
-## React Compiler
-
-This project uses React Compiler (`babel-plugin-react-compiler`). ESLint enforces compiler rules via `react-compiler/react-compiler: error`.
-
-**Do not use `useMemo`, `useCallback`, or `React.memo`** - the compiler handles memoization automatically.
+- All caching must go through React Query - no custom caching solutions
+- Never hardcode token decimals - always fetch from on-chain via `fetchTokenDecimals()`
+- **Do not use `useMemo`, `useCallback`, or `React.memo`** - React Compiler handles memoization automatically
 
 ## Before Completing Any Task
 
-Always run these commands and fix any errors before finishing:
-
 ```bash
-pnpm lint && pnpm typecheck && pnpm build
+pnpm lint && pnpm typecheck
 ```
+
+Only run `pnpm build` if explicitly asked.
