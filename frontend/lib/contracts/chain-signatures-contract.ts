@@ -80,8 +80,6 @@ export class ChainSignaturesContract {
     let respondBidirectionalResolve: (value: RespondBidirectionalEvent) => void;
     let resolvedSignature = false;
     let resolvedRead = false;
-    let backfillSignatureTimer: ReturnType<typeof setTimeout> | null = null;
-    let backfillReadTimer: ReturnType<typeof setTimeout> | null = null;
     let signetUnsubscribe: (() => Promise<void>) | null = null;
 
     const signaturePromise = new Promise<SignatureRespondedEvent>(resolve => {
@@ -142,16 +140,6 @@ export class ChainSignaturesContract {
                 '[EVENT] Signature event matched! Resolving promise...',
               );
               signatureResolve(event as SignatureRespondedEvent);
-              if (resolvedSignature && resolvedRead) {
-                if (backfillSignatureTimer) {
-                  clearTimeout(backfillSignatureTimer);
-                  backfillSignatureTimer = null;
-                }
-                if (backfillReadTimer) {
-                  clearTimeout(backfillReadTimer);
-                  backfillReadTimer = null;
-                }
-              }
             }
           } else {
             console.warn('[EVENT] Signature event mismatch - ignoring');
@@ -200,16 +188,6 @@ export class ChainSignaturesContract {
                 '[EVENT] RespondBidirectional event matched! Resolving promise...',
               );
               respondBidirectionalResolve(event);
-              if (resolvedSignature && resolvedRead) {
-                if (backfillSignatureTimer) {
-                  clearTimeout(backfillSignatureTimer);
-                  backfillSignatureTimer = null;
-                }
-                if (backfillReadTimer) {
-                  clearTimeout(backfillReadTimer);
-                  backfillReadTimer = null;
-                }
-              }
             }
           } else {
             console.warn(
@@ -224,11 +202,6 @@ export class ChainSignaturesContract {
       respondBidirectionalListenerId: respondBidirectionalListener,
     });
 
-    // Allow a small stabilization period for WebSocket connections to fully establish
-    // This helps prevent race conditions where events fire before the connection is ready
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    console.log('[EVENT] Stabilization period complete, listeners ready');
-
     const cleanup = () => {
       if (signetUnsubscribe) {
         signetUnsubscribe().catch(err => {
@@ -236,14 +209,6 @@ export class ChainSignaturesContract {
         });
       }
       chainSignaturesProgram.removeEventListener(respondBidirectionalListener);
-      if (backfillSignatureTimer) {
-        clearTimeout(backfillSignatureTimer);
-        backfillSignatureTimer = null;
-      }
-      if (backfillReadTimer) {
-        clearTimeout(backfillReadTimer);
-        backfillReadTimer = null;
-      }
     };
 
     const backfillSignature = async () => {
@@ -274,6 +239,16 @@ export class ChainSignaturesContract {
       );
     };
 
+    // Allow a small stabilization period for WebSocket connections to fully establish
+    // This helps prevent race conditions where events fire before the connection is ready
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log('[EVENT] Stabilization period complete, listeners ready');
+
+    // Run immediate backfill to catch any events that fired during setup
+    console.log('[EVENT] Running immediate backfill after stabilization...');
+    await Promise.all([backfillSignature(), backfillRead()]);
+    console.log('[EVENT] Immediate backfill complete');
+
     return {
       signature: signaturePromise,
       respondBidirectional: respondBidirectionalPromise,
@@ -295,7 +270,7 @@ export class ChainSignaturesContract {
     requestId: string,
     onSignature: (event: SignatureRespondedEvent) => void,
     onrespondBidirectional: (event: RespondBidirectionalEvent) => void,
-    maxSignatures = 5,
+    maxSignatures = 15,
   ): Promise<void> {
     console.log('[BACKFILL] Starting backfill for requestId:', requestId);
     try {

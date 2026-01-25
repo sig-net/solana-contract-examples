@@ -206,26 +206,33 @@ export class CrossChainOrchestrator {
     const op = this.config.operationName;
     console.log(`[${op}] Waiting for signature...`);
 
-    // Two-tier backfill strategy for reliability:
-    // - 5s: Early check if WebSocket wasn't ready when event fired
-    // - 10s: Secondary safety net check
-    const earlyBackfillTimeout = setTimeout(() => {
-      console.log(`[${op}] Running early signature backfill (5s)...`);
-      void eventPromises.backfillSignature();
-    }, 5000);
-
-    const signatureBackfillTimeout = setTimeout(() => {
-      console.log(`[${op}] Running secondary signature backfill (10s)...`);
-      void eventPromises.backfillSignature();
-    }, 10000);
+    // Multi-tier backfill strategy for reliability:
+    // Handles WebSocket flakiness and RPC indexing delays
+    const backfillTimeouts = [
+      setTimeout(() => {
+        console.log(`[${op}] Running signature backfill (5s)...`);
+        void eventPromises.backfillSignature();
+      }, 5000),
+      setTimeout(() => {
+        console.log(`[${op}] Running signature backfill (10s)...`);
+        void eventPromises.backfillSignature();
+      }, 10000),
+      setTimeout(() => {
+        console.log(`[${op}] Running signature backfill (20s)...`);
+        void eventPromises.backfillSignature();
+      }, 20000),
+      setTimeout(() => {
+        console.log(`[${op}] Running signature backfill (30s)...`);
+        void eventPromises.backfillSignature();
+      }, 30000),
+    ];
 
     const signatureEvent = await this.waitWithTimeout(
       eventPromises.signature,
       this.config.eventTimeoutMs,
       `Signature event timeout for ${op}`,
     ).finally(() => {
-      clearTimeout(earlyBackfillTimeout);
-      clearTimeout(signatureBackfillTimeout);
+      backfillTimeouts.forEach(t => clearTimeout(t));
     });
 
     console.log(`[${op}] Signature received:`, JSON.stringify(signatureEvent.signature));
@@ -269,26 +276,33 @@ export class CrossChainOrchestrator {
   ): Promise<RespondBidirectionalEvent> {
     const op = this.config.operationName;
 
-    // Two-tier backfill strategy for reliability:
-    // - 5s: Early check if WebSocket wasn't ready when event fired
-    // - 10s: Secondary safety net check
-    const earlyReadBackfillTimeout = setTimeout(() => {
-      console.log(`[${op}] Running early read backfill (5s)...`);
-      void eventPromises.backfillRead();
-    }, 5000);
-
-    const readBackfillTimeout = setTimeout(() => {
-      console.log(`[${op}] Running secondary read backfill (10s)...`);
-      void eventPromises.backfillRead();
-    }, 10000);
+    // Multi-tier backfill strategy for reliability:
+    // Handles WebSocket flakiness and RPC indexing delays
+    const backfillTimeouts = [
+      setTimeout(() => {
+        console.log(`[${op}] Running read backfill (5s)...`);
+        void eventPromises.backfillRead();
+      }, 5000),
+      setTimeout(() => {
+        console.log(`[${op}] Running read backfill (10s)...`);
+        void eventPromises.backfillRead();
+      }, 10000),
+      setTimeout(() => {
+        console.log(`[${op}] Running read backfill (20s)...`);
+        void eventPromises.backfillRead();
+      }, 20000),
+      setTimeout(() => {
+        console.log(`[${op}] Running read backfill (30s)...`);
+        void eventPromises.backfillRead();
+      }, 30000),
+    ];
 
     return await this.waitWithTimeout(
       eventPromises.respondBidirectional,
       this.config.eventTimeoutMs,
       `Read response timeout for ${op}`,
     ).finally(() => {
-      clearTimeout(earlyReadBackfillTimeout);
-      clearTimeout(readBackfillTimeout);
+      backfillTimeouts.forEach(t => clearTimeout(t));
     });
   }
 
