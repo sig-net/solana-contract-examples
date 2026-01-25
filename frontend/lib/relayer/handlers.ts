@@ -43,6 +43,11 @@ async function executeDeposit(args: {
   const { userAddress, erc20Address, ethereumAddress, trackingId } = args;
 
   try {
+    // Wait 12s for the user's deposit to land on the derived address
+    console.log('[DEPOSIT] Waiting 12s for deposit to land on derived address...');
+    await new Promise(resolve => setTimeout(resolve, 12000));
+    console.log('[DEPOSIT] Initial wait complete, starting deposit flow');
+
     const { orchestrator, provider, relayerWallet } =
       await initializeRelayerSetup({
         operationName: 'DEPOSIT',

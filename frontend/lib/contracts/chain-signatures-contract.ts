@@ -1,5 +1,10 @@
 import { Connection, PublicKey } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet, utils as anchorUtils } from '@coral-xyz/anchor';
+import {
+  Program,
+  AnchorProvider,
+  Wallet,
+  utils as anchorUtils,
+} from '@coral-xyz/anchor';
 import { contracts } from 'signet.js';
 import type { Hex } from 'viem';
 
@@ -13,7 +18,10 @@ import type {
   RespondBidirectionalEvent,
   EventPromises,
 } from '../types/chain-signatures.types';
-import { RESPONDER_ADDRESS, CHAIN_SIGNATURES_PROGRAM_ID } from '../constants/addresses';
+import {
+  RESPONDER_ADDRESS,
+  CHAIN_SIGNATURES_PROGRAM_ID,
+} from '../constants/addresses';
 
 const env = getClientEnv();
 
@@ -64,7 +72,7 @@ export class ChainSignaturesContract {
     return `secp256k1:${base58PublicKey}`;
   }
 
-  setupEventListeners(requestId: string): EventPromises {
+  async setupEventListeners(requestId: string): Promise<EventPromises> {
     console.log('[EVENT] Setting up event listeners for requestId:', requestId);
     console.log('[EVENT] Expected responder:', RESPONDER_ADDRESS);
 
@@ -80,14 +88,20 @@ export class ChainSignaturesContract {
       signatureResolve = resolve;
     });
 
-    const respondBidirectionalPromise = new Promise<RespondBidirectionalEvent>(resolve => {
-      respondBidirectionalResolve = resolve;
-    });
+    const respondBidirectionalPromise = new Promise<RespondBidirectionalEvent>(
+      resolve => {
+        respondBidirectionalResolve = resolve;
+      },
+    );
 
     const chainSignaturesProgram = this.getEventProgram();
-    const eventProvider = new AnchorProvider(this.eventConnection, this.wallet, {
-      commitment: 'confirmed',
-    });
+    const eventProvider = new AnchorProvider(
+      this.eventConnection,
+      this.wallet,
+      {
+        commitment: 'confirmed',
+      },
+    );
 
     const signetContract = new contracts.solana.ChainSignatureContract({
       provider: eventProvider,
@@ -97,99 +111,123 @@ export class ChainSignaturesContract {
       },
     });
 
-    signetContract.subscribeToEvents({
-      onSignatureResponded: (event, slot) => {
-        const eventRequestId = '0x' + Buffer.from(event.requestId).toString('hex');
-        const eventResponder = event.responder.toBase58();
+    // Await the subscription to ensure it's established before returning
+    try {
+      signetUnsubscribe = await signetContract.subscribeToEvents({
+        onSignatureResponded: (event, slot) => {
+          const eventRequestId =
+            '0x' + Buffer.from(event.requestId).toString('hex');
+          const eventResponder = event.responder.toBase58();
 
-        console.log('[EVENT] signatureRespondedEvent received via signet.js:', {
-          eventRequestId,
-          expectedRequestId: requestId,
-          eventResponder,
-          expectedResponder: RESPONDER_ADDRESS,
-          slot,
-          requestIdMatch: eventRequestId === requestId,
-          responderMatch: eventResponder === RESPONDER_ADDRESS,
-        });
+          console.log(
+            '[EVENT] signatureRespondedEvent received via signet.js:',
+            {
+              eventRequestId,
+              expectedRequestId: requestId,
+              eventResponder,
+              expectedResponder: RESPONDER_ADDRESS,
+              slot,
+              requestIdMatch: eventRequestId === requestId,
+              responderMatch: eventResponder === RESPONDER_ADDRESS,
+            },
+          );
 
-        if (eventRequestId === requestId && eventResponder === RESPONDER_ADDRESS) {
-          if (!resolvedSignature) {
-            resolvedSignature = true;
-            console.log('[EVENT] Signature event matched! Resolving promise...');
-            signatureResolve(event as SignatureRespondedEvent);
-            if (resolvedSignature && resolvedRead) {
-              if (backfillSignatureTimer) {
-                clearTimeout(backfillSignatureTimer);
-                backfillSignatureTimer = null;
-              }
-              if (backfillReadTimer) {
-                clearTimeout(backfillReadTimer);
-                backfillReadTimer = null;
+          if (
+            eventRequestId === requestId &&
+            eventResponder === RESPONDER_ADDRESS
+          ) {
+            if (!resolvedSignature) {
+              resolvedSignature = true;
+              console.log(
+                '[EVENT] Signature event matched! Resolving promise...',
+              );
+              signatureResolve(event as SignatureRespondedEvent);
+              if (resolvedSignature && resolvedRead) {
+                if (backfillSignatureTimer) {
+                  clearTimeout(backfillSignatureTimer);
+                  backfillSignatureTimer = null;
+                }
+                if (backfillReadTimer) {
+                  clearTimeout(backfillReadTimer);
+                  backfillReadTimer = null;
+                }
               }
             }
+          } else {
+            console.warn('[EVENT] Signature event mismatch - ignoring');
           }
-        } else {
-          console.warn('[EVENT] Signature event mismatch - ignoring');
-        }
-      },
-      onSignatureError: (event, slot) => {
-        const eventRequestId = '0x' + Buffer.from(event.requestId).toString('hex');
-        console.error('[EVENT] signatureErrorEvent received:', {
-          eventRequestId,
-          expectedRequestId: requestId,
-          slot,
-          error: event.error,
-        });
-      },
-    }).then(unsubscribe => {
-      signetUnsubscribe = unsubscribe;
+        },
+        onSignatureError: (event, slot) => {
+          const eventRequestId =
+            '0x' + Buffer.from(event.requestId).toString('hex');
+          console.error('[EVENT] signatureErrorEvent received:', {
+            eventRequestId,
+            expectedRequestId: requestId,
+            slot,
+            error: event.error,
+          });
+        },
+      });
       console.log('[EVENT] signet.js subscription established');
-    }).catch(err => {
+    } catch (err) {
       console.error('[EVENT] Failed to subscribe via signet.js:', err);
-    });
+    }
 
-    const respondBidirectionalListener = chainSignaturesProgram.addEventListener(
-      'respondBidirectionalEvent',
-      (event: RespondBidirectionalEvent) => {
-        const eventRequestId =
-          '0x' + Buffer.from(event.requestId).toString('hex');
-        const eventResponder = event.responder.toBase58();
+    const respondBidirectionalListener =
+      chainSignaturesProgram.addEventListener(
+        'respondBidirectionalEvent',
+        (event: RespondBidirectionalEvent) => {
+          const eventRequestId =
+            '0x' + Buffer.from(event.requestId).toString('hex');
+          const eventResponder = event.responder.toBase58();
 
-        console.log('[EVENT] respondBidirectionalEvent received:', {
-          eventRequestId,
-          expectedRequestId: requestId,
-          eventResponder,
-          expectedResponder: RESPONDER_ADDRESS,
-          requestIdMatch: eventRequestId === requestId,
-          responderMatch: eventResponder === RESPONDER_ADDRESS,
-        });
+          console.log('[EVENT] respondBidirectionalEvent received:', {
+            eventRequestId,
+            expectedRequestId: requestId,
+            eventResponder,
+            expectedResponder: RESPONDER_ADDRESS,
+            requestIdMatch: eventRequestId === requestId,
+            responderMatch: eventResponder === RESPONDER_ADDRESS,
+          });
 
-        if (eventRequestId === requestId && eventResponder === RESPONDER_ADDRESS) {
-          if (!resolvedRead) {
-            resolvedRead = true;
-            console.log('[EVENT] RespondBidirectional event matched! Resolving promise...');
-            respondBidirectionalResolve(event);
-            if (resolvedSignature && resolvedRead) {
-              if (backfillSignatureTimer) {
-                clearTimeout(backfillSignatureTimer);
-                backfillSignatureTimer = null;
-              }
-              if (backfillReadTimer) {
-                clearTimeout(backfillReadTimer);
-                backfillReadTimer = null;
+          if (
+            eventRequestId === requestId &&
+            eventResponder === RESPONDER_ADDRESS
+          ) {
+            if (!resolvedRead) {
+              resolvedRead = true;
+              console.log(
+                '[EVENT] RespondBidirectional event matched! Resolving promise...',
+              );
+              respondBidirectionalResolve(event);
+              if (resolvedSignature && resolvedRead) {
+                if (backfillSignatureTimer) {
+                  clearTimeout(backfillSignatureTimer);
+                  backfillSignatureTimer = null;
+                }
+                if (backfillReadTimer) {
+                  clearTimeout(backfillReadTimer);
+                  backfillReadTimer = null;
+                }
               }
             }
+          } else {
+            console.warn(
+              '[EVENT] RespondBidirectional event mismatch - ignoring',
+            );
           }
-        } else {
-          console.warn('[EVENT] RespondBidirectional event mismatch - ignoring');
-        }
-      },
-    );
+        },
+      );
 
     console.log('[EVENT] Listeners registered:', {
-      signetSubscription: 'pending',
+      signetSubscription: 'established',
       respondBidirectionalListenerId: respondBidirectionalListener,
     });
+
+    // Allow a small stabilization period for WebSocket connections to fully establish
+    // This helps prevent race conditions where events fire before the connection is ready
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log('[EVENT] Stabilization period complete, listeners ready');
 
     const cleanup = () => {
       if (signetUnsubscribe) {
@@ -264,7 +302,10 @@ export class ChainSignaturesContract {
       const program = this.getEventProgram();
 
       const responderPubkey = new PublicKey(RESPONDER_ADDRESS);
-      console.log('[BACKFILL] Fetching signatures for responder:', responderPubkey.toBase58());
+      console.log(
+        '[BACKFILL] Fetching signatures for responder:',
+        responderPubkey.toBase58(),
+      );
       const signatures = await this.eventConnection.getSignaturesForAddress(
         responderPubkey,
         { limit: maxSignatures },
@@ -308,14 +349,31 @@ export class ChainSignaturesContract {
                       const eventReq =
                         '0x' +
                         Buffer.from(decoded.data.requestId).toString('hex');
-                      console.log('[BACKFILL] Event requestId:', eventReq, 'expected:', requestId);
+                      console.log(
+                        '[BACKFILL] Event requestId:',
+                        eventReq,
+                        'expected:',
+                        requestId,
+                      );
                       if (eventReq !== requestId) continue;
-                      if (name === 'signatureRespondedEvent' || name === 'SignatureRespondedEvent') {
-                        console.log('[BACKFILL] Found matching signature event!');
+                      if (
+                        name === 'signatureRespondedEvent' ||
+                        name === 'SignatureRespondedEvent'
+                      ) {
+                        console.log(
+                          '[BACKFILL] Found matching signature event!',
+                        );
                         onSignature(decoded.data as SignatureRespondedEvent);
-                      } else if (name === 'respondBidirectionalEvent' || name === 'RespondBidirectionalEvent') {
-                        console.log('[BACKFILL] Found matching respondBidirectional event!');
-                        onrespondBidirectional(decoded.data as RespondBidirectionalEvent);
+                      } else if (
+                        name === 'respondBidirectionalEvent' ||
+                        name === 'RespondBidirectionalEvent'
+                      ) {
+                        console.log(
+                          '[BACKFILL] Found matching respondBidirectional event!',
+                        );
+                        onrespondBidirectional(
+                          decoded.data as RespondBidirectionalEvent,
+                        );
                       }
                     }
                   } catch {
