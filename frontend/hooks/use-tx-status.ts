@@ -14,7 +14,8 @@ export function useTxStatus(trackingId: string | null) {
       const res = await fetch(`/api/tx-status/${trackingId}`);
       if (!res.ok) {
         if (res.status === 404) return null;
-        throw new Error('Failed to fetch transaction status');
+        const errorText = await res.text().catch(() => 'No response body');
+        throw new Error(`Failed to fetch transaction status: ${res.status} ${res.statusText} - ${errorText}`);
       }
       return res.json();
     },

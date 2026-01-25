@@ -21,7 +21,7 @@ export async function startEmbeddedSigner(): Promise<ChainSignatureServer | null
 
   const solanaRpcUrl = process.env.NEXT_PUBLIC_HELIUS_RPC_URL;
   if (!solanaRpcUrl) {
-    throw new Error('[EmbeddedSigner] NEXT_PUBLIC_HELIUS_RPC_URL required');
+    throw new Error('[EmbeddedSigner] NEXT_PUBLIC_HELIUS_RPC_URL environment variable is required for embedded signer mode');
   }
 
   console.log('[EmbeddedSigner] Starting embedded ChainSignatureServer...');
