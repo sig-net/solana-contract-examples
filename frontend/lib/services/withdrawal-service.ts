@@ -13,7 +13,7 @@ import type {
   EvmTransactionRequest,
   StatusCallback,
 } from '@/lib/types/shared.types';
-import { getTokenInfo } from '@/lib/utils/token-formatting';
+import { fetchErc20Decimals, getTokenMetadata } from '@/lib/constants/token-metadata';
 import {
   buildErc20TransferTx,
   serializeEvmTx,
@@ -135,7 +135,9 @@ export class WithdrawalService {
     try {
       const globalVaultAuthority = GLOBAL_VAULT_AUTHORITY_PDA;
 
-      const decimals = (await getTokenInfo(erc20Address)).decimals;
+      // Fetch decimals from chain (throws if token not in allowlist)
+      const decimals = await fetchErc20Decimals(erc20Address);
+      const tokenMetadata = getTokenMetadata(erc20Address);
 
       const amountBigInt = parseUnits(amount, decimals);
       const processAmountBigInt = applyContractSafetyReduction(amountBigInt);
@@ -188,6 +190,9 @@ export class WithdrawalService {
           gasLimit: txRequest.gasLimit.toString(),
           value: txRequest.value.toString(),
         },
+        tokenAmount: processAmountBigInt.toString(),
+        tokenDecimals: decimals,
+        tokenSymbol: tokenMetadata?.symbol ?? 'Unknown',
       });
 
       onStatusChange?.({

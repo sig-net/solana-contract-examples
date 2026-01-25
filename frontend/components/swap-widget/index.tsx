@@ -51,8 +51,9 @@ export function SwapWidget({ className }: Pick<SwapWidgetProps, 'className'>) {
   });
 
   // Helper function to convert metadata to Token (UI type)
+  // Only works for tokens with loaded decimals
   const tokenMetadataToToken = (
-    tokenMetadata: Erc20TokenMetadata,
+    tokenMetadata: Erc20TokenMetadata & { decimals: number },
   ): Token & { balance: string } => ({
     symbol: tokenMetadata.symbol,
     name: tokenMetadata.name,
@@ -67,9 +68,10 @@ export function SwapWidget({ className }: Pick<SwapWidgetProps, 'className'>) {
     return getTokenMetadata(token.erc20Address) || null;
   };
 
-  // Convert supported tokens
-  const supportedTokens: Array<Token & { balance: string }> =
-    getAllErc20Tokens().map(tokenMetadataToToken);
+  // Convert supported tokens (filter out those without loaded decimals)
+  const supportedTokens: Array<Token & { balance: string }> = getAllErc20Tokens()
+    .filter((t): t is Erc20TokenMetadata & { decimals: number } => t.decimals !== undefined)
+    .map(tokenMetadataToToken);
 
   const handleFromAmountChange = (amount: string) => {
     setSwapState(prev => ({ ...prev, fromAmount: amount }));
@@ -110,8 +112,8 @@ export function SwapWidget({ className }: Pick<SwapWidgetProps, 'className'>) {
           onChange={handleFromAmountChange}
           tokens={supportedTokens}
           selectedToken={
-            swapState.fromToken
-              ? tokenMetadataToToken(swapState.fromToken)
+            swapState.fromToken && swapState.fromToken.decimals !== undefined
+              ? tokenMetadataToToken(swapState.fromToken as Erc20TokenMetadata & { decimals: number })
               : undefined
           }
           onTokenSelect={handleFromTokenSelect}
@@ -128,8 +130,8 @@ export function SwapWidget({ className }: Pick<SwapWidgetProps, 'className'>) {
           onChange={handleToAmountChange}
           tokens={supportedTokens}
           selectedToken={
-            swapState.toToken
-              ? tokenMetadataToToken(swapState.toToken)
+            swapState.toToken && swapState.toToken.decimals !== undefined
+              ? tokenMetadataToToken(swapState.toToken as Erc20TokenMetadata & { decimals: number })
               : undefined
           }
           onTokenSelect={handleToTokenSelect}

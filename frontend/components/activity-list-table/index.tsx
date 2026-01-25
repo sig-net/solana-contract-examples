@@ -61,30 +61,40 @@ function mapTxStatus(status: TxStatus): 'pending' | 'completed' | 'failed' {
 function buildTransactionsFromRedis(
   txList: TxEntry[],
 ): ActivityTransaction[] {
-  return txList.map(tx => ({
-    id: tx.id,
-    type: tx.type === 'deposit' ? 'Deposit' : 'Withdraw',
-    fromToken: {
-      symbol: tx.type === 'deposit' ? 'WALLET' : 'USDC',
-      chain: 'ethereum',
-      amount: tx.type === 'deposit' ? (tx.ethereumAddress ?? '') : 'USDC',
-      usdValue: '',
-    },
-    toToken: {
-      symbol: tx.type === 'deposit' ? 'USDC' : 'WALLET',
-      chain: 'ethereum',
-      amount: tx.type === 'deposit' ? 'USDC' : (tx.ethereumAddress ?? ''),
-      usdValue: '',
-    },
-    address: tx.ethereumAddress,
-    timestamp: formatActivityDate(tx.createdAt),
-    timestampRaw: tx.createdAt,
-    status: mapTxStatus(tx.status),
-    transactionHash: tx.ethereumTxHash,
-    explorerUrl: tx.ethereumTxHash
-      ? getTransactionExplorerUrl(tx.ethereumTxHash)
-      : undefined,
-  }));
+  return txList.map(tx => {
+    const tokenSymbol = tx.tokenSymbol ?? 'ERC20';
+    const formattedAmount =
+      tx.tokenAmount && tx.tokenDecimals !== undefined
+        ? formatTokenBalanceSync(tx.tokenAmount, tx.tokenDecimals, tokenSymbol, {
+            showSymbol: true,
+          })
+        : tokenSymbol;
+
+    return {
+      id: tx.id,
+      type: tx.type === 'deposit' ? 'Deposit' : 'Withdraw',
+      fromToken: {
+        symbol: tx.type === 'deposit' ? 'WALLET' : tokenSymbol,
+        chain: 'ethereum',
+        amount: tx.type === 'deposit' ? (tx.ethereumAddress ?? '') : formattedAmount,
+        usdValue: '',
+      },
+      toToken: {
+        symbol: tx.type === 'deposit' ? tokenSymbol : 'WALLET',
+        chain: 'ethereum',
+        amount: tx.type === 'deposit' ? formattedAmount : (tx.ethereumAddress ?? ''),
+        usdValue: '',
+      },
+      address: tx.ethereumAddress,
+      timestamp: formatActivityDate(tx.createdAt),
+      timestampRaw: tx.createdAt,
+      status: mapTxStatus(tx.status),
+      transactionHash: tx.ethereumTxHash,
+      explorerUrl: tx.ethereumTxHash
+        ? getTransactionExplorerUrl(tx.ethereumTxHash)
+        : undefined,
+    };
+  });
 }
 
 function buildSolanaTransactions(

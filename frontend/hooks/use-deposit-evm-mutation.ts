@@ -24,11 +24,13 @@ export function useDepositEvmMutation() {
       erc20Address,
       amount,
       decimals,
+      tokenSymbol,
       onStatusChange,
     }: {
       erc20Address: string;
       amount: string;
       decimals: number;
+      tokenSymbol?: string;
       onStatusChange?: StatusCallback;
     }): Promise<DepositResult> => {
       if (!publicKey) throw new Error('No public key available');
@@ -37,6 +39,7 @@ export function useDepositEvmMutation() {
         erc20Address,
         amount,
         decimals,
+        tokenSymbol,
         onStatusChange,
       );
     },

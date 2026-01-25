@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userAddress, erc20Address, ethereumAddress } = body;
+    const { userAddress, erc20Address, ethereumAddress, tokenDecimals, tokenSymbol } = body;
 
     if (!userAddress || !erc20Address || !ethereumAddress) {
       return NextResponse.json(
@@ -30,7 +30,11 @@ export async function POST(request: NextRequest) {
     );
 
     // Register in KV before background processing
-    await registerTx(trackingId, 'deposit', userAddress, ethereumAddress);
+    await registerTx(trackingId, 'deposit', userAddress, ethereumAddress, {
+      tokenMint: erc20Address,
+      tokenDecimals,
+      tokenSymbol,
+    });
 
     after(async () => {
       try {

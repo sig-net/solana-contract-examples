@@ -10,10 +10,14 @@ export async function notifyDeposit({
   userAddress,
   erc20Address,
   ethereumAddress,
+  tokenDecimals,
+  tokenSymbol,
 }: {
   userAddress: string;
   erc20Address: string;
   ethereumAddress: string;
+  tokenDecimals?: number;
+  tokenSymbol?: string;
 }): Promise<NotifyDepositResponse> {
   const env = getClientEnv();
   const url = env.NEXT_PUBLIC_NOTIFY_DEPOSIT_URL;
@@ -23,7 +27,13 @@ export async function notifyDeposit({
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userAddress, erc20Address, ethereumAddress }),
+    body: JSON.stringify({
+      userAddress,
+      erc20Address,
+      ethereumAddress,
+      tokenDecimals,
+      tokenSymbol,
+    }),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -40,12 +50,18 @@ export async function notifyWithdrawal({
   userAddress,
   recipientAddress,
   transactionParams,
+  tokenAmount,
+  tokenDecimals,
+  tokenSymbol,
 }: {
   requestId: string;
   erc20Address: string;
   userAddress: string;
   recipientAddress: string;
   transactionParams?: EvmTransactionRequestNotifyWithdrawal;
+  tokenAmount?: string;
+  tokenDecimals?: number;
+  tokenSymbol?: string;
 }): Promise<void> {
   const env = getClientEnv();
   const url = env.NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL;
@@ -61,6 +77,9 @@ export async function notifyWithdrawal({
       userAddress,
       recipientAddress,
       transactionParams,
+      tokenAmount,
+      tokenDecimals,
+      tokenSymbol,
     }),
   });
 
