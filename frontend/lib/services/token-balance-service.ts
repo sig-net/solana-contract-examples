@@ -9,7 +9,6 @@ import {
   fetchErc20Decimals,
 } from '@/lib/constants/token-metadata';
 import type { DexContract } from '@/lib/contracts/dex-contract';
-import { getRPCManager } from '@/lib/utils/rpc-manager';
 import { getAlchemyProvider } from '@/lib/rpc';
 
 /**
@@ -18,11 +17,8 @@ import { getAlchemyProvider } from '@/lib/rpc';
  */
 export class TokenBalanceService {
   private alchemy = getAlchemyProvider();
-  private rpcManager: ReturnType<typeof getRPCManager>;
 
-  constructor(private dexContract: DexContract) {
-    this.rpcManager = getRPCManager(dexContract.getConnection());
-  }
+  constructor(private dexContract: DexContract) {}
 
   /**
    * Batch fetch ERC20 balances for multiple tokens

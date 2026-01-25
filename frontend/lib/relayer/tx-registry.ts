@@ -42,7 +42,7 @@ export interface TxEntry {
 
 const TX_PREFIX = 'tx:';
 const USER_TX_PREFIX = 'user-txs:';
-const TX_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const TX_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 export async function registerTx(
   id: string,
