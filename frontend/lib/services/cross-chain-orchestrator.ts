@@ -15,6 +15,7 @@ export interface CrossChainConfig {
   eventTimeoutMs?: number;
   ethereumConfirmations?: number;
   operationName?: string;
+  initialDelayMs?: number;
 }
 
 export interface CrossChainResult {
@@ -49,6 +50,7 @@ export class CrossChainOrchestrator {
       eventTimeoutMs: config.eventTimeoutMs ?? 300000,
       ethereumConfirmations: config.ethereumConfirmations ?? 1,
       operationName: config.operationName ?? 'OPERATION',
+      initialDelayMs: config.initialDelayMs ?? 0,
     };
   }
 
@@ -68,11 +70,18 @@ export class CrossChainOrchestrator {
     console.log(`[${op}] Starting signature flow for ${requestId}`);
 
     // Set up event listeners FIRST to prevent race conditions
+    // Await to ensure subscription is established before proceeding
     console.log(`[${op}] Setting up event listeners...`);
     const eventPromises =
-      this.chainSignaturesContract.setupEventListeners(requestId);
+      await this.chainSignaturesContract.setupEventListeners(requestId);
 
     try {
+      // Optional initial delay (e.g., for deposits to land on derived address)
+      if (this.config.initialDelayMs > 0) {
+        console.log(`[${op}] Waiting ${this.config.initialDelayMs}ms before starting flow...`);
+        await new Promise(resolve => setTimeout(resolve, this.config.initialDelayMs));
+      }
+
       // Phase 1: Execute initial Solana transaction if provided (triggers signature generation)
       let initialSolanaTxHash: string | undefined;
       if (initialSolanaFn) {
@@ -143,7 +152,7 @@ export class CrossChainOrchestrator {
     // Set up event listeners
     console.log(`[${op}] Setting up event listeners for recovery...`);
     const eventPromises =
-      this.chainSignaturesContract.setupEventListeners(requestId);
+      await this.chainSignaturesContract.setupEventListeners(requestId);
 
     try {
       // Immediately trigger backfill to look for historical events
@@ -197,16 +206,27 @@ export class CrossChainOrchestrator {
     const op = this.config.operationName;
     console.log(`[${op}] Waiting for signature...`);
 
-    // Start a 30s delayed backfill for signature if it hasn't arrived yet
-    const signatureBackfillTimeout = setTimeout(() => {
+    // Two-tier backfill strategy for reliability:
+    // - 5s: Early check if WebSocket wasn't ready when event fired
+    // - 10s: Secondary safety net check
+    const earlyBackfillTimeout = setTimeout(() => {
+      console.log(`[${op}] Running early signature backfill (5s)...`);
       void eventPromises.backfillSignature();
-    }, 30000);
+    }, 5000);
+
+    const signatureBackfillTimeout = setTimeout(() => {
+      console.log(`[${op}] Running secondary signature backfill (10s)...`);
+      void eventPromises.backfillSignature();
+    }, 10000);
 
     const signatureEvent = await this.waitWithTimeout(
       eventPromises.signature,
       this.config.eventTimeoutMs,
       `Signature event timeout for ${op}`,
-    ).finally(() => clearTimeout(signatureBackfillTimeout));
+    ).finally(() => {
+      clearTimeout(earlyBackfillTimeout);
+      clearTimeout(signatureBackfillTimeout);
+    });
 
     console.log(`[${op}] Signature received:`, JSON.stringify(signatureEvent.signature));
 
@@ -249,16 +269,27 @@ export class CrossChainOrchestrator {
   ): Promise<RespondBidirectionalEvent> {
     const op = this.config.operationName;
 
-    // Start a 30s delayed backfill for read event if it hasn't arrived yet
-    const readBackfillTimeout = setTimeout(() => {
+    // Two-tier backfill strategy for reliability:
+    // - 5s: Early check if WebSocket wasn't ready when event fired
+    // - 10s: Secondary safety net check
+    const earlyReadBackfillTimeout = setTimeout(() => {
+      console.log(`[${op}] Running early read backfill (5s)...`);
       void eventPromises.backfillRead();
-    }, 30000);
+    }, 5000);
+
+    const readBackfillTimeout = setTimeout(() => {
+      console.log(`[${op}] Running secondary read backfill (10s)...`);
+      void eventPromises.backfillRead();
+    }, 10000);
 
     return await this.waitWithTimeout(
       eventPromises.respondBidirectional,
       this.config.eventTimeoutMs,
       `Read response timeout for ${op}`,
-    ).finally(() => clearTimeout(readBackfillTimeout));
+    ).finally(() => {
+      clearTimeout(earlyReadBackfillTimeout);
+      clearTimeout(readBackfillTimeout);
+    });
   }
 
   private async waitWithTimeout<T>(
