@@ -134,7 +134,7 @@ async function executeDeposit(args: {
     const result = await orchestrator.executeSignatureFlow(
       requestId,
       txRequest,
-      async (respondBidirectionalEvent, ethereumTxHash) => {
+      async (respondBidirectionalData, ethereumTxHash) => {
         const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
         try {
           const pendingDeposit = (await dexContract.fetchPendingDeposit(
@@ -150,8 +150,8 @@ async function executeDeposit(args: {
           return await dexContract.claimErc20({
             requester: pendingDeposit.requester,
             requestIdBytes,
-            serializedOutput: respondBidirectionalEvent.serializedOutput,
-            signature: respondBidirectionalEvent.signature,
+            serializedOutput: respondBidirectionalData.serializedOutput,
+            signature: respondBidirectionalData.signature,
             erc20AddressBytes: pendingDeposit.erc20Address,
             ethereumTxHashBytes,
           });
@@ -264,7 +264,7 @@ async function executeWithdrawal(args: {
     const result = await orchestrator.executeSignatureFlow(
       requestId,
       transactionParams,
-      async (respondBidirectionalEvent, ethereumTxHash) => {
+      async (respondBidirectionalData, ethereumTxHash) => {
         const dexContract = orchestrator.getDexContract();
         const requestIdBytes = Array.from(toBytes(requestId));
         const [pendingWithdrawalPda] =
@@ -283,8 +283,8 @@ async function executeWithdrawal(args: {
         return await dexContract.completeWithdrawErc20({
           requester: new PublicKey(pendingWithdrawal.requester),
           requestIdBytes,
-          serializedOutput: respondBidirectionalEvent.serializedOutput,
-          signature: respondBidirectionalEvent.signature,
+          serializedOutput: respondBidirectionalData.serializedOutput,
+          signature: respondBidirectionalData.signature,
           erc20AddressBytes,
           ethereumTxHashBytes,
         });
@@ -345,7 +345,7 @@ export async function recoverDeposit(
     // The signature event should still be available if the original tx succeeded
     const result = await orchestrator.recoverSignatureFlow(
       requestId,
-      async (respondBidirectionalEvent, ethereumTxHash) => {
+      async (respondBidirectionalData, ethereumTxHash) => {
         await updateTxStatus(requestId, 'completing', { ethereumTxHash });
 
         const ethereumTxHashBytes = ethereumTxHash
@@ -355,8 +355,8 @@ export async function recoverDeposit(
         return await dexContract.claimErc20({
           requester: pendingDeposit.requester,
           requestIdBytes,
-          serializedOutput: respondBidirectionalEvent.serializedOutput,
-          signature: respondBidirectionalEvent.signature,
+          serializedOutput: respondBidirectionalData.serializedOutput,
+          signature: respondBidirectionalData.signature,
           erc20AddressBytes: pendingDeposit.erc20Address,
           ethereumTxHashBytes,
         });
@@ -408,7 +408,7 @@ export async function recoverWithdrawal(
 
     const result = await orchestrator.recoverSignatureFlow(
       requestId,
-      async (respondBidirectionalEvent, ethereumTxHash) => {
+      async (respondBidirectionalData, ethereumTxHash) => {
         await updateTxStatus(requestId, 'completing', { ethereumTxHash });
 
         const ethereumTxHashBytes = ethereumTxHash
@@ -418,8 +418,8 @@ export async function recoverWithdrawal(
         return await dexContract.completeWithdrawErc20({
           requester: new PublicKey(pendingWithdrawal.requester),
           requestIdBytes,
-          serializedOutput: respondBidirectionalEvent.serializedOutput,
-          signature: respondBidirectionalEvent.signature,
+          serializedOutput: respondBidirectionalData.serializedOutput,
+          signature: respondBidirectionalData.signature,
           erc20AddressBytes,
           ethereumTxHashBytes,
         });

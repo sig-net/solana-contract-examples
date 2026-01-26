@@ -18,7 +18,7 @@ import {
   deriveUserBalancePda,
 } from '@/lib/constants/addresses';
 
-import { ChainSignaturesSignature } from '../types/chain-signatures.types';
+import type { RSVSignature } from 'signet.js';
 
 const COMPUTE_UNITS_FOR_DERIVATION = 400_000;
 
@@ -136,8 +136,8 @@ export class DexContract {
     ethereumTxHashBytes,
   }: {
     requestIdBytes: number[];
-    serializedOutput: number[];
-    signature: ChainSignaturesSignature;
+    serializedOutput: Buffer | number[];
+    signature: RSVSignature;
     erc20AddressBytes: number[];
     requester: PublicKey;
     ethereumTxHashBytes?: number[];
@@ -226,8 +226,8 @@ export class DexContract {
     ethereumTxHashBytes,
   }: {
     requestIdBytes: number[];
-    serializedOutput: number[];
-    signature: ChainSignaturesSignature;
+    serializedOutput: Buffer | number[];
+    signature: RSVSignature;
     erc20AddressBytes: number[];
     requester: PublicKey;
     ethereumTxHashBytes?: number[];
