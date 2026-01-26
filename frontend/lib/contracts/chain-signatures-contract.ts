@@ -80,7 +80,6 @@ export class ChainSignaturesContract {
 
   async setupEventListeners(requestId: string): Promise<EventPromises> {
     console.log('[EVENT] Setting up event listeners for requestId:', requestId);
-    console.log('[EVENT] Expected responder:', RESPONDER_ADDRESS);
 
     let signatureResolve: (value: SignatureRespondedEvent) => void;
     let respondBidirectionalResolve: (value: RespondBidirectionalEvent) => void;
@@ -118,23 +117,10 @@ export class ChainSignaturesContract {
     // Await the subscription to ensure it's established before returning
     try {
       signetUnsubscribe = await signetContract.subscribeToEvents({
-        onSignatureResponded: (event, slot) => {
+        onSignatureResponded: (event, _slot) => {
           const eventRequestId =
             '0x' + Buffer.from(event.requestId).toString('hex');
           const eventResponder = event.responder.toBase58();
-
-          console.log(
-            '[EVENT] signatureRespondedEvent received via signet.js:',
-            {
-              eventRequestId,
-              expectedRequestId: requestId,
-              eventResponder,
-              expectedResponder: RESPONDER_ADDRESS,
-              slot,
-              requestIdMatch: eventRequestId === requestId,
-              responderMatch: eventResponder === RESPONDER_ADDRESS,
-            },
-          );
 
           if (
             eventRequestId === requestId &&
@@ -142,13 +128,9 @@ export class ChainSignaturesContract {
           ) {
             if (!resolvedSignature) {
               resolvedSignature = true;
-              console.log(
-                '[EVENT] Signature event matched! Resolving promise...',
-              );
+              console.log('[EVENT] Signature resolved via websocket');
               signatureResolve(event as SignatureRespondedEvent);
             }
-          } else {
-            console.warn('[EVENT] Signature event mismatch - ignoring');
           }
         },
         onSignatureError: (event, slot) => {
@@ -162,7 +144,6 @@ export class ChainSignaturesContract {
           });
         },
       });
-      console.log('[EVENT] signet.js subscription established');
     } catch (err) {
       console.error('[EVENT] Failed to subscribe via signet.js:', err);
     }
@@ -175,38 +156,18 @@ export class ChainSignaturesContract {
             '0x' + Buffer.from(event.requestId).toString('hex');
           const eventResponder = event.responder.toBase58();
 
-          console.log('[EVENT] respondBidirectionalEvent received:', {
-            eventRequestId,
-            expectedRequestId: requestId,
-            eventResponder,
-            expectedResponder: RESPONDER_ADDRESS,
-            requestIdMatch: eventRequestId === requestId,
-            responderMatch: eventResponder === RESPONDER_ADDRESS,
-          });
-
           if (
             eventRequestId === requestId &&
             eventResponder === RESPONDER_ADDRESS
           ) {
             if (!resolvedRead) {
               resolvedRead = true;
-              console.log(
-                '[EVENT] RespondBidirectional event matched! Resolving promise...',
-              );
+              console.log('[EVENT] RespondBidirectional resolved via websocket');
               respondBidirectionalResolve(event);
             }
-          } else {
-            console.warn(
-              '[EVENT] RespondBidirectional event mismatch - ignoring',
-            );
           }
         },
       );
-
-    console.log('[EVENT] Listeners registered:', {
-      signetSubscription: 'established',
-      respondBidirectionalListenerId: respondBidirectionalListener,
-    });
 
     const cleanup = () => {
       if (signetUnsubscribe) {
@@ -224,6 +185,7 @@ export class ChainSignaturesContract {
         sig => {
           if (!resolvedSignature) {
             resolvedSignature = true;
+            console.log('[EVENT] Signature resolved via backfill');
             signatureResolve(sig);
           }
         },
@@ -239,6 +201,7 @@ export class ChainSignaturesContract {
         read => {
           if (!resolvedRead) {
             resolvedRead = true;
+            console.log('[EVENT] RespondBidirectional resolved via backfill');
             respondBidirectionalResolve(read);
           }
         },
@@ -248,12 +211,7 @@ export class ChainSignaturesContract {
     // Allow a small stabilization period for WebSocket connections to fully establish
     // This helps prevent race conditions where events fire before the connection is ready
     await new Promise(resolve => setTimeout(resolve, 1000));
-    console.log('[EVENT] Stabilization period complete, listeners ready');
-
-    // Run immediate backfill to catch any events that fired during setup
-    console.log('[EVENT] Running immediate backfill after stabilization...');
     await Promise.all([backfillSignature(), backfillRead()]);
-    console.log('[EVENT] Immediate backfill complete');
 
     return {
       signature: signaturePromise,
@@ -353,20 +311,13 @@ export class ChainSignaturesContract {
     onrespondBidirectional: (event: RespondBidirectionalEvent) => void,
     maxSignatures = 5,
   ): Promise<void> {
-    console.log('[BACKFILL] Starting backfill for requestId:', requestId);
     try {
       const program = this.getEventProgram();
-
       const responderPubkey = new PublicKey(RESPONDER_ADDRESS);
-      console.log(
-        '[BACKFILL] Fetching signatures for responder:',
-        responderPubkey.toBase58(),
-      );
       const signatures = await this.eventConnection.getSignaturesForAddress(
         responderPubkey,
         { limit: maxSignatures },
       );
-      console.log('[BACKFILL] Found', signatures.length, 'signatures');
 
       const CONCURRENCY = 4;
       let next = 0;
@@ -378,9 +329,6 @@ export class ChainSignaturesContract {
               const sig = signatures[i];
               if (!sig) break;
               try {
-                console.log('[BACKFILL] Checking tx:', sig.signature);
-
-                // Use getParsedTransaction to get inner instructions for CPI events
                 const tx = await this.eventConnection.getParsedTransaction(
                   sig.signature,
                   {
@@ -391,20 +339,13 @@ export class ChainSignaturesContract {
 
                 if (!tx) continue;
 
-                // Parse CPI events from inner instructions (emit_cpi! pattern)
                 const cpiEvents = this.parseCpiEventsFromTx(tx, program);
-                console.log('[BACKFILL] Found', cpiEvents.length, 'CPI events');
-
-                // Also parse regular log events as fallback
                 const logs = tx.meta?.logMessages ?? [];
                 const logEvents = this.parseLogEvents(logs, program);
-                console.log('[BACKFILL] Found', logEvents.length, 'log events');
 
-                // Process all events
                 const allEvents = [...cpiEvents, ...logEvents];
                 for (const decoded of allEvents) {
                   const name = decoded.name;
-                  console.log('[BACKFILL] Decoded event:', name);
 
                   if (
                     name === 'signatureRespondedEvent' ||
@@ -415,27 +356,17 @@ export class ChainSignaturesContract {
                     const eventReq =
                       '0x' +
                       Buffer.from(decoded.data.requestId).toString('hex');
-                    console.log(
-                      '[BACKFILL] Event requestId:',
-                      eventReq,
-                      'expected:',
-                      requestId,
-                    );
                     if (eventReq !== requestId) continue;
 
                     if (
                       name === 'signatureRespondedEvent' ||
                       name === 'SignatureRespondedEvent'
                     ) {
-                      console.log('[BACKFILL] Found matching signature event!');
                       onSignature(decoded.data as SignatureRespondedEvent);
                     } else if (
                       name === 'respondBidirectionalEvent' ||
                       name === 'RespondBidirectionalEvent'
                     ) {
-                      console.log(
-                        '[BACKFILL] Found matching respondBidirectional event!',
-                      );
                       onrespondBidirectional(
                         decoded.data as RespondBidirectionalEvent,
                       );
@@ -449,7 +380,6 @@ export class ChainSignaturesContract {
           },
         ),
       );
-      console.log('[BACKFILL] Backfill complete');
     } catch (err) {
       console.error('[BACKFILL] Overall error:', err);
     }
