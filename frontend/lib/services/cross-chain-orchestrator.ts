@@ -209,22 +209,10 @@ export class CrossChainOrchestrator {
     // Multi-tier backfill strategy for reliability:
     // Handles WebSocket flakiness and RPC indexing delays
     const backfillTimeouts = [
-      setTimeout(() => {
-        console.log(`[${op}] Running signature backfill (5s)...`);
-        void eventPromises.backfillSignature();
-      }, 5000),
-      setTimeout(() => {
-        console.log(`[${op}] Running signature backfill (10s)...`);
-        void eventPromises.backfillSignature();
-      }, 10000),
-      setTimeout(() => {
-        console.log(`[${op}] Running signature backfill (20s)...`);
-        void eventPromises.backfillSignature();
-      }, 20000),
-      setTimeout(() => {
-        console.log(`[${op}] Running signature backfill (30s)...`);
-        void eventPromises.backfillSignature();
-      }, 30000),
+      setTimeout(() => void eventPromises.backfillSignature(), 5000),
+      setTimeout(() => void eventPromises.backfillSignature(), 10000),
+      setTimeout(() => void eventPromises.backfillSignature(), 20000),
+      setTimeout(() => void eventPromises.backfillSignature(), 30000),
     ];
 
     const signatureEvent = await this.waitWithTimeout(
@@ -235,7 +223,7 @@ export class CrossChainOrchestrator {
       backfillTimeouts.forEach(t => clearTimeout(t));
     });
 
-    console.log(`[${op}] Signature received:`, JSON.stringify(signatureEvent.signature));
+    console.log(`[${op}] Signature received`);
 
     const ethereumSignature = ChainSignaturesContract.extractSignature(
       signatureEvent.signature,
@@ -279,22 +267,10 @@ export class CrossChainOrchestrator {
     // Multi-tier backfill strategy for reliability:
     // Handles WebSocket flakiness and RPC indexing delays
     const backfillTimeouts = [
-      setTimeout(() => {
-        console.log(`[${op}] Running read backfill (5s)...`);
-        void eventPromises.backfillRead();
-      }, 5000),
-      setTimeout(() => {
-        console.log(`[${op}] Running read backfill (10s)...`);
-        void eventPromises.backfillRead();
-      }, 10000),
-      setTimeout(() => {
-        console.log(`[${op}] Running read backfill (20s)...`);
-        void eventPromises.backfillRead();
-      }, 20000),
-      setTimeout(() => {
-        console.log(`[${op}] Running read backfill (30s)...`);
-        void eventPromises.backfillRead();
-      }, 30000),
+      setTimeout(() => void eventPromises.backfillRead(), 5000),
+      setTimeout(() => void eventPromises.backfillRead(), 10000),
+      setTimeout(() => void eventPromises.backfillRead(), 20000),
+      setTimeout(() => void eventPromises.backfillRead(), 30000),
     ];
 
     return await this.waitWithTimeout(

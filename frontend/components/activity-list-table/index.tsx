@@ -86,8 +86,8 @@ function buildTransactionsFromRedis(
         usdValue: '',
       },
       address: tx.ethereumAddress,
-      timestamp: formatActivityDate(tx.createdAt),
-      timestampRaw: tx.createdAt,
+      timestamp: formatActivityDate(Math.floor(tx.createdAt / 1000)),
+      timestampRaw: Math.floor(tx.createdAt / 1000),
       status: mapTxStatus(tx.status),
       transactionHash: tx.ethereumTxHash,
       explorerUrl: tx.ethereumTxHash
