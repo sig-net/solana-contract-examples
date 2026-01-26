@@ -5,8 +5,8 @@ import { type Hex, type PublicClient } from 'viem';
 import { DexContract } from '@/lib/contracts/dex-contract';
 import { ChainSignaturesContract } from '@/lib/contracts/chain-signatures-contract';
 import type {
-  EventPromises,
-  RespondBidirectionalEvent,
+  EventListenerResult,
+  RespondBidirectionalData,
 } from '@/lib/types/chain-signatures.types';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
 import { submitWithRetry } from '@/lib/evm/tx-submitter';
@@ -58,7 +58,7 @@ export class CrossChainOrchestrator {
     requestId: string,
     ethereumTxParams: EvmTransactionRequest,
     solanaCompletionFn: (
-      respondBidirectionalEvent: RespondBidirectionalEvent,
+      respondBidirectionalData: RespondBidirectionalData,
       ethereumTxHash?: string,
     ) => Promise<T>,
     initialSolanaFn?: () => Promise<string>,
@@ -70,9 +70,8 @@ export class CrossChainOrchestrator {
     console.log(`[${op}] Starting signature flow for ${requestId}`);
 
     // Set up event listeners FIRST to prevent race conditions
-    // Await to ensure subscription is established before proceeding
     console.log(`[${op}] Setting up event listeners...`);
-    const eventPromises =
+    const eventListeners =
       await this.chainSignaturesContract.setupEventListeners(requestId);
 
     try {
@@ -92,7 +91,7 @@ export class CrossChainOrchestrator {
 
       // Phase 2: Wait for signature and submit to Ethereum
       const ethereumTxHash = await this.executeEthereumTransaction(
-        eventPromises,
+        eventListeners,
         ethereumTxParams,
         onEthereumPending,
       );
@@ -101,10 +100,10 @@ export class CrossChainOrchestrator {
 
       // Phase 3: Wait for read response and complete on Solana
       console.log(`[${op}] Waiting for read response...`);
-      const respondBidirectionalEvent = await this.waitForRespondBidirectional(eventPromises);
+      const respondBidirectionalData = await this.waitForRespondBidirectional(eventListeners);
 
       console.log(`[${op}] Completing on Solana...`);
-      const solanaResult = await solanaCompletionFn(respondBidirectionalEvent, ethereumTxHash);
+      const solanaResult = await solanaCompletionFn(respondBidirectionalData, ethereumTxHash);
 
       console.log(`[${op}] Flow completed successfully`);
 
@@ -131,7 +130,7 @@ export class CrossChainOrchestrator {
       };
     } finally {
       console.log(`[${op}] Cleaning up event listeners`);
-      eventPromises.cleanup();
+      eventListeners.cleanup();
     }
   }
 
@@ -142,33 +141,29 @@ export class CrossChainOrchestrator {
   async recoverSignatureFlow<T>(
     requestId: string,
     solanaCompletionFn: (
-      respondBidirectionalEvent: RespondBidirectionalEvent,
+      respondBidirectionalData: RespondBidirectionalData,
       ethereumTxHash?: string,
     ) => Promise<T>,
   ): Promise<CrossChainResult & { solanaResult?: T }> {
     const op = this.config.operationName;
     console.log(`[${op}] Starting recovery flow for ${requestId}`);
 
-    // Set up event listeners
+    // Set up event listeners (backfill is handled automatically by waitForEvent)
     console.log(`[${op}] Setting up event listeners for recovery...`);
-    const eventPromises =
+    const eventListeners =
       await this.chainSignaturesContract.setupEventListeners(requestId);
 
     try {
-      // Immediately trigger backfill to look for historical events
-      console.log(`[${op}] Triggering backfill for historical events...`);
-      await eventPromises.backfillRead();
-
-      // Wait for read response (either from backfill or live)
+      // Wait for read response (from backfill or live)
       console.log(`[${op}] Waiting for read response...`);
-      const respondBidirectionalEvent = await this.waitWithTimeout(
-        eventPromises.respondBidirectional,
+      const respondBidirectionalData = await this.waitWithTimeout(
+        eventListeners.respondBidirectional,
         this.config.eventTimeoutMs,
         `Read response timeout for recovery (requestId: ${requestId})`,
       );
 
       console.log(`[${op}] Completing on Solana...`);
-      const solanaResult = await solanaCompletionFn(respondBidirectionalEvent, undefined);
+      const solanaResult = await solanaCompletionFn(respondBidirectionalData, undefined);
 
       console.log(`[${op}] Recovery completed successfully`);
 
@@ -194,40 +189,25 @@ export class CrossChainOrchestrator {
       };
     } finally {
       console.log(`[${op}] Cleaning up event listeners`);
-      eventPromises.cleanup();
+      eventListeners.cleanup();
     }
   }
 
   private async executeEthereumTransaction(
-    eventPromises: EventPromises,
+    eventListeners: EventListenerResult,
     txParams: EvmTransactionRequest,
     onEthereumPending?: () => Promise<void>,
   ): Promise<string> {
     const op = this.config.operationName;
     console.log(`[${op}] Waiting for signature...`);
 
-    // Multi-tier backfill strategy for reliability:
-    // Handles WebSocket flakiness and RPC indexing delays
-    const backfillTimeouts = [
-      setTimeout(() => void eventPromises.backfillSignature(), 5000),
-      setTimeout(() => void eventPromises.backfillSignature(), 10000),
-      setTimeout(() => void eventPromises.backfillSignature(), 20000),
-      setTimeout(() => void eventPromises.backfillSignature(), 30000),
-    ];
-
-    const signatureEvent = await this.waitWithTimeout(
-      eventPromises.signature,
+    const signatureResult = await this.waitWithTimeout(
+      eventListeners.signature,
       this.config.eventTimeoutMs,
       `Signature event timeout for ${op}`,
-    ).finally(() => {
-      backfillTimeouts.forEach(t => clearTimeout(t));
-    });
+    );
 
     console.log(`[${op}] Signature received`);
-
-    const ethereumSignature = ChainSignaturesContract.extractSignature(
-      signatureEvent.signature,
-    );
 
     console.log(`[${op}] Submitting to Ethereum...`);
 
@@ -240,9 +220,9 @@ export class CrossChainOrchestrator {
       this.client,
       txParams,
       {
-        r: ethereumSignature.r as Hex,
-        s: ethereumSignature.s as Hex,
-        v: ethereumSignature.v,
+        r: `0x${signatureResult.r}` as Hex,
+        s: `0x${signatureResult.s}` as Hex,
+        v: BigInt(signatureResult.v),
       },
       {
         maxBroadcastAttempts: 3,
@@ -260,26 +240,15 @@ export class CrossChainOrchestrator {
   }
 
   private async waitForRespondBidirectional(
-    eventPromises: EventPromises,
-  ): Promise<RespondBidirectionalEvent> {
+    eventListeners: EventListenerResult,
+  ): Promise<RespondBidirectionalData> {
     const op = this.config.operationName;
 
-    // Multi-tier backfill strategy for reliability:
-    // Handles WebSocket flakiness and RPC indexing delays
-    const backfillTimeouts = [
-      setTimeout(() => void eventPromises.backfillRead(), 5000),
-      setTimeout(() => void eventPromises.backfillRead(), 10000),
-      setTimeout(() => void eventPromises.backfillRead(), 20000),
-      setTimeout(() => void eventPromises.backfillRead(), 30000),
-    ];
-
     return await this.waitWithTimeout(
-      eventPromises.respondBidirectional,
+      eventListeners.respondBidirectional,
       this.config.eventTimeoutMs,
       `Read response timeout for ${op}`,
-    ).finally(() => {
-      backfillTimeouts.forEach(t => clearTimeout(t));
-    });
+    );
   }
 
   private async waitWithTimeout<T>(
