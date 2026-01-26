@@ -63,8 +63,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       fakenet-signer:
-        specifier: ^1.6.1
-        version: 1.6.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)
+        specifier: ^1.7.0
+        version: 1.7.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)
       lucide-react:
         specifier: ^0.525.0
         version: 0.525.0(react@19.2.3)
@@ -84,8 +84,8 @@ importers:
         specifier: ^7.61.1
         version: 7.61.1(react@19.2.3)
       signet.js:
-        specifier: ^0.2.0
-        version: 0.2.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8)
+        specifier: ^0.3.0
+        version: 0.3.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8)
       sonner:
         specifier: ^2.0.6
         version: 2.0.6(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -3602,8 +3602,8 @@ packages:
     resolution: {integrity: sha512-GipyPsXO1anza0AOZdy69Im7hGFCNB7Y/NGjDlZGJ3GJJLtwNSb2vrzYrTYJRrRloVx7pl+bhUaTB8yiccPvFQ==}
     engines: {node: '> 0.1.90'}
 
-  fakenet-signer@1.6.1:
-    resolution: {integrity: sha512-kLnHIfUVzkcdMq1EcTzOaPtAy/5wJzt5LC1vBLz20Hei+Ul5w/10O/BJGPqdePLj71APjblP85JWJ7MAh3sIvw==}
+  fakenet-signer@1.7.0:
+    resolution: {integrity: sha512-DkdlU8s0mWAHOgTR58pPIavQ2TIMeUbq+qGowiS7YsLl+wBDnVrJy5qgpu6XkpFk0PoASCNdtunpKZoiruZa0A==}
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
@@ -5059,8 +5059,8 @@ packages:
   signal-exit@3.0.7:
     resolution: {integrity: sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ==}
 
-  signet.js@0.2.0:
-    resolution: {integrity: sha512-ip01JTFzmb5btEGPbWmQaPZpIO33h1hxm7C2je56okGt2woj0uTx9KboDHay9H+qw8vvzkQObEZ46/uWyS7YDQ==}
+  signet.js@0.3.0:
+    resolution: {integrity: sha512-IwW7U8e7kOaSu2pRNFZipCWLeLMhbIIiamp5SpA1CcAptXCMx10nLHNMpAOX8nt111VlP7PJ+bd0Q8WNv22JNw==}
 
   slash@3.0.0:
     resolution: {integrity: sha512-g9Q1haeby36OSStwb4ntCGGGaKsaVSjQ68fBxoQcutl5fS1vuY18H3wSt3jFyFtrkx+Kz0V1G85A4MyAdDMi2Q==}
@@ -10990,7 +10990,7 @@ snapshots:
 
   eyes@0.1.8: {}
 
-  fakenet-signer@1.6.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10):
+  fakenet-signer@1.7.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10):
     dependencies:
       '@coral-xyz/anchor': 0.31.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@solana/web3.js': 1.98.2(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)
@@ -12640,7 +12640,7 @@ snapshots:
 
   signal-exit@3.0.7: {}
 
-  signet.js@0.2.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8):
+  signet.js@0.3.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8):
     dependencies:
       '@coral-xyz/anchor': 0.31.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@cosmjs/amino': 0.32.4
