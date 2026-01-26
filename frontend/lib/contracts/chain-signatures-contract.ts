@@ -144,6 +144,7 @@ export class ChainSignaturesContract {
           });
         },
       });
+      console.log('[EVENT] Websocket subscription established');
     } catch (err) {
       console.error('[EVENT] Failed to subscribe via signet.js:', err);
     }
@@ -212,6 +213,7 @@ export class ChainSignaturesContract {
     // This helps prevent race conditions where events fire before the connection is ready
     await new Promise(resolve => setTimeout(resolve, 1000));
     await Promise.all([backfillSignature(), backfillRead()]);
+    console.log('[EVENT] Listeners ready');
 
     return {
       signature: signaturePromise,
@@ -318,6 +320,7 @@ export class ChainSignaturesContract {
         responderPubkey,
         { limit: maxSignatures },
       );
+      console.log(`[BACKFILL] Scanning ${signatures.length} recent txs for ${requestId.slice(0, 10)}...`, signatures.map(s => s.signature));
 
       const CONCURRENCY = 4;
       let next = 0;
