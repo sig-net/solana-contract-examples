@@ -17,6 +17,8 @@ import {
   CHAIN_SIGNATURES_CONFIG,
   deriveVaultAuthorityPda,
   deriveUserBalancePda,
+  derivePendingDepositPda,
+  derivePendingWithdrawalPda,
 } from '@/lib/constants/addresses';
 
 import type { RSVSignature } from 'signet.js';
@@ -110,6 +112,11 @@ export class DexContract {
     const { blockhash, lastValidBlockHeight } =
       await this.connection.getLatestBlockhash('confirmed');
 
+    // Explicitly derive PDA to ensure consistency with fetch operations
+    const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
+
+    console.log(`[DEPOSIT] Creating PendingDeposit at PDA: ${pendingDepositPda.toBase58()}`);
+
     const signature = await program.methods
       .depositErc20(
         requestIdBytes as unknown as number[],
@@ -119,8 +126,9 @@ export class DexContract {
         amount,
         evmParams,
       )
-      .accounts({
+      .accountsPartial({
         payer: payerKey,
+        pendingDeposit: pendingDepositPda,
         feePayer: payerKey,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       })
@@ -201,6 +209,11 @@ export class DexContract {
   }> {
     const program = this.getDexProgram();
 
+    // Explicitly derive PDA to ensure consistency with fetch operations
+    const [pendingWithdrawalPda] = derivePendingWithdrawalPda(requestIdBytes);
+
+    console.log(`[WITHDRAW] Creating PendingWithdrawal at PDA: ${pendingWithdrawalPda.toBase58()}`);
+
     const tx = await program.methods
       .withdrawErc20(
         Array.from(requestIdBytes) as unknown as number[],
@@ -209,8 +222,9 @@ export class DexContract {
         Array.from(recipientAddressBytes) as unknown as number[],
         evmParams,
       )
-      .accounts({
+      .accountsPartial({
         authority,
+        pendingWithdrawal: pendingWithdrawalPda,
         feePayer: authority,
         instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       })
