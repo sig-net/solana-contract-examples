@@ -139,45 +139,24 @@ async function executeDeposit(args: {
       requestId,
       txRequest,
       async (respondBidirectionalData, ethereumTxHash) => {
-        const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
         console.log(`[DEPOSIT] Attempting to claim. PDA: ${pendingDepositPda.toBase58()}, RequestID: ${requestId}`);
-        try {
-          const pendingDeposit = (await dexContract.fetchPendingDeposit(
-            pendingDepositPda,
-          )) as { requester: PublicKey; erc20Address: number[] };
-          console.log(`[DEPOSIT] Found PendingDeposit. Requester: ${pendingDeposit.requester.toBase58()}`);
-          const ethereumTxHashBytes = ethereumTxHash
-            ? Array.from(toBytes(ethereumTxHash))
-            : undefined;
+        const ethereumTxHashBytes = ethereumTxHash
+          ? Array.from(toBytes(ethereumTxHash))
+          : undefined;
 
-          // Phase 5: Completing
-          await updateTxStatus(trackingId, 'completing', { ethereumTxHash });
+        // Phase 5: Completing
+        await updateTxStatus(trackingId, 'completing', { ethereumTxHash });
 
-          const claimTxHash = await dexContract.claimErc20({
-            requester: pendingDeposit.requester,
-            requestIdBytes,
-            serializedOutput: respondBidirectionalData.serializedOutput,
-            signature: respondBidirectionalData.signature,
-            erc20AddressBytes: pendingDeposit.erc20Address,
-            ethereumTxHashBytes,
-          });
-          console.log(`[DEPOSIT] Claim successful! Tx: ${claimTxHash}`);
-          return claimTxHash;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(`[DEPOSIT] Claim error: ${msg}`);
-          if (
-            msg.includes('Account does not exist') ||
-            msg.includes('AccountNotFound')
-          ) {
-            throw new Error(
-              `PendingDeposit not found for request ${requestId}. ` +
-              `PDA: ${pendingDepositPda.toBase58()}. ` +
-              `The deposit may have already been claimed or the initial deposit transaction failed.`
-            );
-          }
-          throw e;
-        }
+        const claimTxHash = await dexContract.claimErc20({
+          requester: userPublicKey,
+          requestIdBytes,
+          serializedOutput: respondBidirectionalData.serializedOutput,
+          signature: respondBidirectionalData.signature,
+          erc20AddressBytes,
+          ethereumTxHashBytes,
+        });
+        console.log(`[DEPOSIT] Claim successful! Tx: ${claimTxHash}`);
+        return claimTxHash;
       },
       async () => {
         const tx = await dexContract.depositErc20({
@@ -238,6 +217,7 @@ async function executeDeposit(args: {
 
 export async function handleWithdrawal(args: {
   requestId: string;
+  requester: string;
   erc20Address: string;
   transactionParams: EvmTransactionRequest;
   solanaInitTxHash?: string;
@@ -249,13 +229,15 @@ export async function handleWithdrawal(args: {
 
 async function executeWithdrawal(args: {
   requestId: string;
+  requester: string;
   erc20Address: string;
   transactionParams: EvmTransactionRequest;
   solanaInitTxHash?: string;
   blockhash?: string;
   lastValidBlockHeight?: number;
 }) {
-  const { requestId, erc20Address, transactionParams, solanaInitTxHash, blockhash, lastValidBlockHeight } = args;
+  const { requestId, requester, erc20Address, transactionParams, solanaInitTxHash, blockhash, lastValidBlockHeight } = args;
+  const requesterPublicKey = new PublicKey(requester);
 
   try {
     const { orchestrator, provider } = await initializeRelayerSetup({
@@ -295,40 +277,15 @@ async function executeWithdrawal(args: {
     // Update status to signature_pending
     await updateTxStatus(requestId, 'signature_pending');
 
+    const requestIdBytes = Array.from(toBytes(requestId));
+    const [pendingWithdrawalPda] = derivePendingWithdrawalPda(requestIdBytes);
+    const erc20AddressBytes = Array.from(toBytes(erc20Address));
+
     const result = await orchestrator.executeSignatureFlow(
       requestId,
       transactionParams,
       async (respondBidirectionalData, ethereumTxHash) => {
-        const dexContract = orchestrator.getDexContract();
-        const requestIdBytes = Array.from(toBytes(requestId));
-        const [pendingWithdrawalPda] =
-          derivePendingWithdrawalPda(requestIdBytes);
-
         console.log(`[WITHDRAW] Attempting to complete. PDA: ${pendingWithdrawalPda.toBase58()}, RequestID: ${requestId}`);
-
-        let pendingWithdrawal: { requester: string };
-        try {
-          pendingWithdrawal = (await dexContract.fetchPendingWithdrawal(
-            pendingWithdrawalPda,
-          )) as unknown as { requester: string };
-          console.log(`[WITHDRAW] Found PendingWithdrawal. Requester: ${pendingWithdrawal.requester}`);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(`[WITHDRAW] Failed to fetch PendingWithdrawal: ${msg}`);
-          if (
-            msg.includes('Account does not exist') ||
-            msg.includes('AccountNotFound')
-          ) {
-            throw new Error(
-              `PendingWithdrawal not found for request ${requestId}. ` +
-              `PDA: ${pendingWithdrawalPda.toBase58()}. ` +
-              `The withdrawal may have already been completed or the initial withdrawal transaction failed.`
-            );
-          }
-          throw e;
-        }
-
-        const erc20AddressBytes = Array.from(toBytes(erc20Address));
         const ethereumTxHashBytes = ethereumTxHash
           ? Array.from(toBytes(ethereumTxHash))
           : undefined;
@@ -337,7 +294,7 @@ async function executeWithdrawal(args: {
         await updateTxStatus(requestId, 'completing', { ethereumTxHash });
 
         const completeTxHash = await dexContract.completeWithdrawErc20({
-          requester: new PublicKey(pendingWithdrawal.requester),
+          requester: requesterPublicKey,
           requestIdBytes,
           serializedOutput: respondBidirectionalData.serializedOutput,
           signature: respondBidirectionalData.signature,
