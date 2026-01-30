@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
       try {
         const result = await handleWithdrawal({
           requestId,
+          requester: userAddress,
           erc20Address,
           transactionParams: parseTransactionParams(transactionParams),
           solanaInitTxHash,
