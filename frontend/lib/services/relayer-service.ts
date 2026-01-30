@@ -53,6 +53,9 @@ export async function notifyWithdrawal({
   tokenAmount,
   tokenDecimals,
   tokenSymbol,
+  solanaInitTxHash,
+  blockhash,
+  lastValidBlockHeight,
 }: {
   requestId: string;
   erc20Address: string;
@@ -62,6 +65,9 @@ export async function notifyWithdrawal({
   tokenAmount?: string;
   tokenDecimals?: number;
   tokenSymbol?: string;
+  solanaInitTxHash?: string;
+  blockhash?: string;
+  lastValidBlockHeight?: number;
 }): Promise<void> {
   const env = getClientEnv();
   const url = env.NEXT_PUBLIC_NOTIFY_WITHDRAWAL_URL;
@@ -80,6 +86,9 @@ export async function notifyWithdrawal({
       tokenAmount,
       tokenDecimals,
       tokenSymbol,
+      solanaInitTxHash,
+      blockhash,
+      lastValidBlockHeight,
     }),
   });
 

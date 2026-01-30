@@ -4,10 +4,13 @@ import {
   Wallet,
   utils as anchorUtils,
 } from '@coral-xyz/anchor';
-import { contracts } from 'signet.js';
+import { contracts, type RSVSignature } from 'signet.js';
 
 import { getClientEnv } from '@/lib/config/env.config';
-import type { EventListenerResult } from '../types/chain-signatures.types';
+import type {
+  EventListenerResult,
+  RespondBidirectionalData,
+} from '../types/chain-signatures.types';
 import {
   RESPONDER_ADDRESS,
   CHAIN_SIGNATURES_PROGRAM_ID,
@@ -53,13 +56,15 @@ export class ChainSignaturesContract {
 
     const controller = new AbortController();
 
+    // signet.js type declarations don't match runtime behavior for these events.
+    // At runtime, the library returns RSVSignature-compatible objects.
     const signature = signetContract.waitForEvent({
       eventName: 'signatureRespondedEvent',
       requestId,
       signer: new PublicKey(RESPONDER_ADDRESS),
       timeoutMs: 60_000,
       signal: controller.signal,
-    });
+    }) as unknown as Promise<RSVSignature>;
 
     const respondBidirectional = signetContract.waitForEvent({
       eventName: 'respondBidirectionalEvent',
@@ -67,7 +72,7 @@ export class ChainSignaturesContract {
       signer: new PublicKey(RESPONDER_ADDRESS),
       timeoutMs: 60_000,
       signal: controller.signal,
-    });
+    }) as unknown as Promise<RespondBidirectionalData>;
 
     return {
       signature,

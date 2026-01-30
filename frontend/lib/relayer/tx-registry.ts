@@ -56,6 +56,7 @@ export async function registerTx(
     tokenAmount?: string;
     tokenDecimals?: number;
     tokenSymbol?: string;
+    solanaInitTxHash?: string;
   },
 ): Promise<void> {
   const redis = getRedisClient();
@@ -71,6 +72,7 @@ export async function registerTx(
     tokenAmount: tokenInfo?.tokenAmount,
     tokenDecimals: tokenInfo?.tokenDecimals,
     tokenSymbol: tokenInfo?.tokenSymbol,
+    solanaInitTxHash: tokenInfo?.solanaInitTxHash,
   };
   await redis.set(`${TX_PREFIX}${id}`, entry, { ex: TX_TTL_SECONDS });
   // Track transaction ID in user's list

@@ -176,8 +176,63 @@ export class WithdrawalService {
 
       const requestIdBytes = Array.from(toBytes(requestId));
 
-      // IMPORTANT: Notify the relayer FIRST so it starts listening for events
-      // before the user's transaction emits the signature request
+      console.log(`[WITHDRAW] Starting withdrawal, requestId: ${requestId}`);
+
+      onStatusChange?.({
+        status: 'preparing',
+        note: 'Submitting withdrawal to Solana...',
+      });
+
+      // Submit Solana transaction - returns immediately after wallet signs
+      // Confirmation happens in the background handler
+      let solanaInitTxHash: string | undefined;
+      let blockhash: string | undefined;
+      let lastValidBlockHeight: number | undefined;
+
+      try {
+        console.log('[WITHDRAW] Calling withdrawErc20...');
+        const result = await this.dexContract.withdrawErc20({
+          authority: publicKey,
+          requestIdBytes,
+          erc20AddressBytes,
+          amount: amountBN,
+          recipientAddressBytes,
+          evmParams,
+        });
+        solanaInitTxHash = result.signature;
+        blockhash = result.blockhash;
+        lastValidBlockHeight = result.lastValidBlockHeight;
+        console.log(`[WITHDRAW] withdrawErc20 returned: ${solanaInitTxHash}`);
+      } catch (txError) {
+        const originalError =
+          txError &&
+          typeof txError === 'object' &&
+          'originalError' in txError &&
+          txError.originalError instanceof Error
+            ? txError.originalError
+            : null;
+        console.error('[WITHDRAW] Solana tx error:', txError);
+        console.error('[WITHDRAW] Original error:', originalError);
+
+        const errorMessage =
+          txError instanceof Error ? txError.message : String(txError);
+        const originalMessage = originalError?.message ?? '';
+        const fullMessage = `${errorMessage}${originalMessage ? `: ${originalMessage}` : ''}`;
+        console.error('[WITHDRAW] Full error message:', fullMessage);
+
+        if (
+          fullMessage.includes('already been processed') ||
+          fullMessage.includes('AlreadyProcessed')
+        ) {
+          console.log('[WITHDRAW] Transaction already processed, continuing...');
+        } else {
+          console.error('[WITHDRAW] Throwing error, notifyWithdrawal will NOT be called');
+          throw originalError ?? txError;
+        }
+      }
+
+      // Notify the relayer immediately - it will confirm the tx in the background
+      console.log('[WITHDRAW] Notifying relayer (tx confirmation will happen in background)...');
       await notifyWithdrawal({
         requestId,
         erc20Address,
@@ -193,58 +248,11 @@ export class WithdrawalService {
         tokenAmount: processAmountBigInt.toString(),
         tokenDecimals: decimals,
         tokenSymbol: tokenMetadata?.symbol ?? 'Unknown',
+        solanaInitTxHash,
+        blockhash,
+        lastValidBlockHeight,
       });
-
-      onStatusChange?.({
-        status: 'preparing',
-        note: 'Setting up withdrawal monitoring...',
-      });
-
-      // Then sign and submit the Solana withdrawal transaction
-      // The relayer is now listening and will catch the signature request event
-      let solanaInitTxHash: string | undefined;
-      try {
-        solanaInitTxHash = await this.dexContract.withdrawErc20({
-          authority: publicKey,
-          requestIdBytes,
-          erc20AddressBytes,
-          amount: amountBN,
-          recipientAddressBytes,
-          evmParams,
-        });
-
-        // Send the Solana tx hash to backend for tracking
-        if (solanaInitTxHash) {
-          fetch('/api/tx-update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: requestId, solanaInitTxHash }),
-          }).catch(err => console.error('Failed to update solanaInitTxHash:', err));
-        }
-      } catch (txError) {
-        const originalError =
-          txError &&
-          typeof txError === 'object' &&
-          'originalError' in txError &&
-          txError.originalError instanceof Error
-            ? txError.originalError
-            : null;
-        console.error('txError', txError, 'originalError', originalError);
-
-        const errorMessage =
-          txError instanceof Error ? txError.message : String(txError);
-        const originalMessage = originalError?.message ?? '';
-        const fullMessage = `${errorMessage}${originalMessage ? `: ${originalMessage}` : ''}`;
-
-        if (
-          fullMessage.includes('already been processed') ||
-          fullMessage.includes('AlreadyProcessed')
-        ) {
-          console.log('Transaction already processed, continuing...');
-        } else {
-          throw originalError ?? txError;
-        }
-      }
+      console.log('[WITHDRAW] Relayer notified');
 
       onStatusChange?.({
         status: 'relayer_processing',
