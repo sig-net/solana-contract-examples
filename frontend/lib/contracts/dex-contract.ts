@@ -105,7 +105,10 @@ export class DexContract {
     const payerKey = payer || this.wallet.publicKey;
     const program = this.getDexProgram();
 
-    return await program.methods
+    const { blockhash, lastValidBlockHeight } =
+      await this.connection.getLatestBlockhash();
+
+    const signature = await program.methods
       .depositErc20(
         requestIdBytes as unknown as number[],
         requester,
@@ -125,6 +128,15 @@ export class DexContract {
         }),
       ])
       .rpc();
+
+    // Wait for confirmation to ensure PendingDeposit PDA is created
+    // before proceeding with the signature flow
+    await this.connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      'confirmed',
+    );
+
+    return signature;
   }
 
   async claimErc20({
@@ -204,7 +216,8 @@ export class DexContract {
       .transaction();
 
     tx.feePayer = authority;
-    const { blockhash } = await this.connection.getLatestBlockhash();
+    const { blockhash, lastValidBlockHeight } =
+      await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
 
     const signedTx = await this.wallet.signTransaction(tx);
@@ -212,6 +225,13 @@ export class DexContract {
     const signature = await this.connection.sendRawTransaction(
       signedTx.serialize(),
       { skipPreflight: true },
+    );
+
+    // Wait for confirmation to ensure PendingWithdrawal PDA is created
+    // before the relayer starts processing signature events
+    await this.connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      'confirmed',
     );
 
     return signature;
