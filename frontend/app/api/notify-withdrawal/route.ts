@@ -40,6 +40,9 @@ export async function POST(request: NextRequest) {
       tokenAmount,
       tokenDecimals,
       tokenSymbol,
+      solanaInitTxHash,
+      blockhash,
+      lastValidBlockHeight,
     } = body;
 
     if (!requestId || !erc20Address || !transactionParams || !userAddress) {
@@ -56,6 +59,7 @@ export async function POST(request: NextRequest) {
       tokenAmount,
       tokenDecimals,
       tokenSymbol,
+      solanaInitTxHash,
     });
 
     after(async () => {
@@ -64,6 +68,9 @@ export async function POST(request: NextRequest) {
           requestId,
           erc20Address,
           transactionParams: parseTransactionParams(transactionParams),
+          solanaInitTxHash,
+          blockhash,
+          lastValidBlockHeight,
         });
         if (!result.ok) {
           console.error('Withdrawal processing failed:', result.error);

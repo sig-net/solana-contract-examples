@@ -21,6 +21,7 @@
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-popover": "^1.1.14",
     "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tooltip": "^1.2.8",
     "@solana/connector": "^0.2.2",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "1.69.0",

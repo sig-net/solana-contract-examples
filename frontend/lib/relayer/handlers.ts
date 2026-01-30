@@ -73,6 +73,7 @@ async function executeDeposit(args: {
       });
       return { ok: false, error: balanceError };
     }
+    console.log(`[DEPOSIT] Token balance detected: ${actualAmount.toString()}`);
 
     const processAmount = applyContractSafetyReduction(actualAmount);
 
@@ -119,6 +120,9 @@ async function executeDeposit(args: {
     );
 
     const requestIdBytes = Array.from(toBytes(requestId));
+    const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
+    console.log(`[DEPOSIT] RequestId: ${requestId}, PDA: ${pendingDepositPda.toBase58()}`);
+
     const evmParams = evmParamsToProgram(txRequest);
     const amountBN = new BN(processAmount.toString());
 
@@ -236,6 +240,9 @@ export async function handleWithdrawal(args: {
   requestId: string;
   erc20Address: string;
   transactionParams: EvmTransactionRequest;
+  solanaInitTxHash?: string;
+  blockhash?: string;
+  lastValidBlockHeight?: number;
 }) {
   return withEmbeddedSigner(() => executeWithdrawal(args));
 }
@@ -244,14 +251,32 @@ async function executeWithdrawal(args: {
   requestId: string;
   erc20Address: string;
   transactionParams: EvmTransactionRequest;
+  solanaInitTxHash?: string;
+  blockhash?: string;
+  lastValidBlockHeight?: number;
 }) {
-  const { requestId, erc20Address, transactionParams } = args;
+  const { requestId, erc20Address, transactionParams, solanaInitTxHash, blockhash, lastValidBlockHeight } = args;
 
   try {
     const { orchestrator, provider } = await initializeRelayerSetup({
       operationName: 'WITHDRAW',
       eventTimeoutMs: 300000,
     });
+    const dexContract = orchestrator.getDexContract();
+
+    // Phase: Confirm Solana tx if we have the blockhash info
+    if (solanaInitTxHash && blockhash && lastValidBlockHeight) {
+      console.log(`[WITHDRAW] Confirming Solana tx: ${solanaInitTxHash}`);
+      await updateTxStatus(requestId, 'solana_pending', { solanaInitTxHash });
+
+      await dexContract.confirmTransactionOrThrow(
+        solanaInitTxHash,
+        blockhash,
+        lastValidBlockHeight,
+        'WITHDRAW',
+      );
+      console.log(`[WITHDRAW] Solana tx confirmed: ${solanaInitTxHash}`);
+    }
 
     // Phase: Gas top-up for vault if needed
     const { topUpTxHash } = await ensureGasForTransaction(

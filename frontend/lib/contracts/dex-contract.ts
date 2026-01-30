@@ -5,6 +5,7 @@ import {
   Connection,
   PublicKey,
   SYSVAR_INSTRUCTIONS_PUBKEY,
+  type TransactionSignature,
 } from '@solana/web3.js';
 import { Program, AnchorProvider, BN, Wallet } from '@coral-xyz/anchor';
 import { toBytes } from 'viem';
@@ -21,6 +22,7 @@ import {
 import type { RSVSignature } from 'signet.js';
 
 const COMPUTE_UNITS_FOR_DERIVATION = 400_000;
+const PRIORITY_FEE_MICRO_LAMPORTS = 50_000;
 
 export class DexContract {
   private program: Program<SolanaDexContract> | null = null;
@@ -106,7 +108,7 @@ export class DexContract {
     const program = this.getDexProgram();
 
     const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash();
+      await this.connection.getLatestBlockhash('confirmed');
 
     const signature = await program.methods
       .depositErc20(
@@ -126,15 +128,15 @@ export class DexContract {
         ComputeBudgetProgram.setComputeUnitLimit({
           units: COMPUTE_UNITS_FOR_DERIVATION,
         }),
+        ComputeBudgetProgram.setComputeUnitPrice({
+          microLamports: PRIORITY_FEE_MICRO_LAMPORTS,
+        }),
       ])
       .rpc();
 
-    // Wait for confirmation to ensure PendingDeposit PDA is created
-    // before proceeding with the signature flow
-    await this.connection.confirmTransaction(
-      { signature, blockhash, lastValidBlockHeight },
-      'confirmed',
-    );
+    console.log(`[DEPOSIT] Solana tx submitted: ${signature}`);
+
+    await this.confirmTransactionOrThrow(signature, blockhash, lastValidBlockHeight, 'DEPOSIT');
 
     return signature;
   }
@@ -192,7 +194,11 @@ export class DexContract {
     amount: BN;
     recipientAddressBytes: number[];
     evmParams: EvmTransactionProgramParams;
-  }): Promise<string> {
+  }): Promise<{
+    signature: string;
+    blockhash: string;
+    lastValidBlockHeight: number;
+  }> {
     const program = this.getDexProgram();
 
     const tx = await program.methods
@@ -212,12 +218,15 @@ export class DexContract {
         ComputeBudgetProgram.setComputeUnitLimit({
           units: COMPUTE_UNITS_FOR_DERIVATION,
         }),
+        ComputeBudgetProgram.setComputeUnitPrice({
+          microLamports: PRIORITY_FEE_MICRO_LAMPORTS,
+        }),
       ])
       .transaction();
 
     tx.feePayer = authority;
     const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash();
+      await this.connection.getLatestBlockhash('confirmed');
     tx.recentBlockhash = blockhash;
 
     const signedTx = await this.wallet.signTransaction(tx);
@@ -227,14 +236,10 @@ export class DexContract {
       { skipPreflight: true },
     );
 
-    // Wait for confirmation to ensure PendingWithdrawal PDA is created
-    // before the relayer starts processing signature events
-    await this.connection.confirmTransaction(
-      { signature, blockhash, lastValidBlockHeight },
-      'confirmed',
-    );
+    console.log(`[WITHDRAW] Solana tx submitted: ${signature}`);
 
-    return signature;
+    // Return immediately - confirmation happens in the background handler
+    return { signature, blockhash, lastValidBlockHeight };
   }
 
   async completeWithdrawErc20({
@@ -289,5 +294,67 @@ export class DexContract {
       vaultAuthority.toString(),
       CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
     );
+  }
+
+  /**
+   * Confirms a transaction with proper handling of blockhash expiration.
+   * When blockhash expires, checks status once - if not landed, it never will.
+   */
+  async confirmTransactionOrThrow(
+    signature: TransactionSignature,
+    blockhash: string,
+    lastValidBlockHeight: number,
+    logPrefix: string,
+  ): Promise<void> {
+    console.log(`[${logPrefix}] Waiting for confirmation...`);
+
+    try {
+      const result = await this.connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        'confirmed',
+      );
+
+      if (result.value.err) {
+        console.error(`[${logPrefix}] Transaction failed:`, result.value.err);
+        throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`);
+      }
+
+      console.log(`[${logPrefix}] Transaction confirmed: ${signature}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Blockhash expired - check final status once
+      if (
+        errorMessage.includes('block height exceeded') ||
+        errorMessage.includes('expired')
+      ) {
+        console.log(`[${logPrefix}] Blockhash expired, checking final status...`);
+        const response = await this.connection.getSignatureStatuses([signature]);
+        const status = response.value[0];
+
+        if (status) {
+          if (status.err) {
+            console.error(`[${logPrefix}] Transaction failed:`, status.err);
+            throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
+          }
+
+          if (
+            status.confirmationStatus === 'confirmed' ||
+            status.confirmationStatus === 'finalized'
+          ) {
+            console.log(`[${logPrefix}] Transaction confirmed (post-expiry): ${signature}`);
+            return;
+          }
+        }
+
+        // Blockhash expired and tx not found - it will never land
+        throw new Error(
+          `Transaction not confirmed: blockhash expired and transaction not found. Signature: ${signature}`,
+        );
+      }
+
+      console.error(`[${logPrefix}] Confirmation error:`, error);
+      throw error;
+    }
   }
 }
