@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useWallet } from '@solana/connector/react';
+import { toast } from 'sonner';
 
 import {
   Dialog,
@@ -83,8 +84,9 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
       });
       handleClose();
     } catch (err) {
-      console.error('Failed to notify relayer:', err);
-      handleClose();
+      toast.error('Failed to notify relayer', {
+        description: err instanceof Error ? err.message : 'Unknown error',
+      });
     }
   };
 

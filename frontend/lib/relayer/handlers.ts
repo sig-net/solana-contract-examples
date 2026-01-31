@@ -23,7 +23,10 @@ import {
 } from '@/lib/constants/addresses';
 import { withEmbeddedSigner } from '@/lib/relayer/embedded-signer';
 import { updateTxStatus } from '@/lib/relayer/tx-registry';
-import { fetchErc20Decimals, getErc20Token } from '@/lib/constants/token-metadata';
+import {
+  fetchErc20Decimals,
+  getErc20Token,
+} from '@/lib/constants/token-metadata';
 import { TIMEOUTS } from '@/lib/constants/timeouts';
 
 function extractErrorMessage(error: unknown, context: string): string {
@@ -32,13 +35,21 @@ function extractErrorMessage(error: unknown, context: string): string {
     : `Unexpected error during ${context}: ${String(error)}`;
 }
 
-async function handleFlowResult<T extends { success: boolean; error?: string; ethereumTxHash?: string; solanaResult?: string }>(
+async function handleFlowResult<
+  T extends {
+    success: boolean;
+    error?: string;
+    ethereumTxHash?: string;
+    solanaResult?: string;
+  },
+>(
   result: T,
   trackingId: string,
   flowName: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!result.success) {
-    const error = result.error ?? `${flowName} failed for request ${trackingId}`;
+    const error =
+      result.error ?? `${flowName} failed for request ${trackingId}`;
     await updateTxStatus(trackingId, 'failed', { error });
     return { ok: false, error };
   }
@@ -49,13 +60,16 @@ async function handleFlowResult<T extends { success: boolean; error?: string; et
   return { ok: true };
 }
 
-async function handleRecoveryResult<T extends { success: boolean; error?: string; solanaResult?: string }>(
+async function handleRecoveryResult<
+  T extends { success: boolean; error?: string; solanaResult?: string },
+>(
   result: T,
   requestId: string,
   flowName: string,
 ): Promise<{ ok: boolean; error?: string; solanaTx?: string }> {
   if (!result.success) {
-    const error = result.error ?? `${flowName}: no signature event found for ${requestId}`;
+    const error =
+      result.error ?? `${flowName}: no signature event found for ${requestId}`;
     await updateTxStatus(requestId, 'failed', { error });
     return { ok: false, error };
   }
@@ -98,7 +112,9 @@ async function executeDeposit(args: {
 
   try {
     // Wait 12s for the user's deposit to land on the derived address
-    console.log('[DEPOSIT] Waiting 12s for deposit to land on derived address...');
+    console.log(
+      '[DEPOSIT] Waiting 12s for deposit to land on derived address...',
+    );
     await new Promise(resolve => setTimeout(resolve, 12000));
     console.log('[DEPOSIT] Initial wait complete, starting deposit flow');
 
@@ -163,11 +179,17 @@ async function executeDeposit(args: {
     });
 
     const rlpEncodedTx = serializeEvmTx(txRequest);
-    const requestId = generateDepositRequestId(vaultAuthority, path, rlpEncodedTx);
+    const requestId = generateDepositRequestId(
+      vaultAuthority,
+      path,
+      rlpEncodedTx,
+    );
 
     const requestIdBytes = Array.from(toBytes(requestId as Hex));
     const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
-    console.log(`[DEPOSIT] RequestId: ${requestId}, PDA: ${pendingDepositPda.toBase58()}`);
+    console.log(
+      `[DEPOSIT] RequestId: ${requestId}, PDA: ${pendingDepositPda.toBase58()}`,
+    );
 
     const evmParams = evmParamsToProgram(txRequest);
     const amountBN = new BN(processAmount.toString());
@@ -185,7 +207,9 @@ async function executeDeposit(args: {
       requestId,
       txRequest,
       async (respondBidirectionalData, ethereumTxHash) => {
-        console.log(`[DEPOSIT] Attempting to claim. PDA: ${pendingDepositPda.toBase58()}, RequestID: ${requestId}`);
+        console.log(
+          `[DEPOSIT] Attempting to claim. PDA: ${pendingDepositPda.toBase58()}, RequestID: ${requestId}`,
+        );
         await updateTxStatus(trackingId, 'completing', { ethereumTxHash });
 
         const claimTxHash = await dexContract.claimErc20({
@@ -204,11 +228,15 @@ async function executeDeposit(args: {
           payer: relayerWallet.publicKey,
           requestIdBytes,
           erc20AddressBytes,
-          recipientAddressBytes: Array.from(toBytes(VAULT_ETHEREUM_ADDRESS as Hex)),
+          recipientAddressBytes: Array.from(
+            toBytes(VAULT_ETHEREUM_ADDRESS as Hex),
+          ),
           amount: amountBN,
           evmParams,
         });
-        await updateTxStatus(trackingId, 'signature_pending', { solanaInitTxHash: tx });
+        await updateTxStatus(trackingId, 'signature_pending', {
+          solanaInitTxHash: tx,
+        });
         return tx;
       },
       async () => {
@@ -216,7 +244,11 @@ async function executeDeposit(args: {
       },
     );
 
-    const flowResult = await handleFlowResult(result, trackingId, 'Deposit flow');
+    const flowResult = await handleFlowResult(
+      result,
+      trackingId,
+      'Deposit flow',
+    );
     if (!flowResult.ok) {
       return flowResult;
     }
@@ -257,7 +289,15 @@ async function executeWithdrawal(args: {
   blockhash?: string;
   lastValidBlockHeight?: number;
 }) {
-  const { requestId, requester, erc20Address, transactionParams, solanaInitTxHash, blockhash, lastValidBlockHeight } = args;
+  const {
+    requestId,
+    requester,
+    erc20Address,
+    transactionParams,
+    solanaInitTxHash,
+    blockhash,
+    lastValidBlockHeight,
+  } = args;
   const requesterPublicKey = new PublicKey(requester);
 
   try {
@@ -304,7 +344,9 @@ async function executeWithdrawal(args: {
       requestId,
       transactionParams,
       async (respondBidirectionalData, ethereumTxHash) => {
-        console.log(`[WITHDRAW] Attempting to complete. PDA: ${pendingWithdrawalPda.toBase58()}, RequestID: ${requestId}`);
+        console.log(
+          `[WITHDRAW] Attempting to complete. PDA: ${pendingWithdrawalPda.toBase58()}, RequestID: ${requestId}`,
+        );
         await updateTxStatus(requestId, 'completing', { ethereumTxHash });
 
         const completeTxHash = await dexContract.completeWithdrawErc20({
@@ -323,7 +365,11 @@ async function executeWithdrawal(args: {
       },
     );
 
-    const flowResult = await handleFlowResult(result, requestId, 'Withdrawal flow');
+    const flowResult = await handleFlowResult(
+      result,
+      requestId,
+      'Withdrawal flow',
+    );
     if (!flowResult.ok) {
       return flowResult;
     }
@@ -380,52 +426,64 @@ export async function recoverWithdrawal(
   pendingWithdrawal: { requester: string },
   erc20Address: string,
 ): Promise<{ ok: boolean; error?: string; solanaTx?: string }> {
-  return withRecoveryErrorHandling(requestId, 'withdrawal recovery', async () => {
-    await updateTxStatus(requestId, 'signature_pending');
+  return withRecoveryErrorHandling(
+    requestId,
+    'withdrawal recovery',
+    async () => {
+      await updateTxStatus(requestId, 'signature_pending');
 
-    const { orchestrator } = await initializeRelayerSetup({
-      operationName: 'RECOVER_WITHDRAWAL',
-      eventTimeoutMs: TIMEOUTS.MPC_EVENT_WRAPPER,
-    });
-    const dexContract = orchestrator.getDexContract();
-    const requestIdBytes = Array.from(toBytes(requestId as Hex));
-    const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
+      const { orchestrator } = await initializeRelayerSetup({
+        operationName: 'RECOVER_WITHDRAWAL',
+        eventTimeoutMs: TIMEOUTS.MPC_EVENT_WRAPPER,
+      });
+      const dexContract = orchestrator.getDexContract();
+      const requestIdBytes = Array.from(toBytes(requestId as Hex));
+      const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
 
-    const result = await orchestrator.recoverSignatureFlow(
-      requestId,
-      async (respondBidirectionalData, ethereumTxHash) => {
-        await updateTxStatus(requestId, 'completing', { ethereumTxHash });
-        return dexContract.completeWithdrawErc20({
-          requester: new PublicKey(pendingWithdrawal.requester),
-          requestIdBytes,
-          serializedOutput: respondBidirectionalData.serializedOutput,
-          signature: respondBidirectionalData.signature,
-          erc20AddressBytes,
-        });
-      },
-    );
+      const result = await orchestrator.recoverSignatureFlow(
+        requestId,
+        async (respondBidirectionalData, ethereumTxHash) => {
+          await updateTxStatus(requestId, 'completing', { ethereumTxHash });
+          return dexContract.completeWithdrawErc20({
+            requester: new PublicKey(pendingWithdrawal.requester),
+            requestIdBytes,
+            serializedOutput: respondBidirectionalData.serializedOutput,
+            signature: respondBidirectionalData.signature,
+            erc20AddressBytes,
+          });
+        },
+      );
 
-    return handleRecoveryResult(result, requestId, 'Withdrawal recovery failed');
-  });
+      return handleRecoveryResult(
+        result,
+        requestId,
+        'Withdrawal recovery failed',
+      );
+    },
+  );
 }
 
-// Enhanced balance monitoring with exponential backoff
 async function monitorTokenBalance(
   address: string,
   tokenAddress: string,
   client: PublicClient,
 ): Promise<bigint | null> {
   const config = {
-    maxDurationMs: TIMEOUTS.BALANCE_POLLING, // 5 minutes total
-    pollIntervalMs: 5_000, // Check every 5s
-    backoffMultiplier: 1.2, // Increase interval on consecutive failures
-    maxIntervalMs: 30_000, // Cap at 30s between checks
+    maxDurationMs: TIMEOUTS.BALANCE_POLLING,
+    pollIntervalMs: 5_000,
+    backoffMultiplier: 1.2,
+    maxIntervalMs: 30_000,
   };
+
+  const confirmationPolls = 2;
+  const minimumAmount = 201n;
 
   let intervalMs = config.pollIntervalMs;
   const deadline = Date.now() + config.maxDurationMs;
 
   let lastError: Error | null = null;
+  let stableBalance: bigint | null = null;
+  let stableCount = 0;
 
   while (Date.now() < deadline) {
     try {
@@ -435,19 +493,59 @@ async function monitorTokenBalance(
         functionName: 'balanceOf',
         args: [address as Hex],
       });
-      if (balance > 0n) return balance;
+
+      if (balance > 0n) {
+        // Check if balance meets minimum threshold
+        if (minimumAmount > 0n && balance < minimumAmount) {
+          console.log(
+            `[BalanceMonitor] Balance ${balance} below minimum ${minimumAmount} for ${address}, continuing to poll...`,
+          );
+          stableBalance = null;
+          stableCount = 0;
+        } else if (stableBalance === balance) {
+          // Balance matches previous reading, increment stability counter
+          stableCount++;
+          console.log(
+            `[BalanceMonitor] Balance ${balance} confirmed ${stableCount}/${confirmationPolls} times for ${address}`,
+          );
+          if (stableCount >= confirmationPolls) {
+            return balance;
+          }
+        } else {
+          // New balance detected, start stability confirmation
+          console.log(
+            `[BalanceMonitor] Balance ${balance} detected for ${address}, confirming stability...`,
+          );
+          stableBalance = balance;
+          stableCount = 1;
+          if (confirmationPolls <= 1) {
+            return balance;
+          }
+        }
+      } else {
+        // Balance is zero, reset stability tracking
+        stableBalance = null;
+        stableCount = 0;
+      }
       lastError = null; // Reset on successful read
     } catch (error) {
       // Log once per unique error to help debugging without flooding logs
-      const currentError = error instanceof Error ? error : new Error(String(error));
+      const currentError =
+        error instanceof Error ? error : new Error(String(error));
       if (!lastError || lastError.message !== currentError.message) {
-        console.warn(`[BalanceMonitor] RPC error for ${address}: ${currentError.message}`);
+        console.warn(
+          `[BalanceMonitor] RPC error for ${address}: ${currentError.message}`,
+        );
         lastError = currentError;
       }
+      // Don't reset stability on RPC error - transient network issues shouldn't discard confirmed balance
     }
 
     await sleep(intervalMs);
-    intervalMs = Math.min(intervalMs * config.backoffMultiplier, config.maxIntervalMs);
+    intervalMs = Math.min(
+      intervalMs * config.backoffMultiplier,
+      config.maxIntervalMs,
+    );
   }
 
   return null;
