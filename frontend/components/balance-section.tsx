@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { Package } from 'lucide-react';
 
 import { BalanceDisplay } from '@/components/balance-display';
-import { EmptyState } from '@/components/states';
+import { EmptyState } from '@/components/ui/empty-state';
 import { useUserBalances } from '@/hooks';
 import { convertTokenBalancesToDisplayTokens } from '@/lib/utils';
 

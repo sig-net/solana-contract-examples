@@ -1017,8 +1017,7 @@ export async function executeSyntheticDeposit(
       .claimBtc(
         requestIdToBytes(requestIdHex),
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature,
-        null
+        readEvent.signature
       )
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),

@@ -4,14 +4,16 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/connector/react';
 
 import { queryKeys, invalidateBalanceQueries } from '@/lib/query-client';
+import { WithdrawalService } from '@/lib/services/withdrawal-service';
 import type { StatusCallback } from '@/lib/types/shared.types';
 
-import { useWithdrawalService } from './use-withdrawal-service';
+import { useDexContract } from './use-dex-contract';
 import { useSolanaPublicKey } from './use-solana-public-key';
 
 export function useWithdrawSolMutation() {
   const { account } = useWallet();
-  const withdrawalService = useWithdrawalService();
+  const dexContract = useDexContract();
+  const withdrawalService = dexContract ? new WithdrawalService(dexContract) : null;
   const queryClient = useQueryClient();
   const publicKey = useSolanaPublicKey();
 

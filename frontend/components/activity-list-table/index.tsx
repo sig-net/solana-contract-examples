@@ -1,15 +1,11 @@
 import { useWallet } from '@solana/connector/react';
 import { useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ArrowRight, ExternalLink, WalletIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { useTxList } from '@/hooks/use-tx-list';
 import { formatTokenBalanceSync } from '@/lib/utils/balance-formatter';
 import { formatActivityDate } from '@/lib/utils/date-formatting';
-import {
-  getTransactionExplorerUrl,
-  getSolanaExplorerUrl,
-} from '@/lib/utils/network-utils';
 import {
   Table,
   TableHeader,
@@ -18,11 +14,11 @@ import {
   TableRow,
   TableCell,
 } from '@/components/ui/table';
+import { TruncatedText } from '@/components/ui/truncated-text';
 import { useSolanaTransactions } from '@/hooks/use-solana-transactions';
 import type { TxEntry, TxStatus } from '@/lib/relayer/tx-registry';
 
-import { DetailsCell } from './details-cell';
-import { StatusBadge } from './status-badge';
+import { CryptoIcon } from '../balance-display/crypto-icon';
 import { TransactionDetailsDialog } from './transaction-details-dialog';
 
 export interface ActivityTransaction {
@@ -50,6 +46,139 @@ export interface ActivityTransaction {
 
 interface ActivityListTableProps {
   className?: string;
+}
+
+interface TokenDisplayProps {
+  token?: {
+    symbol: string;
+    chain: string;
+    amount: string;
+    usdValue: string;
+  };
+}
+
+interface DetailsCellProps {
+  transaction: ActivityTransaction;
+}
+
+interface StatusBadgeProps {
+  status: 'pending' | 'completed' | 'failed';
+}
+
+function TokenDisplay({ token }: TokenDisplayProps) {
+  if (!token) return null;
+
+  if (token.symbol === 'WALLET') {
+    return (
+      <div className='flex min-w-0 items-center gap-2 sm:gap-4'>
+        <WalletIcon className='text-tundora-50 h-4 w-4 flex-shrink-0 sm:h-5 sm:w-5' />
+        <div className='flex min-w-0 flex-col gap-1'>
+          <div className='text-xs font-medium text-stone-600 sm:text-sm'>
+            <TruncatedText
+              text={token.amount}
+              prefixLength={4}
+              suffixLength={3}
+              copyable={true}
+              className='transition-colors hover:text-blue-600'
+            />
+          </div>
+          <div className='text-xs font-semibold text-stone-400'>Wallet</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className='flex min-w-0 items-center gap-2 sm:gap-4'>
+      <div className='flex-shrink-0'>
+        <CryptoIcon chain={token.chain} token={token.symbol} />
+      </div>
+      <div className='flex min-w-0 flex-col gap-1'>
+        <div className='truncate text-xs font-medium text-stone-600 sm:text-sm'>
+          {token.amount}
+        </div>
+        <div className='truncate text-xs font-semibold text-stone-400'>
+          {token.usdValue}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailsCell({ transaction }: DetailsCellProps) {
+  const isSwap = transaction.type === 'Swap';
+  const isDeposit = transaction.type === 'Deposit';
+
+  return (
+    <div className='flex max-w-full min-w-0 items-center gap-2 sm:gap-4'>
+      <div className='flex-shrink-0'>
+        <TokenDisplay token={transaction.fromToken} />
+      </div>
+
+      <ArrowRight className='text-tundora-50 h-4 w-4 shrink-0 sm:h-5 sm:w-5' />
+
+      {isSwap || isDeposit ? (
+        <div className='flex-shrink-0'>
+          <TokenDisplay token={transaction.toToken} />
+        </div>
+      ) : (
+        <div className='flex min-w-0 items-center gap-1 sm:gap-2'>
+          <WalletIcon className='text-tundora-50 h-4 w-4 shrink-0 sm:h-5 sm:w-5' />
+          <div className='min-w-0 text-xs font-medium text-stone-600 sm:text-sm'>
+            {transaction.address ? (
+              <TruncatedText
+                text={transaction.address}
+                prefixLength={4}
+                suffixLength={3}
+                copyable={true}
+                className='transition-colors hover:text-blue-600'
+              />
+            ) : (
+              'Unknown'
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: StatusBadgeProps) {
+  const displayLabel =
+    status === 'completed'
+      ? 'Completed'
+      : status === 'failed'
+        ? 'Failed'
+        : 'Pending';
+
+  const variants = {
+    pending: 'bg-colors-pastels-polar-100 border-colors-dark-neutral-50',
+    completed: 'bg-colors-pastels-polar-100 border-colors-dark-neutral-50',
+    failed: 'bg-red-50 border-red-200',
+  } as const;
+
+  return (
+    <div
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5',
+        variants[status],
+      )}
+    >
+      <div
+        className={cn(
+          'h-2 w-2 rounded-full',
+          status === 'failed'
+            ? 'bg-red-500'
+            : status === 'pending'
+              ? 'animate-pulse bg-blue-500'
+              : 'bg-success-500',
+        )}
+      />
+      <span className='text-colors-dark-neutral-500 text-xs font-medium'>
+        {displayLabel}
+      </span>
+    </div>
+  );
 }
 
 function mapTxStatus(status: TxStatus): 'pending' | 'completed' | 'failed' {
@@ -91,7 +220,7 @@ function buildTransactionsFromRedis(
       status: mapTxStatus(tx.status),
       transactionHash: tx.ethereumTxHash,
       explorerUrl: tx.ethereumTxHash
-        ? getTransactionExplorerUrl(tx.ethereumTxHash)
+        ? `https://sepolia.etherscan.io/tx/${tx.ethereumTxHash}`
         : undefined,
     };
   });
@@ -148,7 +277,7 @@ function buildSolanaTransactions(
       timestampRaw: tx.timestamp,
       status: 'completed',
       transactionHash: tx.signature,
-      explorerUrl: getSolanaExplorerUrl(tx.signature),
+      explorerUrl: `https://solscan.io/tx/${tx.signature}?cluster=devnet`,
     };
   });
 }
@@ -168,11 +297,9 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
 
   const isLoading = isLoadingTxList || isLoadingSolanaTxs;
 
-  // Build transactions from Redis (cross-chain) and Solana wallet
   const redisTxs = buildTransactionsFromRedis(txList ?? []);
   const solanaTxsFormatted = buildSolanaTransactions(solanaTxs, account);
 
-  // Combine, deduplicate by ID, and sort by timestamp (newest first)
   const allTransactions = [...redisTxs, ...solanaTxsFormatted]
     .filter((tx, index, self) => self.findIndex(t => t.id === tx.id) === index)
     .sort((a, b) => {
@@ -259,10 +386,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <StatusBadge
-                    status={transaction.status}
-                    trackingId={transaction.id}
-                  />
+                  <StatusBadge status={transaction.status} />
                 </TableCell>
                 <TableCell>
                   {transaction.explorerUrl ? (

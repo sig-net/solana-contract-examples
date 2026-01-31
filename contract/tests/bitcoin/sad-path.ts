@@ -115,8 +115,7 @@ describe("BTC Sad Path", () => {
         .claimBtc(
           planRequestIdBytes(plan),
           serializedOutput,
-          invalidSignature,
-          null
+          invalidSignature
         )
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -129,8 +128,7 @@ describe("BTC Sad Path", () => {
       .claimBtc(
         planRequestIdBytes(plan),
         serializedOutput,
-        validSignature,
-        null
+        validSignature
       )
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -170,8 +168,7 @@ describe("BTC Sad Path", () => {
         .claimBtc(
           planRequestIdBytes(plan),
           malformedOutput,
-          malformedSignature,
-          null
+          malformedSignature
         )
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -212,8 +209,7 @@ describe("BTC Sad Path", () => {
         .claimBtc(
           planRequestIdBytes(plan),
           failedOutput,
-          failedSig,
-          null
+          failedSig
         )
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -338,8 +334,7 @@ describe("BTC Sad Path", () => {
       .completeWithdrawBtc(
         planRequestIdBytes(withdrawPlan),
         serializedOutput,
-        refundSignature,
-        null
+        refundSignature
       )
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),

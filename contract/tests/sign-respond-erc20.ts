@@ -410,8 +410,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .claimErc20(
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
-        respondBidirectionalEvent.signature,
-        null
+        respondBidirectionalEvent.signature
       )
       .accounts({
         userBalance: accounts.userBalance,
@@ -701,8 +700,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .completeWithdrawErc20(
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
-        respondBidirectionalEvent.signature,
-        null
+        respondBidirectionalEvent.signature
       )
       .accounts({
         userBalance,
@@ -984,8 +982,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       .completeWithdrawErc20(
         requestIdBytes,
         Buffer.from(respondBidirectionalEvent.serializedOutput),
-        respondBidirectionalEvent.signature,
-        null
+        respondBidirectionalEvent.signature
       )
       .accounts({
         userBalance,

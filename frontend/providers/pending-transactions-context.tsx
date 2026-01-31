@@ -19,7 +19,6 @@ interface PendingTransactionsContextValue {
   pendingTransactions: PendingTransaction[];
   addPendingTransaction: (tx: PendingTransaction) => void;
   removePendingTransaction: (id: string) => void;
-  getPendingTransaction: (id: string) => PendingTransaction | undefined;
 }
 
 const PendingTransactionsContext =
@@ -46,17 +45,12 @@ export function PendingTransactionsProvider({
     setPendingTransactions(prev => prev.filter(tx => tx.id !== id));
   };
 
-  const getPendingTransaction = (id: string) => {
-    return pendingTransactions.find(tx => tx.id === id);
-  };
-
   return (
     <PendingTransactionsContext.Provider
       value={{
         pendingTransactions,
         addPendingTransaction,
         removePendingTransaction,
-        getPendingTransaction,
       }}
     >
       {children}

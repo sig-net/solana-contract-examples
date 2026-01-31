@@ -77,8 +77,9 @@ export async function buildErc20TransferTx(params: {
   erc20Address: string;
   recipient: string;
   amount: bigint;
+  fees?: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
 }): Promise<EvmTransactionRequest> {
-  const { provider, from, erc20Address, recipient, amount } = params;
+  const { provider, from, erc20Address, recipient, amount, fees: precomputedFees } = params;
 
   const data = encodeErc20Transfer(recipient, amount);
 
@@ -90,7 +91,7 @@ export async function buildErc20TransferTx(params: {
       data,
       value: 0n,
     }),
-    estimateFees(provider),
+    precomputedFees ? Promise.resolve(precomputedFees) : estimateFees(provider),
   ]);
 
   const gasLimit = (estimatedGas * GAS_LIMIT_BUFFER_PERCENT) / 100n;

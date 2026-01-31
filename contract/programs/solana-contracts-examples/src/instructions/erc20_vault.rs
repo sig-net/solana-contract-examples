@@ -11,7 +11,6 @@ use signet_rs::{TransactionBuilder, TxBuilder, EVM};
 
 use crate::contexts::{ClaimErc20, CompleteWithdrawErc20, DepositErc20, WithdrawErc20};
 use crate::state::{EvmTransactionParams, IERC20};
-use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
 
 const HARDCODED_ROOT_PATH: &str = "root";
 
@@ -135,22 +134,6 @@ pub fn deposit_erc20(
 
     msg!("ERC20 deposit initiated with request_id: {:?}", request_id);
 
-    // Add deposit transaction record
-    let deposit_record = TransactionRecord {
-        request_id,
-        transaction_type: TransactionType::Deposit,
-        status: TransactionStatus::Pending,
-        amount,
-        erc20_address,
-        recipient_address: [0u8; 20], // Not used for deposits
-        timestamp: Clock::get()?.unix_timestamp,
-        ethereum_tx_hash: None,
-    };
-
-    let history = &mut ctx.accounts.transaction_history;
-    history.add_deposit(deposit_record);
-    msg!("Added deposit to transaction history");
-
     Ok(())
 }
 
@@ -159,7 +142,6 @@ pub fn claim_erc20(
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
-    ethereum_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
     let config = &ctx.accounts.config;
@@ -190,10 +172,7 @@ pub fn claim_erc20(
         .checked_add(pending.amount)
         .ok_or(crate::error::ErrorCode::Overflow)?;
 
-    // Update transaction history to mark deposit as completed
-    let history = &mut ctx.accounts.transaction_history;
-    history.update_deposit_status(&request_id, TransactionStatus::Completed, ethereum_tx_hash)?;
-    msg!("Updated deposit status to completed in transaction history");
+    msg!("ERC20 deposit claimed successfully");
 
     Ok(())
 }
@@ -335,22 +314,6 @@ pub fn withdraw_erc20(
         request_id
     );
 
-    // Add withdrawal transaction record
-    let withdrawal_record = TransactionRecord {
-        request_id,
-        transaction_type: TransactionType::Withdrawal,
-        status: TransactionStatus::Pending,
-        amount,
-        erc20_address,
-        recipient_address,
-        timestamp: Clock::get()?.unix_timestamp,
-        ethereum_tx_hash: None,
-    };
-
-    let history = &mut ctx.accounts.transaction_history;
-    history.add_withdrawal(withdrawal_record);
-    msg!("Added withdrawal to transaction history");
-
     Ok(())
 }
 
@@ -359,7 +322,6 @@ pub fn complete_withdraw_erc20(
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
-    ethereum_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
     let config = &ctx.accounts.config;
@@ -407,24 +369,6 @@ pub fn complete_withdraw_erc20(
             .ok_or(crate::error::ErrorCode::Overflow)?;
 
         msg!("Balance refunded: {}", pending.amount);
-
-        // Update transaction history to mark withdrawal as failed
-        let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(
-            &request_id,
-            TransactionStatus::Failed,
-            ethereum_tx_hash,
-        )?;
-        msg!("Updated withdrawal status to failed in transaction history");
-    } else {
-        // Update transaction history to mark withdrawal as completed
-        let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(
-            &request_id,
-            TransactionStatus::Completed,
-            ethereum_tx_hash,
-        )?;
-        msg!("Updated withdrawal status to completed in transaction history");
     }
 
     msg!("ERC20 withdrawal process completed");

@@ -11,7 +11,6 @@ use signet_rs::{TransactionBuilder, TxBuilder, BITCOIN};
 
 use crate::contexts::{ClaimBtc, CompleteWithdrawBtc, DepositBtc, WithdrawBtc};
 use crate::state::{BtcDepositParams, BtcInput, BtcOutput, BtcWithdrawParams};
-use crate::state::{TransactionRecord, TransactionStatus, TransactionType};
 
 const HARDCODED_ROOT_PATH: &str = "root";
 
@@ -186,20 +185,7 @@ pub fn deposit_btc(
         callback_schema,
     )?;
 
-    // Add deposit transaction record
-    let deposit_record = TransactionRecord {
-        request_id,
-        transaction_type: TransactionType::Deposit,
-        status: TransactionStatus::Pending,
-        amount: total_output_value as u128,
-        erc20_address: [0u8; 20],
-        recipient_address: [0u8; 20],
-        timestamp: Clock::get()?.unix_timestamp,
-        ethereum_tx_hash: None,
-    };
-
-    let history = &mut ctx.accounts.transaction_history;
-    history.add_deposit(deposit_record);
+    msg!("BTC deposit initiated with request_id: {:?}", request_id);
 
     Ok(())
 }
@@ -209,7 +195,6 @@ pub fn claim_btc(
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
-    bitcoin_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_deposit;
     let config = &ctx.accounts.config;
@@ -239,9 +224,7 @@ pub fn claim_btc(
         .checked_add(pending.amount)
         .ok_or(crate::error::ErrorCode::Overflow)?;
 
-    // Update transaction history
-    let history = &mut ctx.accounts.transaction_history;
-    history.update_deposit_status(&request_id, TransactionStatus::Completed, bitcoin_tx_hash)?;
+    msg!("BTC deposit claimed successfully");
 
     Ok(())
 }
@@ -437,22 +420,6 @@ pub fn withdraw_btc(
 
     msg!("BTC withdrawal initiated with request_id: {:?}", request_id);
 
-    // Add withdrawal transaction record
-    let withdrawal_record = TransactionRecord {
-        request_id,
-        transaction_type: TransactionType::Withdrawal,
-        status: TransactionStatus::Pending,
-        amount: amount as u128,
-        erc20_address: [0u8; 20],
-        recipient_address: [0u8; 20],
-        timestamp: Clock::get()?.unix_timestamp,
-        ethereum_tx_hash: None,
-    };
-
-    let history = &mut ctx.accounts.transaction_history;
-    history.add_withdrawal(withdrawal_record);
-    msg!("Added withdrawal to transaction history");
-
     Ok(())
 }
 
@@ -461,7 +428,6 @@ pub fn complete_withdraw_btc(
     request_id: [u8; 32],
     serialized_output: Vec<u8>,
     signature: chain_signatures::Signature,
-    bitcoin_tx_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     let pending = &ctx.accounts.pending_withdrawal;
     let config = &ctx.accounts.config;
@@ -511,24 +477,6 @@ pub fn complete_withdraw_btc(
             .ok_or(crate::error::ErrorCode::Overflow)?;
 
         msg!("Balance refunded: {} sats (amount + fee)", refund_total);
-
-        // Update transaction history
-        let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(
-            &request_id,
-            TransactionStatus::Failed,
-            bitcoin_tx_hash,
-        )?;
-        msg!("Updated withdrawal status to failed in transaction history");
-    } else {
-        // Update transaction history
-        let history = &mut ctx.accounts.transaction_history;
-        history.update_withdrawal_status(
-            &request_id,
-            TransactionStatus::Completed,
-            bitcoin_tx_hash,
-        )?;
-        msg!("Updated withdrawal status to completed in transaction history");
     }
 
     msg!("BTC withdrawal process completed");

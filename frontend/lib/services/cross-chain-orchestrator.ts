@@ -1,15 +1,27 @@
-import { Connection } from '@solana/web3.js';
-import { Wallet } from '@coral-xyz/anchor';
+import { Connection, PublicKey } from '@solana/web3.js';
+import {
+  AnchorProvider,
+  Wallet,
+  utils as anchorUtils,
+} from '@coral-xyz/anchor';
 import { type Hex, type PublicClient } from 'viem';
+import { contracts, type RSVSignature } from 'signet.js';
 
 import { DexContract } from '@/lib/contracts/dex-contract';
-import { ChainSignaturesContract } from '@/lib/contracts/chain-signatures-contract';
 import type {
   EventListenerResult,
   RespondBidirectionalData,
 } from '@/lib/types/chain-signatures.types';
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
 import { submitWithRetry } from '@/lib/evm/tx-submitter';
+import { TIMEOUTS } from '@/lib/constants/timeouts';
+import { getClientEnv } from '@/lib/config/env.config';
+import {
+  RESPONDER_ADDRESS,
+  CHAIN_SIGNATURES_PROGRAM_ID,
+} from '@/lib/constants/addresses';
+
+const env = getClientEnv();
 
 export interface CrossChainConfig {
   eventTimeoutMs?: number;
@@ -24,9 +36,20 @@ export interface CrossChainResult {
   error?: string;
 }
 
+function getRootPublicKeyForSignet(): `secp256k1:${string}` {
+  const rootPublicKey = env.NEXT_PUBLIC_MPC_ROOT_PUBLIC_KEY;
+  const rootPublicKeyUncompressed = Array.from(
+    Buffer.from(rootPublicKey.slice(2), 'hex'),
+  );
+  const publicKeyBytes = rootPublicKeyUncompressed.slice(1);
+  const base58PublicKey = anchorUtils.bytes.bs58.encode(publicKeyBytes);
+  return `secp256k1:${base58PublicKey}`;
+}
+
 export class CrossChainOrchestrator {
   private dexContract: DexContract;
-  private chainSignaturesContract: ChainSignaturesContract;
+  private eventConnection: Connection;
+  private wallet: Wallet;
   private client: PublicClient;
   private config: Required<CrossChainConfig>;
 
@@ -38,19 +61,56 @@ export class CrossChainOrchestrator {
     eventConnection?: Connection,
   ) {
     this.dexContract = new DexContract(connection, wallet);
-    this.chainSignaturesContract = new ChainSignaturesContract(
-      connection,
-      wallet,
-      eventConnection,
-    );
+    this.eventConnection = eventConnection || connection;
+    this.wallet = wallet;
     this.client = client;
 
     this.config = {
       // When eventTimeoutMs <= 0, we will wait indefinitely for events
-      eventTimeoutMs: config.eventTimeoutMs ?? 300000,
+      eventTimeoutMs: config.eventTimeoutMs ?? TIMEOUTS.MPC_EVENT_WRAPPER,
       ethereumConfirmations: config.ethereumConfirmations ?? 1,
       operationName: config.operationName ?? 'OPERATION',
       initialDelayMs: config.initialDelayMs ?? 0,
+    };
+  }
+
+  private async setupEventListeners(requestId: string): Promise<EventListenerResult> {
+    const provider = new AnchorProvider(this.eventConnection, this.wallet, {
+      commitment: 'confirmed',
+    });
+
+    const signetContract = new contracts.solana.ChainSignatureContract({
+      provider,
+      programId: CHAIN_SIGNATURES_PROGRAM_ID,
+      config: {
+        rootPublicKey: getRootPublicKeyForSignet(),
+      },
+    });
+
+    const controller = new AbortController();
+
+    // signet.js type declarations don't match runtime behavior for these events.
+    // At runtime, the library returns RSVSignature-compatible objects.
+    const signature = signetContract.waitForEvent({
+      eventName: 'signatureRespondedEvent',
+      requestId,
+      signer: new PublicKey(RESPONDER_ADDRESS),
+      timeoutMs: TIMEOUTS.MPC_EVENT_LISTENER,
+      signal: controller.signal,
+    }) as unknown as Promise<RSVSignature>;
+
+    const respondBidirectional = signetContract.waitForEvent({
+      eventName: 'respondBidirectionalEvent',
+      requestId,
+      signer: new PublicKey(RESPONDER_ADDRESS),
+      timeoutMs: TIMEOUTS.MPC_EVENT_LISTENER,
+      signal: controller.signal,
+    }) as unknown as Promise<RespondBidirectionalData>;
+
+    return {
+      signature,
+      respondBidirectional,
+      cleanup: () => controller.abort(),
     };
   }
 
@@ -71,8 +131,7 @@ export class CrossChainOrchestrator {
 
     // Set up event listeners FIRST to prevent race conditions
     console.log(`[${op}] Setting up event listeners...`);
-    const eventListeners =
-      await this.chainSignaturesContract.setupEventListeners(requestId);
+    const eventListeners = await this.setupEventListeners(requestId);
 
     try {
       // Optional initial delay (e.g., for deposits to land on derived address)
@@ -150,8 +209,7 @@ export class CrossChainOrchestrator {
 
     // Set up event listeners (backfill is handled automatically by waitForEvent)
     console.log(`[${op}] Setting up event listeners for recovery...`);
-    const eventListeners =
-      await this.chainSignaturesContract.setupEventListeners(requestId);
+    const eventListeners = await this.setupEventListeners(requestId);
 
     try {
       // Wait for read response (from backfill or live)
@@ -226,7 +284,7 @@ export class CrossChainOrchestrator {
       },
       {
         maxBroadcastAttempts: 3,
-        receiptTimeoutMs: 180_000,
+        receiptTimeoutMs: TIMEOUTS.ETHEREUM_RECEIPT,
       },
     );
 

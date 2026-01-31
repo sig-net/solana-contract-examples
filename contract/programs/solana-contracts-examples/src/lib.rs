@@ -53,14 +53,12 @@ pub mod solana_core_contracts {
         request_id: [u8; 32],
         serialized_output: Vec<u8>,
         signature: Signature,
-        ethereum_tx_hash: Option<[u8; 32]>,
     ) -> Result<()> {
         instructions::erc20_vault::claim_erc20(
             ctx,
             request_id,
             serialized_output,
             signature,
-            ethereum_tx_hash,
         )
     }
 
@@ -87,14 +85,12 @@ pub mod solana_core_contracts {
         request_id: [u8; 32],
         serialized_output: Vec<u8>,
         signature: Signature,
-        ethereum_tx_hash: Option<[u8; 32]>,
     ) -> Result<()> {
         instructions::erc20_vault::complete_withdraw_erc20(
             ctx,
             request_id,
             serialized_output,
             signature,
-            ethereum_tx_hash,
         )
     }
 
@@ -114,14 +110,12 @@ pub mod solana_core_contracts {
         request_id: [u8; 32],
         serialized_output: Vec<u8>,
         signature: Signature,
-        bitcoin_tx_hash: Option<[u8; 32]>,
     ) -> Result<()> {
         instructions::btc_vault::claim_btc(
             ctx,
             request_id,
             serialized_output,
             signature,
-            bitcoin_tx_hash,
         )
     }
 
@@ -148,14 +142,12 @@ pub mod solana_core_contracts {
         request_id: [u8; 32],
         serialized_output: Vec<u8>,
         signature: Signature,
-        bitcoin_tx_hash: Option<[u8; 32]>,
     ) -> Result<()> {
         instructions::btc_vault::complete_withdraw_btc(
             ctx,
             request_id,
             serialized_output,
             signature,
-            bitcoin_tx_hash,
         )
     }
 }

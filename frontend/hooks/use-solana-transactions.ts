@@ -4,9 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 
-import { useConnection } from '@/providers/connection-context';
+import { useConnection } from '@/providers/providers';
 import { queryKeys } from '@/lib/query-client';
-import { getSolanaTokens } from '@/lib/constants/token-metadata';
+import { SOLANA_TOKENS } from '@/lib/constants/token-metadata';
 
 import { useSolanaPublicKey } from './use-solana-public-key';
 
@@ -42,7 +42,7 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
 
       const userAddress = publicKey.toBase58();
 
-      const tokens = getSolanaTokens();
+      const tokens = SOLANA_TOKENS;
 
       if (tokens.length === 0) return [];
 

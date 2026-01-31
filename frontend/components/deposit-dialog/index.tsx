@@ -9,13 +9,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { TokenMetadata, NetworkData, fetchErc20Decimals } from '@/lib/constants/token-metadata';
-import { useDepositAddress, useDepositSol } from '@/hooks';
+import { CryptoIcon } from '@/components/balance-display/crypto-icon';
+import { TokenConfig, NetworkData, fetchErc20Decimals } from '@/lib/constants/token-metadata';
+import { useDepositAddress } from '@/hooks';
 import { useDepositEvmMutation } from '@/hooks/use-deposit-evm-mutation';
 
 import { TokenSelection } from './token-selection';
 import { DepositAddress } from './deposit-address';
-import { DepositGeneratingState } from './deposit-generating-state';
 
 interface DepositDialogProps {
   open: boolean;
@@ -24,7 +24,7 @@ interface DepositDialogProps {
 
 export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const { account, isConnected } = useWallet();
-  const [selectedToken, setSelectedToken] = useState<TokenMetadata | null>(
+  const [selectedToken, setSelectedToken] = useState<TokenConfig | null>(
     null,
   );
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkData | null>(
@@ -34,7 +34,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const { data: depositAddress, isLoading: isGeneratingAddress } =
     useDepositAddress();
   const depositEvmMutation = useDepositEvmMutation();
-  const { depositAddress: solDepositAddress } = useDepositSol();
+  const solDepositAddress = account ?? '';
 
   // Derive step from state instead of syncing with useEffect
   const getStep = () => {
@@ -57,7 +57,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
 
   const step = getStep();
 
-  const handleTokenSelect = (token: TokenMetadata, network: NetworkData) => {
+  const handleTokenSelect = (token: TokenConfig, network: NetworkData) => {
     setSelectedToken(token);
     setSelectedNetwork(network);
   };
@@ -108,8 +108,42 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
           </div>
         )}
 
-        {step === 'generating-address' && selectedToken && (
-          <DepositGeneratingState token={selectedToken} network={selectedNetwork!} />
+        {step === 'generating-address' && selectedToken && selectedNetwork && (
+          <div className='space-y-6 text-center'>
+            <div className='flex flex-col items-center gap-4'>
+              <CryptoIcon
+                chain={selectedNetwork.chain}
+                token={selectedToken.symbol}
+                className='size-12'
+              />
+              <div>
+                <h3 className='text-tundora-300 mb-1 text-lg font-semibold'>
+                  Generating Deposit Address
+                </h3>
+                <p className='text-tundora-50 text-sm font-medium'>
+                  {selectedToken.symbol} on {selectedNetwork.chainName}
+                </p>
+              </div>
+            </div>
+
+            <div className='flex justify-center'>
+              <div className='flex gap-1'>
+                <div className='bg-dark-neutral-300 h-2 w-2 animate-bounce rounded-full'></div>
+                <div
+                  className='bg-dark-neutral-300 h-2 w-2 animate-bounce rounded-full'
+                  style={{ animationDelay: '0.1s' }}
+                ></div>
+                <div
+                  className='bg-dark-neutral-300 h-2 w-2 animate-bounce rounded-full'
+                  style={{ animationDelay: '0.2s' }}
+                ></div>
+              </div>
+            </div>
+
+            <p className='text-dark-neutral-400 text-sm font-medium'>
+              Please wait while we generate your unique deposit address...
+            </p>
+          </div>
         )}
 
         {step === 'show-address' &&
