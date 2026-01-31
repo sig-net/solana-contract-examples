@@ -1,15 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, Settings2 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { TokenAmountDisplay } from '@/components/ui/token-amount-display';
 import type { Token } from '@/lib/types/token.types';
 
 import { Button } from '../ui/button';
-
-import { SwapHeader } from './swap-header';
 
 interface SwapWidgetProps {
   className?: string;
@@ -34,7 +32,17 @@ export function SwapWidget({ className }: SwapWidgetProps) {
         className,
       )}
     >
-      <SwapHeader onSettingsClick={() => {}} />
+      <div className='flex items-center justify-between'>
+        <h2 className='text-tundora-400 text-xl font-semibold'>Swap</h2>
+        <Button
+          variant='ghost'
+          size='icon'
+          className='h-8 w-8 p-0'
+          onClick={() => {}}
+        >
+          <Settings2 className='text-dark-neutral-300 h-6 w-6' />
+        </Button>
+      </div>
 
       <div className='flex flex-col gap-4'>
         <TokenAmountDisplay

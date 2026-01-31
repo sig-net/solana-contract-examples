@@ -13,13 +13,9 @@ export default function Home() {
   const { isConnected } = useWallet();
   useBridgeAutoRefetch();
 
-  const handleSettingsClick = () => {
-    // TODO: Implement settings functionality
-  };
-
   return (
     <div className='gradient-bg-main min-h-screen w-full overflow-x-hidden'>
-      <NavigationHeader onSettingsClick={handleSettingsClick} />
+      <NavigationHeader />
 
       {!isConnected ? (
         <div className='mx-auto mt-16 max-w-full p-4 xl:container'>

@@ -53,11 +53,6 @@ export class DexContract {
     return this.program;
   }
 
-  async fetchPendingDeposit(pendingDepositPda: PublicKey) {
-    const program = this.getDexProgram();
-    return program.account.pendingErc20Deposit.fetch(pendingDepositPda);
-  }
-
   async fetchUserBalance(
     userPublicKey: PublicKey,
     erc20Address: string,
@@ -112,10 +107,7 @@ export class DexContract {
     const { blockhash, lastValidBlockHeight } =
       await this.connection.getLatestBlockhash('confirmed');
 
-    // Explicitly derive PDA to ensure consistency with fetch operations
     const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
-
-    console.log(`[DEPOSIT] Creating PendingDeposit at PDA: ${pendingDepositPda.toBase58()}`);
 
     const signature = await program.methods
       .depositErc20(
@@ -142,9 +134,7 @@ export class DexContract {
       ])
       .rpc();
 
-    console.log(`[DEPOSIT] Solana tx submitted: ${signature}`);
-
-    await this.confirmTransactionOrThrow(signature, blockhash, lastValidBlockHeight, 'DEPOSIT');
+    await this.confirmTransactionOrThrow(signature, blockhash, lastValidBlockHeight);
 
     return signature;
   }
@@ -155,14 +145,12 @@ export class DexContract {
     signature,
     erc20AddressBytes,
     requester,
-    ethereumTxHashBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: Buffer | number[];
     signature: RSVSignature;
     erc20AddressBytes: number[];
     requester: PublicKey;
-    ethereumTxHashBytes?: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
@@ -173,9 +161,6 @@ export class DexContract {
         Array.from(requestIdBytes) as unknown as number[],
         Buffer.from(serializedOutput),
         signature,
-        ethereumTxHashBytes
-          ? (Array.from(ethereumTxHashBytes) as unknown as number[])
-          : null,
       )
       .accounts({
         userBalance: userBalancePda,
@@ -208,11 +193,7 @@ export class DexContract {
     lastValidBlockHeight: number;
   }> {
     const program = this.getDexProgram();
-
-    // Explicitly derive PDA to ensure consistency with fetch operations
     const [pendingWithdrawalPda] = derivePendingWithdrawalPda(requestIdBytes);
-
-    console.log(`[WITHDRAW] Creating PendingWithdrawal at PDA: ${pendingWithdrawalPda.toBase58()}`);
 
     const tx = await program.methods
       .withdrawErc20(
@@ -250,9 +231,6 @@ export class DexContract {
       { skipPreflight: true },
     );
 
-    console.log(`[WITHDRAW] Solana tx submitted: ${signature}`);
-
-    // Return immediately - confirmation happens in the background handler
     return { signature, blockhash, lastValidBlockHeight };
   }
 
@@ -262,14 +240,12 @@ export class DexContract {
     signature,
     erc20AddressBytes,
     requester,
-    ethereumTxHashBytes,
   }: {
     requestIdBytes: number[];
     serializedOutput: Buffer | number[];
     signature: RSVSignature;
     erc20AddressBytes: number[];
     requester: PublicKey;
-    ethereumTxHashBytes?: number[];
   }): Promise<string> {
     const erc20Bytes = Buffer.from(erc20AddressBytes);
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
@@ -280,9 +256,6 @@ export class DexContract {
         Array.from(requestIdBytes) as unknown as number[],
         Buffer.from(serializedOutput),
         signature,
-        ethereumTxHashBytes
-          ? (Array.from(ethereumTxHashBytes) as unknown as number[])
-          : null,
       )
       .accounts({
         userBalance: userBalancePda,
@@ -293,11 +266,6 @@ export class DexContract {
         }),
       ])
       .rpc();
-  }
-
-  async fetchPendingWithdrawal(pendingWithdrawalPda: PublicKey) {
-    const program = this.getDexProgram();
-    return program.account.pendingErc20Withdrawal.fetch(pendingWithdrawalPda);
   }
 
   deriveDepositAddress(publicKey: PublicKey): string {
@@ -318,10 +286,7 @@ export class DexContract {
     signature: TransactionSignature,
     blockhash: string,
     lastValidBlockHeight: number,
-    logPrefix: string,
   ): Promise<void> {
-    console.log(`[${logPrefix}] Waiting for confirmation...`);
-
     try {
       const result = await this.connection.confirmTransaction(
         { signature, blockhash, lastValidBlockHeight },
@@ -329,11 +294,8 @@ export class DexContract {
       );
 
       if (result.value.err) {
-        console.error(`[${logPrefix}] Transaction failed:`, result.value.err);
         throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`);
       }
-
-      console.log(`[${logPrefix}] Transaction confirmed: ${signature}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -342,13 +304,11 @@ export class DexContract {
         errorMessage.includes('block height exceeded') ||
         errorMessage.includes('expired')
       ) {
-        console.log(`[${logPrefix}] Blockhash expired, checking final status...`);
         const response = await this.connection.getSignatureStatuses([signature]);
         const status = response.value[0];
 
         if (status) {
           if (status.err) {
-            console.error(`[${logPrefix}] Transaction failed:`, status.err);
             throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
           }
 
@@ -356,18 +316,15 @@ export class DexContract {
             status.confirmationStatus === 'confirmed' ||
             status.confirmationStatus === 'finalized'
           ) {
-            console.log(`[${logPrefix}] Transaction confirmed (post-expiry): ${signature}`);
             return;
           }
         }
 
-        // Blockhash expired and tx not found - it will never land
         throw new Error(
           `Transaction not confirmed: blockhash expired and transaction not found. Signature: ${signature}`,
         );
       }
 
-      console.error(`[${logPrefix}] Confirmation error:`, error);
       throw error;
     }
   }

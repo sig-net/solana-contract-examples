@@ -4,8 +4,8 @@ import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import type { TokenBalance } from '@/lib/types/token.types';
 import {
   getErc20Token,
-  getAllErc20Tokens,
-  getSolanaTokens,
+  ERC20_TOKENS,
+  SOLANA_TOKENS,
   fetchErc20Decimals,
 } from '@/lib/constants/token-metadata';
 import type { DexContract } from '@/lib/contracts/dex-contract';
@@ -97,7 +97,7 @@ export class TokenBalanceService {
     derivedAddress: string,
   ): Promise<TokenBalance[]> {
     try {
-      const tokenAddresses = getAllErc20Tokens().map(token => token.erc20Address);
+      const tokenAddresses = ERC20_TOKENS.map(token => token.erc20Address);
 
       // Use batch fetching to reduce RPC calls
       const batchResults = await this.batchFetchErc20Balances(
@@ -133,7 +133,7 @@ export class TokenBalanceService {
    */
   async fetchUserBalances(publicKey: PublicKey): Promise<TokenBalance[]> {
     try {
-      const tokenAddresses = getAllErc20Tokens().map(token => token.erc20Address);
+      const tokenAddresses = ERC20_TOKENS.map(token => token.erc20Address);
 
       // Fetch ERC20 balances from the bridge contract
       const balancesPromises = tokenAddresses.map(async erc20Address => {
@@ -161,7 +161,7 @@ export class TokenBalanceService {
 
       // Fetch SPL balances using parsed account info to get decimals from chain
       const splResults: TokenBalance[] = [];
-      const solanaTokens = getSolanaTokens();
+      const solanaTokens = SOLANA_TOKENS;
       if (solanaTokens.length > 0) {
         try {
           // Fetch each token balance with parsed data (includes decimals)

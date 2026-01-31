@@ -7,6 +7,7 @@ import {
 } from 'viem';
 
 import type { EvmTransactionRequest } from '@/lib/types/shared.types';
+import { TIMEOUTS } from '@/lib/constants/timeouts';
 
 export interface TxSubmitterConfig {
   maxBroadcastAttempts?: number;
@@ -28,7 +29,7 @@ interface SubmitResult {
 
 const DEFAULT_CONFIG: Required<TxSubmitterConfig> = {
   maxBroadcastAttempts: 3,
-  receiptTimeoutMs: 180_000,
+  receiptTimeoutMs: TIMEOUTS.ETHEREUM_RECEIPT,
   pollingIntervalMs: 4_000,
   confirmations: 1,
 };

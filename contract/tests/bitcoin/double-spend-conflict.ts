@@ -234,8 +234,7 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
         .completeWithdrawBtc(
           planRequestIdBytes(withdrawalPlan),
           Buffer.from(readEvent.serializedOutput),
-          readEvent.signature,
-          null
+          readEvent.signature
         )
         .accounts({
           payer: provider.wallet.publicKey,

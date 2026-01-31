@@ -1,21 +1,64 @@
 import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { toBytes } from 'viem';
-import { Connection, Keypair } from '@solana/web3.js';
+import { PublicKey, Connection } from '@solana/web3.js';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
 
 import { recoverDeposit, recoverWithdrawal } from '@/lib/relayer/handlers';
 import { registerTx } from '@/lib/relayer/tx-registry';
+import { getRelayerSolanaKeypair } from '@/lib/utils/relayer-setup';
 import {
   derivePendingDepositPda,
   derivePendingWithdrawalPda,
 } from '@/lib/constants/addresses';
 import { IDL, type SolanaDexContract } from '@/lib/program/idl-sol-dex';
-import { getFullEnv } from '@/lib/config/env.config';
+import { getAlchemySolanaDevnetRpcUrl } from '@/lib/rpc';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
+
+type TxType = 'deposit' | 'withdrawal';
+
+async function recoverPendingTx<T extends { requester: PublicKey }>(params: {
+  program: Program<SolanaDexContract>;
+  requestId: string;
+  requestIdBytes: number[];
+  userAddress: string;
+  type: TxType;
+  derivePda: (requestIdBytes: number[]) => [PublicKey, number];
+  fetchAccount: (pda: PublicKey) => Promise<T>;
+  notFoundError: string;
+  runRecovery: (account: T) => Promise<void>;
+}): Promise<NextResponse> {
+  const [pda] = params.derivePda(params.requestIdBytes);
+
+  let account: T;
+  try {
+    account = await params.fetchAccount(pda);
+  } catch {
+    return NextResponse.json({ error: params.notFoundError }, { status: 404 });
+  }
+
+  if (account.requester.toBase58() !== params.userAddress) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+  }
+
+  await registerTx(params.requestId, params.type, params.userAddress);
+
+  after(async () => {
+    try {
+      await params.runRecovery(account);
+    } catch (error) {
+      console.error(`${params.type} recovery error:`, error);
+    }
+  });
+
+  return NextResponse.json(
+    { accepted: true, message: 'Recovery initiated' },
+    { status: 202 },
+  );
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,16 +79,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const env = getFullEnv();
-    const connection = new Connection(
-      `https://solana-devnet.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`,
-      'confirmed',
-    );
+    const connection = new Connection(getAlchemySolanaDevnetRpcUrl(), 'confirmed');
 
-    // Create a minimal wallet for reading accounts
-    const keypair = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(env.RELAYER_PRIVATE_KEY)),
-    );
+    const keypair = getRelayerSolanaKeypair();
     const wallet = {
       publicKey: keypair.publicKey,
       signTransaction: () => {
@@ -64,48 +100,27 @@ export async function POST(request: NextRequest) {
     const requestIdBytes = Array.from(toBytes(requestId as `0x${string}`));
 
     if (type === 'deposit') {
-      const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
-
-      let pendingDeposit;
-      try {
-        pendingDeposit = await program.account.pendingErc20Deposit.fetch(
-          pendingDepositPda,
-        );
-      } catch {
-        return NextResponse.json(
-          { error: 'No pending deposit found' },
-          { status: 404 },
-        );
-      }
-
-      // Verify user owns this deposit
-      if (pendingDeposit.requester.toBase58() !== userAddress) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
-      }
-
-      // Re-trigger completion flow
-      await registerTx(requestId, 'deposit', userAddress);
-
-      after(async () => {
-        try {
+      return recoverPendingTx({
+        program,
+        requestId,
+        requestIdBytes,
+        userAddress,
+        type: 'deposit',
+        derivePda: derivePendingDepositPda,
+        fetchAccount: (pda) => program.account.pendingErc20Deposit.fetch(pda),
+        notFoundError: 'No pending deposit found',
+        runRecovery: async (account) => {
           const result = await recoverDeposit(requestId, {
-            requester: pendingDeposit.requester,
-            erc20Address: pendingDeposit.erc20Address as number[],
+            requester: account.requester,
+            erc20Address: account.erc20Address as number[],
           });
           if (!result.ok) {
             console.error('Deposit recovery failed:', result.error);
           } else {
             console.log('Deposit recovered successfully:', result.solanaTx);
           }
-        } catch (error) {
-          console.error('Deposit recovery error:', error);
-        }
+        },
       });
-
-      return NextResponse.json(
-        { accepted: true, message: 'Recovery initiated' },
-        { status: 202 },
-      );
     }
 
     if (type === 'withdrawal') {
@@ -116,33 +131,19 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const [pendingWithdrawalPda] = derivePendingWithdrawalPda(requestIdBytes);
-
-      let pendingWithdrawal;
-      try {
-        pendingWithdrawal = await program.account.pendingErc20Withdrawal.fetch(
-          pendingWithdrawalPda,
-        );
-      } catch {
-        return NextResponse.json(
-          { error: 'No pending withdrawal found' },
-          { status: 404 },
-        );
-      }
-
-      // Verify user owns this withdrawal
-      if (pendingWithdrawal.requester.toBase58() !== userAddress) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
-      }
-
-      // Re-trigger completion flow
-      await registerTx(requestId, 'withdrawal', userAddress);
-
-      after(async () => {
-        try {
+      return recoverPendingTx({
+        program,
+        requestId,
+        requestIdBytes,
+        userAddress,
+        type: 'withdrawal',
+        derivePda: derivePendingWithdrawalPda,
+        fetchAccount: (pda) => program.account.pendingErc20Withdrawal.fetch(pda),
+        notFoundError: 'No pending withdrawal found',
+        runRecovery: async (account) => {
           const result = await recoverWithdrawal(
             requestId,
-            { requester: pendingWithdrawal.requester.toBase58() },
+            { requester: account.requester.toBase58() },
             erc20Address,
           );
           if (!result.ok) {
@@ -150,15 +151,8 @@ export async function POST(request: NextRequest) {
           } else {
             console.log('Withdrawal recovered successfully:', result.solanaTx);
           }
-        } catch (error) {
-          console.error('Withdrawal recovery error:', error);
-        }
+        },
       });
-
-      return NextResponse.json(
-        { accepted: true, message: 'Recovery initiated' },
-        { status: 202 },
-      );
     }
 
     return NextResponse.json({ error: 'Invalid type' }, { status: 400 });

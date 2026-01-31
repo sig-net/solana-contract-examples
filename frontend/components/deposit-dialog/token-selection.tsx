@@ -4,14 +4,14 @@ import { useState } from 'react';
 
 import type {
   NetworkData,
-  TokenMetadata,
+  TokenConfig,
 } from '@/lib/constants/token-metadata';
-import { getAllNetworks } from '@/lib/constants/token-metadata';
+import { NETWORKS_WITH_TOKENS } from '@/lib/constants/token-metadata';
 
 import { NetworkAccordionItem } from './network-accordion-item';
 
 interface TokenSelectionProps {
-  onTokenSelect: (token: TokenMetadata, network: NetworkData) => void;
+  onTokenSelect: (token: TokenConfig, network: NetworkData) => void;
 }
 
 export function TokenSelection({ onTokenSelect }: TokenSelectionProps) {
@@ -19,13 +19,13 @@ export function TokenSelection({ onTokenSelect }: TokenSelectionProps) {
     null,
   );
 
-  const networks = getAllNetworks();
+  const networks = NETWORKS_WITH_TOKENS;
 
   const handleNetworkClick = (networkId: string) => {
     setExpandedNetworkId(expandedNetworkId === networkId ? null : networkId);
   };
 
-  const handleTokenSelect = (token: TokenMetadata, network: NetworkData) => {
+  const handleTokenSelect = (token: TokenConfig, network: NetworkData) => {
     onTokenSelect(token, network);
     setExpandedNetworkId(null); // Collapse after selection
   };

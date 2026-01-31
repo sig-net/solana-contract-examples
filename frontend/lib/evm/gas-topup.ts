@@ -5,34 +5,16 @@ import {
   type Hex,
   type PublicClient,
 } from 'viem';
-import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 
-import { getFullEnv } from '@/lib/config/env.config';
 import { getAlchemyEthSepoliaRpcUrl } from '@/lib/rpc';
 import { encodeErc20Transfer, estimateFees } from '@/lib/evm/tx-builder';
+import { getRelayerEthAccount } from '@/lib/utils/relayer-setup';
 
 const GAS_BUFFER_MULTIPLIER = 1.5;
 const MAX_TOPUP_ETH = parseEther('0.01');
 const GAS_LIMIT_BUFFER_PERCENT = 120n;
 const ETH_TRANSFER_GAS = 21000n;
-
-let cachedAccount: PrivateKeyAccount | null = null;
-
-function getRelayerEthAccount(): PrivateKeyAccount {
-  if (cachedAccount) return cachedAccount;
-
-  const env = getFullEnv();
-  const keypairBytes = new Uint8Array(JSON.parse(env.RELAYER_PRIVATE_KEY));
-  const ethPrivateKey =
-    `0x${Buffer.from(keypairBytes.slice(0, 32)).toString('hex')}` as Hex;
-  cachedAccount = privateKeyToAccount(ethPrivateKey);
-  return cachedAccount;
-}
-
-export function getRelayerEthAddress(): Hex {
-  return getRelayerEthAccount().address;
-}
 
 async function sendGasTopUp(
   client: PublicClient,
@@ -111,7 +93,11 @@ export async function ensureGasForErc20Transfer(
   erc20Address: Hex,
   recipient: Hex,
   amount: bigint,
-): Promise<{ topUpTxHash: Hex | null; topUpAmount: bigint }> {
+): Promise<{
+  topUpTxHash: Hex | null;
+  topUpAmount: bigint;
+  fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
+}> {
   const data = encodeErc20Transfer(recipient, amount);
 
   const [estimatedGas, fees] = await Promise.all([
@@ -125,7 +111,8 @@ export async function ensureGasForErc20Transfer(
   ]);
 
   const gasLimit = (estimatedGas * GAS_LIMIT_BUFFER_PERCENT) / 100n;
-  return checkAndTopUp(client, targetAddress, gasLimit, fees.maxFeePerGas);
+  const topUpResult = await checkAndTopUp(client, targetAddress, gasLimit, fees.maxFeePerGas);
+  return { ...topUpResult, fees };
 }
 
 export async function ensureGasForTransaction(

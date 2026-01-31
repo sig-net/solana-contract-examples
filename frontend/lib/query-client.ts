@@ -26,8 +26,6 @@ export const queryKeys = {
       [...queryKeys.solana.all, 'depositAddress', publicKey] as const,
     userBalances: (publicKey: string) =>
       [...queryKeys.solana.all, 'userBalances', publicKey] as const,
-    unclaimedBalances: (publicKey: string) =>
-      [...queryKeys.solana.all, 'unclaimedBalances', publicKey] as const,
     txList: (publicKey: string) =>
       [...queryKeys.solana.all, 'txList', publicKey] as const,
   },
@@ -39,8 +37,5 @@ export function invalidateBalanceQueries(
 ) {
   queryClient.invalidateQueries({
     queryKey: queryKeys.solana.userBalances(account),
-  });
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.solana.unclaimedBalances(account),
   });
 }

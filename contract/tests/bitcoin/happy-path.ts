@@ -119,8 +119,7 @@ describe("BTC Happy Path", () => {
         .claimBtc(
           planRequestIdBytes(plan),
           Buffer.from(readEvent.serializedOutput),
-          readEvent.signature,
-          null
+          readEvent.signature
         )
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -219,8 +218,7 @@ describe("BTC Happy Path", () => {
         .claimBtc(
           planRequestIdBytes(plan),
           Buffer.from(readEvent.serializedOutput),
-          readEvent.signature,
-          null
+          readEvent.signature
         )
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
@@ -370,8 +368,7 @@ describe("BTC Happy Path", () => {
       .completeWithdrawBtc(
         planRequestIdBytes(plan),
         Buffer.from(readEvent.serializedOutput),
-        readEvent.signature,
-        null
+        readEvent.signature
       )
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),

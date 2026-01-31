@@ -4,14 +4,22 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/connector/react';
 import { toast } from 'sonner';
 
-import { queryKeys } from '@/lib/query-client';
-import { DepositService, type DepositResult } from '@/lib/services/deposit-service';
+import {
+  CHAIN_SIGNATURES_CONFIG,
+  deriveEthereumAddress,
+  deriveVaultAuthorityPda,
+} from '@/lib/constants/addresses';
+import { queryKeys, invalidateBalanceQueries } from '@/lib/query-client';
+import { notifyDeposit } from '@/lib/services/relayer-service';
 import type { StatusCallback } from '@/lib/types/shared.types';
 import { usePendingTransactions } from '@/providers/pending-transactions-context';
 
 import { useSolanaPublicKey } from './use-solana-public-key';
 
-const depositService = new DepositService();
+export interface DepositResult {
+  derivedAddress: string;
+  trackingId: string;
+}
 
 export function useDepositEvmMutation() {
   const { account } = useWallet();
@@ -34,17 +42,34 @@ export function useDepositEvmMutation() {
       onStatusChange?: StatusCallback;
     }): Promise<DepositResult> => {
       if (!publicKey) throw new Error('No public key available');
-      return depositService.depositErc20(
-        publicKey,
-        erc20Address,
-        amount,
-        decimals,
-        tokenSymbol,
-        onStatusChange,
+
+      const [vaultAuthority] = deriveVaultAuthorityPda(publicKey);
+      const path = publicKey.toString();
+      const derivedAddress = deriveEthereumAddress(
+        path,
+        vaultAuthority.toString(),
+        CHAIN_SIGNATURES_CONFIG.MPC_ROOT_PUBLIC_KEY,
       );
+
+      const response = await notifyDeposit({
+        userAddress: publicKey.toString(),
+        erc20Address,
+        ethereumAddress: derivedAddress,
+        tokenDecimals: decimals,
+        tokenSymbol,
+      });
+
+      onStatusChange?.({
+        status: 'relayer_processing',
+        note: `Deposit ${amount} tokens to: ${derivedAddress}. Relayer will handle the bridge process.`,
+      });
+
+      return {
+        derivedAddress,
+        trackingId: response.trackingId,
+      };
     },
     onSuccess: (result, variables) => {
-      // Add to pending transactions for tracking
       if (account) {
         addPendingTransaction({
           id: result.trackingId,
@@ -58,6 +83,7 @@ export function useDepositEvmMutation() {
           description: 'Monitoring for your deposit...',
         });
 
+        invalidateBalanceQueries(queryClient, account);
         queryClient.invalidateQueries({
           queryKey: queryKeys.solana.txList(account),
         });

@@ -7,25 +7,28 @@ import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { toast } from 'sonner';
 
-import { useConnection } from '@/providers/connection-context';
+import { useConnection } from '@/providers/providers';
 import { useAnchorWallet } from '@/hooks/use-anchor-wallet';
-import { BRIDGE_PROGRAM_ID } from '@/lib/constants/addresses';
+import { deriveConfigPda } from '@/lib/constants/addresses';
 import { IDL } from '@/lib/program/idl-sol-dex';
 
-const CONFIG_SEED = 'vault_config';
+type LoadingState = 'idle' | 'init' | 'update';
 
-function deriveConfigPda(): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(CONFIG_SEED)],
-    BRIDGE_PROGRAM_ID,
-  )[0];
+type ConfigAction = 'init' | 'update';
+
+function parseMpcAddress(mpcAddress: string): number[] {
+  const mpcBytes = Uint8Array.from(
+    Buffer.from(mpcAddress.replace(/^0x/, ''), 'hex'),
+  );
+  if (mpcBytes.length !== 20) throw new Error('MPC address must be 20 bytes');
+  return Array.from(mpcBytes);
 }
 
 export default function AdminPage() {
   const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
   const [mpcAddress, setMpcAddress] = useState('');
-  const [loading, setLoading] = useState<'idle' | 'init' | 'update'>('idle');
+  const [loading, setLoading] = useState<LoadingState>('idle');
 
   const provider = anchorWallet
     ? new AnchorProvider(connection, anchorWallet, {
@@ -36,71 +39,52 @@ export default function AdminPage() {
 
   const program = provider ? new Program(IDL, provider) : null;
 
-  async function onInitialize() {
+  async function executeConfigAction(
+    action: ConfigAction,
+    buildAccounts: (configPda: PublicKey) => Record<string, PublicKey>,
+  ) {
     if (!program || !anchorWallet?.publicKey) {
       toast.error('Connect your wallet');
       return;
     }
+
+    const methodName = action === 'init' ? 'initializeConfig' : 'updateConfig';
+    const actionLabel = action === 'init' ? 'Initialized' : 'Updated';
+    const errorLabel = action === 'init' ? 'initialize' : 'update';
+
     try {
-      setLoading('init');
-      const configPda = deriveConfigPda();
+      setLoading(action);
+      const [configPda] = deriveConfigPda();
+      const mpcBytes = parseMpcAddress(mpcAddress);
 
-      const mpcBytes = Uint8Array.from(
-        Buffer.from(mpcAddress.replace(/^0x/, ''), 'hex'),
-      );
-      if (mpcBytes.length !== 20)
-        throw new Error('MPC address must be 20 bytes');
+      const method = program.methods[methodName];
+      if (!method) throw new Error(`${methodName} method not found`);
 
-      const initMethod = program.methods.initializeConfig;
-      if (!initMethod) throw new Error('initializeConfig method not found');
-
-      const sig = await initMethod(Array.from(mpcBytes))
-        .accountsStrict({
-          payer: anchorWallet.publicKey,
-          config: configPda,
-          systemProgram: SystemProgram.programId,
-        } as never)
+      const sig = await method(mpcBytes)
+        .accountsStrict(buildAccounts(configPda) as never)
         .rpc();
 
-      toast.success('Initialized config: ' + sig);
+      toast.success(`${actionLabel} config: ${sig}`);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Failed to initialize';
+      const message = e instanceof Error ? e.message : `Failed to ${errorLabel}`;
       toast.error(message);
     } finally {
       setLoading('idle');
     }
   }
 
-  async function onUpdate() {
-    if (!program || !anchorWallet?.publicKey) {
-      toast.error('Connect your wallet');
-      return;
-    }
-    try {
-      setLoading('update');
-      const configPda = deriveConfigPda();
-      const mpcBytes = Uint8Array.from(
-        Buffer.from(mpcAddress.replace(/^0x/, ''), 'hex'),
-      );
-      if (mpcBytes.length !== 20)
-        throw new Error('MPC address must be 20 bytes');
+  function onInitialize() {
+    return executeConfigAction('init', configPda => ({
+      payer: anchorWallet!.publicKey,
+      config: configPda,
+      systemProgram: SystemProgram.programId,
+    }));
+  }
 
-      const updateMethod = program.methods.updateConfig;
-      if (!updateMethod) throw new Error('updateConfig method not found');
-
-      const sig = await updateMethod(Array.from(mpcBytes))
-        .accountsStrict({
-          config: configPda,
-        } as never)
-        .rpc();
-
-      toast.success('Updated config: ' + sig);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Failed to update';
-      toast.error(message);
-    } finally {
-      setLoading('idle');
-    }
+  function onUpdate() {
+    return executeConfigAction('update', configPda => ({
+      config: configPda,
+    }));
   }
 
   return (

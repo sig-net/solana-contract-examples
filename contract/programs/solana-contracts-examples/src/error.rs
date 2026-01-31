@@ -22,8 +22,6 @@ pub enum ErrorCode {
     InsufficientBalance,
     #[msg("Underflow error")]
     Underflow,
-    #[msg("Transaction not found in history")]
-    TransactionNotFound,
     #[msg("No vault outputs found in transaction")]
     VaultOutputNotFound,
     #[msg("Provided inputs do not cover requested amount + fee")]

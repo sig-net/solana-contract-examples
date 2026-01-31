@@ -122,48 +122,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_deposit.requester",
-                "account": "PendingBtcDeposit"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -185,17 +143,6 @@
           "type": {
             "defined": {
               "name": "Signature"
-            }
-          }
-        },
-        {
-          "name": "bitcoin_tx_hash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -288,48 +235,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_deposit.requester",
-                "account": "PendingErc20Deposit"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -351,17 +256,6 @@
           "type": {
             "defined": {
               "name": "Signature"
-            }
-          }
-        },
-        {
-          "name": "ethereum_tx_hash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -485,48 +379,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_withdrawal.requester",
-                "account": "PendingBtcWithdrawal"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -548,17 +400,6 @@
           "type": {
             "defined": {
               "name": "Signature"
-            }
-          }
-        },
-        {
-          "name": "bitcoin_tx_hash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -654,48 +495,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_withdrawal.requester",
-                "account": "PendingErc20Withdrawal"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -717,17 +516,6 @@
           "type": {
             "defined": {
               "name": "Signature"
-            }
-          }
-        },
-        {
-          "name": "ethereum_tx_hash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -920,47 +708,6 @@
                   105,
                   103
                 ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "requester"
               }
             ]
           }
@@ -1199,47 +946,6 @@
                   105,
                   103
                 ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "requester"
               }
             ]
           }
@@ -1580,47 +1286,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -1898,47 +1563,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "transaction_history",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -2064,19 +1688,6 @@
       ]
     },
     {
-      "name": "UserTransactionHistory",
-      "discriminator": [
-        142,
-        226,
-        189,
-        154,
-        160,
-        189,
-        140,
-        159
-      ]
-    },
-    {
       "name": "VaultConfig",
       "discriminator": [
         99,
@@ -2143,16 +1754,11 @@
     },
     {
       "code": 6010,
-      "name": "TransactionNotFound",
-      "msg": "Transaction not found in history"
-    },
-    {
-      "code": 6011,
       "name": "VaultOutputNotFound",
       "msg": "No vault outputs found in transaction"
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "InsufficientInputs",
       "msg": "Provided inputs do not cover requested amount + fee"
     }
@@ -2490,107 +2096,6 @@
       }
     },
     {
-      "name": "TransactionRecord",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "request_id",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "transaction_type",
-            "type": {
-              "defined": {
-                "name": "TransactionType"
-              }
-            }
-          },
-          {
-            "name": "status",
-            "type": {
-              "defined": {
-                "name": "TransactionStatus"
-              }
-            }
-          },
-          {
-            "name": "amount",
-            "type": "u128"
-          },
-          {
-            "name": "erc20_address",
-            "type": {
-              "array": [
-                "u8",
-                20
-              ]
-            }
-          },
-          {
-            "name": "recipient_address",
-            "type": {
-              "array": [
-                "u8",
-                20
-              ]
-            }
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "ethereum_tx_hash",
-            "type": {
-              "option": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "TransactionStatus",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Pending"
-          },
-          {
-            "name": "Completed"
-          },
-          {
-            "name": "Failed"
-          }
-        ]
-      }
-    },
-    {
-      "name": "TransactionType",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Deposit"
-          },
-          {
-            "name": "Withdrawal"
-          }
-        ]
-      }
-    },
-    {
       "name": "UserBtcBalance",
       "type": {
         "kind": "struct",
@@ -2610,34 +2115,6 @@
           {
             "name": "amount",
             "type": "u128"
-          }
-        ]
-      }
-    },
-    {
-      "name": "UserTransactionHistory",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "deposits",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "TransactionRecord"
-                }
-              }
-            }
-          },
-          {
-            "name": "withdrawals",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "TransactionRecord"
-                }
-              }
-            }
           }
         ]
       }

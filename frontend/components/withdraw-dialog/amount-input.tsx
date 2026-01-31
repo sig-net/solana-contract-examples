@@ -6,7 +6,6 @@ import { SendIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { TokenAmountDisplay } from '@/components/ui/token-amount-display';
 import { useTokenPrice } from '@/hooks/use-token-prices';
 import type { Token } from '@/lib/types/token.types';
@@ -127,9 +126,9 @@ export function AmountInput({
 
       {/* Receiver Address */}
       <div className='space-y-2'>
-        <Label className='text-tundora-300 text-sm font-medium'>
+        <label className='text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-tundora-300'>
           Receiver Address
-        </Label>
+        </label>
         <Input
           placeholder='Recipient address'
           {...register('receiverAddress')}

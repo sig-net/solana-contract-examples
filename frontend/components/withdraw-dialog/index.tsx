@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { LoadingState } from '@/components/states';
+import { LoadingState } from '@/components/states/LoadingState';
 import { useWithdrawEvmMutation, useWithdrawSolMutation } from '@/hooks';
 
 import { AmountInput } from './amount-input';

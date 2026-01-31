@@ -128,48 +128,6 @@ export type SolanaDexContract = {
               }
             ]
           }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_deposit.requester",
-                "account": "pendingBtcDeposit"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -191,17 +149,6 @@ export type SolanaDexContract = {
           "type": {
             "defined": {
               "name": "signature"
-            }
-          }
-        },
-        {
-          "name": "bitcoinTxHash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -294,48 +241,6 @@ export type SolanaDexContract = {
               }
             ]
           }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_deposit.requester",
-                "account": "pendingErc20Deposit"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -357,17 +262,6 @@ export type SolanaDexContract = {
           "type": {
             "defined": {
               "name": "signature"
-            }
-          }
-        },
-        {
-          "name": "ethereumTxHash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -491,48 +385,6 @@ export type SolanaDexContract = {
               }
             ]
           }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_withdrawal.requester",
-                "account": "pendingBtcWithdrawal"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -554,17 +406,6 @@ export type SolanaDexContract = {
           "type": {
             "defined": {
               "name": "signature"
-            }
-          }
-        },
-        {
-          "name": "bitcoinTxHash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -660,48 +501,6 @@ export type SolanaDexContract = {
               }
             ]
           }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pending_withdrawal.requester",
-                "account": "pendingErc20Withdrawal"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -723,17 +522,6 @@ export type SolanaDexContract = {
           "type": {
             "defined": {
               "name": "signature"
-            }
-          }
-        },
-        {
-          "name": "ethereumTxHash",
-          "type": {
-            "option": {
-              "array": [
-                "u8",
-                32
-              ]
             }
           }
         }
@@ -926,47 +714,6 @@ export type SolanaDexContract = {
                   105,
                   103
                 ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "requester"
               }
             ]
           }
@@ -1205,47 +952,6 @@ export type SolanaDexContract = {
                   105,
                   103
                 ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "requester"
               }
             ]
           }
@@ -1586,47 +1292,6 @@ export type SolanaDexContract = {
               }
             ]
           }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -1904,47 +1569,6 @@ export type SolanaDexContract = {
               }
             ]
           }
-        },
-        {
-          "name": "transactionHistory",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  116,
-                  114,
-                  97,
-                  110,
-                  115,
-                  97,
-                  99,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  104,
-                  105,
-                  115,
-                  116,
-                  111,
-                  114,
-                  121
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
         }
       ],
       "args": [
@@ -2070,19 +1694,6 @@ export type SolanaDexContract = {
       ]
     },
     {
-      "name": "userTransactionHistory",
-      "discriminator": [
-        142,
-        226,
-        189,
-        154,
-        160,
-        189,
-        140,
-        159
-      ]
-    },
-    {
       "name": "vaultConfig",
       "discriminator": [
         99,
@@ -2149,16 +1760,11 @@ export type SolanaDexContract = {
     },
     {
       "code": 6010,
-      "name": "transactionNotFound",
-      "msg": "Transaction not found in history"
-    },
-    {
-      "code": 6011,
       "name": "vaultOutputNotFound",
       "msg": "No vault outputs found in transaction"
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "insufficientInputs",
       "msg": "Provided inputs do not cover requested amount + fee"
     }
@@ -2496,107 +2102,6 @@ export type SolanaDexContract = {
       }
     },
     {
-      "name": "transactionRecord",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "requestId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "transactionType",
-            "type": {
-              "defined": {
-                "name": "transactionType"
-              }
-            }
-          },
-          {
-            "name": "status",
-            "type": {
-              "defined": {
-                "name": "transactionStatus"
-              }
-            }
-          },
-          {
-            "name": "amount",
-            "type": "u128"
-          },
-          {
-            "name": "erc20Address",
-            "type": {
-              "array": [
-                "u8",
-                20
-              ]
-            }
-          },
-          {
-            "name": "recipientAddress",
-            "type": {
-              "array": [
-                "u8",
-                20
-              ]
-            }
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "ethereumTxHash",
-            "type": {
-              "option": {
-                "array": [
-                  "u8",
-                  32
-                ]
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "transactionStatus",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "pending"
-          },
-          {
-            "name": "completed"
-          },
-          {
-            "name": "failed"
-          }
-        ]
-      }
-    },
-    {
-      "name": "transactionType",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "deposit"
-          },
-          {
-            "name": "withdrawal"
-          }
-        ]
-      }
-    },
-    {
       "name": "userBtcBalance",
       "type": {
         "kind": "struct",
@@ -2616,34 +2121,6 @@ export type SolanaDexContract = {
           {
             "name": "amount",
             "type": "u128"
-          }
-        ]
-      }
-    },
-    {
-      "name": "userTransactionHistory",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "deposits",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "transactionRecord"
-                }
-              }
-            }
-          },
-          {
-            "name": "withdrawals",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "transactionRecord"
-                }
-              }
-            }
           }
         ]
       }

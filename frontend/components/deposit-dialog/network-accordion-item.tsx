@@ -5,13 +5,13 @@ import { NetworkIcon } from '@web3icons/react';
 
 import { CryptoIcon } from '@/components/balance-display/crypto-icon';
 import { cn } from '@/lib/utils';
-import { NetworkData, TokenMetadata } from '@/lib/constants/token-metadata';
+import { NetworkData, TokenConfig } from '@/lib/constants/token-metadata';
 
 interface NetworkAccordionItemProps {
   network: NetworkData;
   isExpanded: boolean;
   onNetworkClick: () => void;
-  onTokenSelect: (token: TokenMetadata, network: NetworkData) => void;
+  onTokenSelect: (token: TokenConfig, network: NetworkData) => void;
   className?: string;
 }
 

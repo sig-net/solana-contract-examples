@@ -3,13 +3,17 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { queryKeys } from '@/lib/query-client';
+import { TokenBalanceService } from '@/lib/services/token-balance-service';
 
-import { useTokenBalanceService } from './use-token-balance-service';
+import { useDexContract } from './use-dex-contract';
 import { useSolanaPublicKey } from './use-solana-public-key';
 
 export function useUserBalances() {
-  const tokenBalanceService = useTokenBalanceService();
+  const dexContract = useDexContract();
   const publicKey = useSolanaPublicKey();
+  const tokenBalanceService = dexContract
+    ? new TokenBalanceService(dexContract)
+    : null;
 
   return useQuery({
     queryKey: publicKey

@@ -4,16 +4,18 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWallet } from '@solana/connector/react';
 import { toast } from 'sonner';
 
-import { queryKeys } from '@/lib/query-client';
+import { queryKeys, invalidateBalanceQueries } from '@/lib/query-client';
+import { WithdrawalService } from '@/lib/services/withdrawal-service';
 import type { StatusCallback } from '@/lib/types/shared.types';
 import { usePendingTransactions } from '@/providers/pending-transactions-context';
 
-import { useWithdrawalService } from './use-withdrawal-service';
+import { useDexContract } from './use-dex-contract';
 import { useSolanaPublicKey } from './use-solana-public-key';
 
 export function useWithdrawEvmMutation() {
   const { account } = useWallet();
-  const withdrawalService = useWithdrawalService();
+  const dexContract = useDexContract();
+  const withdrawalService = dexContract ? new WithdrawalService(dexContract) : null;
   const queryClient = useQueryClient();
   const publicKey = useSolanaPublicKey();
   const { addPendingTransaction } = usePendingTransactions();
@@ -56,6 +58,7 @@ export function useWithdrawEvmMutation() {
           description: 'Processing your withdrawal...',
         });
 
+        invalidateBalanceQueries(queryClient, account);
         queryClient.invalidateQueries({
           queryKey: queryKeys.solana.txList(account),
         });

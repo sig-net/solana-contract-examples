@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 
+import { Download } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { formatTokenBalanceSync } from '@/lib/utils/balance-formatter';
 import { DepositDialog } from '@/components/deposit-dialog';
@@ -11,7 +14,6 @@ import type { TokenWithBalance } from '@/lib/types/token.types';
 
 import { BalanceBox } from './balance-box';
 import { CryptoIcon } from './crypto-icon';
-import { BalancesSectionHeader } from './balance-section-header';
 
 interface BalanceDisplayProps {
   tokens: TokenWithBalance[];
@@ -53,9 +55,20 @@ export function BalanceDisplay({
 
   return (
     <div className='flex w-full max-w-full flex-col gap-5'>
-      <BalancesSectionHeader
-        onDepositClick={() => setIsDepositDialogOpen(true)}
-      />
+      <div className='border-dark-neutral-300 flex w-full items-center justify-between border-t py-5'>
+        <h2 className='text-dark-neutral-200 self-start font-semibold uppercase'>
+          Balances
+        </h2>
+        <Button
+          onClick={() => setIsDepositDialogOpen(true)}
+          variant='outline'
+          size='lg'
+          className='gap-1.5 font-semibold'
+        >
+          <Download className='h-4 w-4' />
+          Deposit
+        </Button>
+      </div>
       <div
         className={cn(
           'grid w-full max-w-full gap-4 sm:gap-6 md:grid-cols-2 md:gap-8 lg:gap-10',

@@ -10,13 +10,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { TokenMetadata, NetworkData } from '@/lib/constants/token-metadata';
+import { TokenConfig, NetworkData } from '@/lib/constants/token-metadata';
 import { formatAddress } from '@/lib/address-utils';
 import { useCopyToClipboard } from '@/hooks';
 import { cn } from '@/lib/utils';
 
 interface DepositAddressProps {
-  token: TokenMetadata;
+  token: TokenConfig;
   network: NetworkData;
   depositAddress: string;
   onContinue: () => void;

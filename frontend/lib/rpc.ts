@@ -5,12 +5,18 @@ import { sepolia } from 'viem/chains';
 
 import { getClientEnv } from '@/lib/config/env.config';
 
+let cachedEthereumProvider: PublicClient | null = null;
+
 export function getEthereumProvider(): PublicClient {
+  if (cachedEthereumProvider) {
+    return cachedEthereumProvider;
+  }
   const rpcUrl = getAlchemyEthSepoliaRpcUrl();
-  return createPublicClient({
+  cachedEthereumProvider = createPublicClient({
     chain: sepolia,
     transport: http(rpcUrl),
   });
+  return cachedEthereumProvider;
 }
 
 export function getHeliusConnection(): Connection | undefined {
@@ -23,14 +29,18 @@ export function getHeliusConnection(): Connection | undefined {
   return undefined;
 }
 
+let cachedAlchemyProvider: Alchemy | null = null;
+
 export function getAlchemyProvider(): Alchemy {
+  if (cachedAlchemyProvider) {
+    return cachedAlchemyProvider;
+  }
   const env = getClientEnv();
-  const alchemy = new Alchemy({
+  cachedAlchemyProvider = new Alchemy({
     apiKey: env.NEXT_PUBLIC_ALCHEMY_API_KEY,
     network: Network.ETH_SEPOLIA,
   });
-
-  return alchemy;
+  return cachedAlchemyProvider;
 }
 
 export function getAlchemyEthSepoliaRpcUrl(): string {

@@ -1,12 +1,18 @@
 import { Redis } from '@upstash/redis';
 import { getFullEnv } from '@/lib/config/env.config';
 
-function getRedisClient() {
+let cachedRedisClient: Redis | null = null;
+
+function getRedisClient(): Redis {
+  if (cachedRedisClient) {
+    return cachedRedisClient;
+  }
   const env = getFullEnv();
-  return new Redis({
+  cachedRedisClient = new Redis({
     url: env.REDIS_URL,
     token: env.REDIS_TOKEN,
   });
+  return cachedRedisClient;
 }
 
 export type TxStatus =
@@ -117,9 +123,8 @@ export async function getUserTransactions(
   const txIds = await redis.smembers(`${USER_TX_PREFIX}${userAddress}`);
   if (!txIds || txIds.length === 0) return [];
 
-  const transactions = await Promise.all(
-    txIds.map(id => redis.get<TxEntry>(`${TX_PREFIX}${id}`)),
-  );
+  const keys = txIds.map(id => `${TX_PREFIX}${id}`);
+  const transactions = await redis.mget<(TxEntry | null)[]>(...keys);
 
   // Filter nulls and deduplicate by id
   const validTxs = transactions.filter((tx): tx is TxEntry => tx !== null);

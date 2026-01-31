@@ -1,6 +1,6 @@
 'use client';
 
-import { useConnection } from '@/providers/connection-context';
+import { useConnection } from '@/providers/providers';
 import { DexContract } from '@/lib/contracts/dex-contract';
 
 import { useAnchorWallet } from './use-anchor-wallet';

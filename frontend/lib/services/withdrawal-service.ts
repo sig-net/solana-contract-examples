@@ -19,14 +19,14 @@ import {
   serializeEvmTx,
   applyContractSafetyReduction,
 } from '@/lib/evm/tx-builder';
-import { generateRequestId, evmParamsToProgram } from '@/lib/program/utils';
+import { evmParamsToProgram } from '@/lib/program/utils';
+import { generateWithdrawalRequestId } from '@/lib/utils/request-id';
 import { DexContract } from '@/lib/contracts/dex-contract';
 import { notifyWithdrawal } from '@/lib/services/relayer-service';
 import {
   VAULT_ETHEREUM_ADDRESS,
   GLOBAL_VAULT_AUTHORITY_PDA,
 } from '@/lib/constants/addresses';
-import { SERVICE_CONFIG } from '@/lib/constants/service.config';
 import { getEthereumProvider } from '@/lib/rpc';
 
 /**
@@ -150,7 +150,7 @@ export class WithdrawalService {
       }
 
       const checksummedAddress = getAddress(recipientAddress);
-      const recipientAddressBytes = Array.from(toBytes(checksummedAddress));
+      const recipientAddressBytes = Array.from(toBytes(checksummedAddress as Hex));
 
       const txRequest: EvmTransactionRequest = await buildErc20TransferTx({
         provider: getEthereumProvider(),
@@ -163,18 +163,9 @@ export class WithdrawalService {
       const evmParams = evmParamsToProgram(txRequest);
       const rlpEncodedTx = serializeEvmTx(txRequest);
 
-      const requestId = generateRequestId(
-        globalVaultAuthority,
-        toBytes(rlpEncodedTx),
-        SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
-        SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
-        SERVICE_CONFIG.CRYPTOGRAPHY.WITHDRAWAL_ROOT_PATH,
-        SERVICE_CONFIG.CRYPTOGRAPHY.SIGNATURE_ALGORITHM,
-        SERVICE_CONFIG.CRYPTOGRAPHY.TARGET_BLOCKCHAIN,
-        '',
-      );
+      const requestId = generateWithdrawalRequestId(globalVaultAuthority, rlpEncodedTx);
 
-      const requestIdBytes = Array.from(toBytes(requestId));
+      const requestIdBytes = Array.from(toBytes(requestId as Hex));
 
       console.log(`[WITHDRAW] Starting withdrawal, requestId: ${requestId}`);
 

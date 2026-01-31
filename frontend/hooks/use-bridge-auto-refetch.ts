@@ -3,13 +3,13 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { useConnection } from '@/providers/connection-context';
+import { useConnection } from '@/providers/providers';
 import {
   BRIDGE_PROGRAM_ID,
   deriveUserBalancePda,
   deriveVaultAuthorityPda,
 } from '@/lib/constants/addresses';
-import { getAllErc20Tokens } from '@/lib/constants/token-metadata';
+import { ERC20_TOKENS } from '@/lib/constants/token-metadata';
 import { queryKeys } from '@/lib/query-client';
 import { PublicKey } from '@solana/web3.js';
 
@@ -18,7 +18,7 @@ import { useSolanaPublicKey } from './use-solana-public-key';
 function buildUserBalancePdaSet(publicKey: PublicKey | null) {
   if (!publicKey) return new Set<string>();
   const set = new Set<string>();
-  for (const token of getAllErc20Tokens()) {
+  for (const token of ERC20_TOKENS) {
     try {
       const erc20Bytes = Buffer.from(token.erc20Address.replace('0x', ''), 'hex');
       const [pda] = deriveUserBalancePda(publicKey, erc20Bytes);
@@ -98,7 +98,6 @@ export function useBridgeAutoRefetch() {
             if (isCompletion) {
               queriesToInvalidate.push(
                 { queryKey: queryKeys.solana.userBalances(pk) },
-                { queryKey: queryKeys.solana.unclaimedBalances(pk) },
               );
             }
 
