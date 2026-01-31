@@ -3,11 +3,13 @@ import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
   getAssociatedTokenAddress,
+  getAccount,
+  TokenAccountNotFoundError,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
-import { isAddress, getAddress, parseUnits, toBytes, type Hex } from 'viem';
+import { isAddress, getAddress, parseUnits, formatUnits, toBytes, type Hex } from 'viem';
 
 import type {
   EvmTransactionRequest,
@@ -23,6 +25,7 @@ import { evmParamsToProgram } from '@/lib/program/utils';
 import { generateWithdrawalRequestId } from '@/lib/utils/request-id';
 import { DexContract } from '@/lib/contracts/dex-contract';
 import { notifyWithdrawal } from '@/lib/services/relayer-service';
+import { withRetry } from '@/lib/utils/retry';
 import {
   VAULT_ETHEREUM_ADDRESS,
   GLOBAL_VAULT_AUTHORITY_PDA,
@@ -47,6 +50,26 @@ export class WithdrawalService {
     decimals = 6,
     onStatusChange?: StatusCallback,
   ): Promise<string> {
+    // Validate Solana addresses before using them
+    let mint: PublicKey;
+    let recipientPubkey: PublicKey;
+
+    try {
+      mint = new PublicKey(mintAddress);
+    } catch {
+      throw new Error(
+        `Invalid Solana address format for mint: "${mintAddress}"`,
+      );
+    }
+
+    try {
+      recipientPubkey = new PublicKey(recipientAddress);
+    } catch {
+      throw new Error(
+        `Invalid Solana address format for recipient: "${recipientAddress}"`,
+      );
+    }
+
     try {
       const connection: Connection = this.dexContract.getConnection();
       const wallet = this.dexContract.getWallet();
@@ -54,7 +77,6 @@ export class WithdrawalService {
         throw new Error('Wallet not available for SPL transfer');
       }
 
-      const mint = new PublicKey(mintAddress);
       const senderAta = await getAssociatedTokenAddress(
         mint,
         publicKey,
@@ -62,8 +84,6 @@ export class WithdrawalService {
         TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
-
-      const recipientPubkey = new PublicKey(recipientAddress);
       const recipientAta = await getAssociatedTokenAddress(
         mint,
         recipientPubkey,
@@ -73,6 +93,25 @@ export class WithdrawalService {
       );
 
       const amountInUnits = parseUnits(amount, decimals);
+
+      // Pre-flight balance check for UX improvement
+      try {
+        const senderTokenAccount = await getAccount(connection, senderAta);
+        const currentBalance = senderTokenAccount.amount;
+        if (currentBalance < amountInUnits) {
+          const formattedBalance = formatUnits(currentBalance, decimals);
+          throw new Error(
+            `Insufficient balance: you have ${formattedBalance} but requested ${amount}`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof TokenAccountNotFoundError) {
+          throw new Error(
+            `Insufficient balance: you have 0 but requested ${amount}`,
+          );
+        }
+        throw error;
+      }
 
       const instructions = [] as Array<Parameters<Transaction['add']>[0]>;
 
@@ -140,6 +179,17 @@ export class WithdrawalService {
       const tokenMetadata = getErc20Token(erc20Address);
 
       const amountBigInt = parseUnits(amount, decimals);
+
+      const userBalanceRaw = await this.dexContract.fetchUserBalance(publicKey, erc20Address);
+      const userBalanceBigInt = BigInt(userBalanceRaw);
+      const amountIn18Decimals = parseUnits(formatUnits(amountBigInt, decimals), 18);
+      if (userBalanceBigInt < amountIn18Decimals) {
+        const formattedBalance = formatUnits(userBalanceBigInt, 18);
+        throw new Error(
+          `Insufficient balance: you have ${formattedBalance} but requested ${amount}`,
+        );
+      }
+
       const processAmountBigInt = applyContractSafetyReduction(amountBigInt);
 
       const amountBN = new BN(processAmountBigInt.toString());
@@ -150,7 +200,7 @@ export class WithdrawalService {
       }
 
       const checksummedAddress = getAddress(recipientAddress);
-      const recipientAddressBytes = Array.from(toBytes(checksummedAddress as Hex));
+      const recipientAddressBytes = Array.from(toBytes(checksummedAddress));
 
       const txRequest: EvmTransactionRequest = await buildErc20TransferTx({
         provider: getEthereumProvider(),
@@ -224,26 +274,48 @@ export class WithdrawalService {
 
       // Notify the relayer immediately - it will confirm the tx in the background
       console.log('[WITHDRAW] Notifying relayer (tx confirmation will happen in background)...');
-      await notifyWithdrawal({
-        requestId,
-        erc20Address,
-        userAddress: publicKey.toBase58(),
-        recipientAddress: checksummedAddress,
-        transactionParams: {
-          ...txRequest,
-          maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas.toString(),
-          maxFeePerGas: txRequest.maxFeePerGas.toString(),
-          gasLimit: txRequest.gasLimit.toString(),
-          value: txRequest.value.toString(),
-        },
-        tokenAmount: processAmountBigInt.toString(),
-        tokenDecimals: decimals,
-        tokenSymbol: tokenMetadata?.symbol ?? 'Unknown',
-        solanaInitTxHash,
-        blockhash,
-        lastValidBlockHeight,
-      });
-      console.log('[WITHDRAW] Relayer notified');
+      try {
+        await withRetry(
+          () =>
+            notifyWithdrawal({
+              requestId,
+              erc20Address,
+              userAddress: publicKey.toBase58(),
+              recipientAddress: checksummedAddress,
+              transactionParams: {
+                ...txRequest,
+                maxPriorityFeePerGas: txRequest.maxPriorityFeePerGas.toString(),
+                maxFeePerGas: txRequest.maxFeePerGas.toString(),
+                gasLimit: txRequest.gasLimit.toString(),
+                value: txRequest.value.toString(),
+              },
+              tokenAmount: processAmountBigInt.toString(),
+              tokenDecimals: decimals,
+              tokenSymbol: tokenMetadata?.symbol ?? 'Unknown',
+              solanaInitTxHash,
+              blockhash,
+              lastValidBlockHeight,
+            }),
+          {
+            maxRetries: 3,
+            baseDelayMs: 1000,
+            context: 'WITHDRAW notifyWithdrawal',
+          },
+        );
+        console.log('[WITHDRAW] Relayer notified');
+      } catch (notifyError) {
+        console.error(
+          '[WITHDRAW] Failed to notify relayer after 3 retries:',
+          notifyError instanceof Error ? notifyError.message : notifyError,
+        );
+        onStatusChange?.({
+          status: 'failed',
+          note: `Withdrawal initiated on Solana (requestId: ${requestId}) but failed to notify relayer. Please use recovery to complete the withdrawal.`,
+        });
+        throw new Error(
+          `Relayer notification failed after retries. Withdrawal requestId: ${requestId}. Use recovery to complete.`,
+        );
+      }
 
       onStatusChange?.({
         status: 'relayer_processing',

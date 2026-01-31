@@ -314,11 +314,16 @@ export class CrossChainOrchestrator {
     timeoutMs: number,
     errorMessage: string,
   ): Promise<T> {
+    let timeoutId: NodeJS.Timeout;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+      timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
     });
 
-    return Promise.race([promise, timeoutPromise]);
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId!);
+    }
   }
 
   getDexContract(): DexContract {
