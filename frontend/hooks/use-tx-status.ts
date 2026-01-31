@@ -21,12 +21,13 @@ export function useTxStatus(trackingId: string | null) {
     },
     enabled: !!trackingId,
     refetchInterval: query => {
-      // Poll every 2s while pending, stop when completed/failed
+      // Poll every 5s while pending, stop when completed/failed
       const status = query.state.data?.status;
       if (status === 'completed' || status === 'failed') return false;
-      return 2000;
+      return 5000;
     },
-    staleTime: 1000, // Consider data stale after 1s
+    refetchIntervalInBackground: false,
+    staleTime: 5000,
   });
 }
 

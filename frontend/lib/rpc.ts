@@ -1,9 +1,15 @@
-import { Connection } from '@solana/web3.js';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { createPublicClient, http, type PublicClient } from 'viem';
 import { sepolia } from 'viem/chains';
 
 import { getClientEnv } from '@/lib/config/env.config';
+
+// Re-export Solana connection utilities from centralized config
+export {
+  getAlchemySolanaDevnetRpcUrl,
+  getRpcEndpoint,
+  CONNECTION_CONFIG,
+} from '@/lib/config/connection.config';
 
 let cachedEthereumProvider: PublicClient | null = null;
 
@@ -17,16 +23,6 @@ export function getEthereumProvider(): PublicClient {
     transport: http(rpcUrl),
   });
   return cachedEthereumProvider;
-}
-
-export function getHeliusConnection(): Connection | undefined {
-  const env = getClientEnv();
-
-  if (env.NEXT_PUBLIC_HELIUS_RPC_URL) {
-    return new Connection(env.NEXT_PUBLIC_HELIUS_RPC_URL);
-  }
-
-  return undefined;
 }
 
 let cachedAlchemyProvider: Alchemy | null = null;
@@ -46,9 +42,4 @@ export function getAlchemyProvider(): Alchemy {
 export function getAlchemyEthSepoliaRpcUrl(): string {
   const env = getClientEnv();
   return `https://eth-sepolia.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`;
-}
-
-export function getAlchemySolanaDevnetRpcUrl(): string {
-  const env = getClientEnv();
-  return `https://solana-devnet.g.alchemy.com/v2/${env.NEXT_PUBLIC_ALCHEMY_API_KEY}`;
 }

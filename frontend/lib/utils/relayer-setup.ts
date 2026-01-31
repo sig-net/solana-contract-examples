@@ -7,7 +7,8 @@ import {
   CrossChainOrchestrator,
   type CrossChainConfig,
 } from '@/lib/services/cross-chain-orchestrator';
-import { getEthereumProvider, getHeliusConnection } from '@/lib/rpc';
+import { getEthereumProvider } from '@/lib/rpc';
+import { getRelayerConnection } from '@/lib/rpc/server';
 import { getFullEnv } from '@/lib/config/env.config';
 
 let cachedKeypair: Keypair | null = null;
@@ -53,12 +54,7 @@ export interface RelayerSetup {
 export async function initializeRelayerSetup(
   config: CrossChainConfig = {},
 ): Promise<RelayerSetup> {
-  // Use Helius for both command and event streams exclusively in relayers
-  const eventConnection = getHeliusConnection();
-  if (!eventConnection) {
-    throw new Error('NEXT_PUBLIC_HELIUS_RPC_URL must be set for relayers');
-  }
-  const connection = eventConnection;
+  const connection = getRelayerConnection();
 
   const provider = getEthereumProvider();
 
@@ -69,7 +65,7 @@ export async function initializeRelayerSetup(
     relayerWallet,
     provider,
     config,
-    eventConnection,
+    connection,
   );
 
   return {

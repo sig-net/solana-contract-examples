@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { toBytes } from 'viem';
-import { PublicKey, Connection } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
 
 import { recoverDeposit, recoverWithdrawal } from '@/lib/relayer/handlers';
@@ -12,7 +12,7 @@ import {
   derivePendingWithdrawalPda,
 } from '@/lib/constants/addresses';
 import { IDL, type SolanaDexContract } from '@/lib/program/idl-sol-dex';
-import { getAlchemySolanaDevnetRpcUrl } from '@/lib/rpc';
+import { getServerConnection } from '@/lib/rpc/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const connection = new Connection(getAlchemySolanaDevnetRpcUrl(), 'confirmed');
+    const connection = getServerConnection();
 
     const keypair = getRelayerSolanaKeypair();
     const wallet = {

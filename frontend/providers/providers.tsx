@@ -10,7 +10,10 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 
 import { wagmiConfig } from '@/lib/wagmi/config';
 import { queryClient } from '@/lib/query-client';
-import { getAlchemySolanaDevnetRpcUrl } from '@/lib/rpc';
+import {
+  CONNECTION_CONFIG,
+  getRpcEndpoint,
+} from '@/lib/config/connection.config';
 import { PendingTransactionsProvider } from './pending-transactions-context';
 import { TransactionStatusTracker } from '@/components/transaction-status-tracker';
 
@@ -48,13 +51,7 @@ export function useConnection(): ConnectionContextState {
   return context;
 }
 
-const endpoint = getAlchemySolanaDevnetRpcUrl();
-
-const connectionConfig = {
-  commitment: 'confirmed' as const,
-  disableRetryOnRateLimit: false,
-  confirmTransactionInitialTimeout: 30000,
-};
+const endpoint = getRpcEndpoint('client');
 
 const connectorConfig = getDefaultConfig({
   appName: 'Signet Bridge',
@@ -77,7 +74,7 @@ export function Providers({ children }: ProvidersProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={wagmiConfig}>
-        <ConnectionProvider endpoint={endpoint} config={connectionConfig}>
+        <ConnectionProvider endpoint={endpoint} config={CONNECTION_CONFIG}>
           <AppProvider connectorConfig={connectorConfig}>
             <PendingTransactionsProvider>
               {children}

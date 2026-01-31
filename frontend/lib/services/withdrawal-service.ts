@@ -24,6 +24,7 @@ import {
 import { evmParamsToProgram } from '@/lib/program/utils';
 import { generateWithdrawalRequestId } from '@/lib/utils/request-id';
 import { DexContract } from '@/lib/contracts/dex-contract';
+import { wrapRateLimitError } from '@/lib/utils/rate-limit';
 import { notifyWithdrawal } from '@/lib/services/relayer-service';
 import { withRetry } from '@/lib/utils/retry';
 import {
@@ -95,27 +96,33 @@ export class WithdrawalService {
       const amountInUnits = parseUnits(amount, decimals);
 
       // Pre-flight balance check for UX improvement
+      let senderTokenAccount;
       try {
-        const senderTokenAccount = await getAccount(connection, senderAta);
-        const currentBalance = senderTokenAccount.amount;
-        if (currentBalance < amountInUnits) {
-          const formattedBalance = formatUnits(currentBalance, decimals);
-          throw new Error(
-            `Insufficient balance: you have ${formattedBalance} but requested ${amount}`,
-          );
-        }
+        senderTokenAccount = await getAccount(connection, senderAta);
       } catch (error) {
         if (error instanceof TokenAccountNotFoundError) {
           throw new Error(
             `Insufficient balance: you have 0 but requested ${amount}`,
           );
         }
-        throw error;
+        wrapRateLimitError(error, 'getAccount', 'WithdrawalService');
+      }
+      const currentBalance = senderTokenAccount.amount;
+      if (currentBalance < amountInUnits) {
+        const formattedBalance = formatUnits(currentBalance, decimals);
+        throw new Error(
+          `Insufficient balance: you have ${formattedBalance} but requested ${amount}`,
+        );
       }
 
       const instructions = [] as Array<Parameters<Transaction['add']>[0]>;
 
-      const recipientAtaInfo = await connection.getAccountInfo(recipientAta);
+      let recipientAtaInfo;
+      try {
+        recipientAtaInfo = await connection.getAccountInfo(recipientAta);
+      } catch (error) {
+        wrapRateLimitError(error, 'getAccountInfo', 'WithdrawalService');
+      }
       if (!recipientAtaInfo) {
         instructions.push(
           createAssociatedTokenAccountInstruction(
@@ -142,10 +149,21 @@ export class WithdrawalService {
 
       const tx = new Transaction().add(...instructions);
       tx.feePayer = publicKey;
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      let blockhashResult;
+      try {
+        blockhashResult = await connection.getLatestBlockhash();
+      } catch (error) {
+        wrapRateLimitError(error, 'getLatestBlockhash', 'WithdrawalService');
+      }
+      tx.recentBlockhash = blockhashResult.blockhash;
 
       const signed = await wallet.signTransaction(tx);
-      const sig = await connection.sendRawTransaction(signed.serialize());
+      let sig;
+      try {
+        sig = await connection.sendRawTransaction(signed.serialize());
+      } catch (error) {
+        wrapRateLimitError(error, 'sendRawTransaction', 'WithdrawalService');
+      }
 
       onStatusChange?.({
         status: 'completed',

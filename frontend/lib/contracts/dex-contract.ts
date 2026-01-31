@@ -20,8 +20,11 @@ import {
   derivePendingDepositPda,
   derivePendingWithdrawalPda,
 } from '@/lib/constants/addresses';
+import { isRateLimitError, wrapRateLimitError } from '@/lib/utils/rate-limit';
 
 import type { RSVSignature } from 'signet.js';
+
+export { RateLimitError } from '@/lib/utils/rate-limit';
 
 const COMPUTE_UNITS_FOR_DERIVATION = 400_000;
 const PRIORITY_FEE_MICRO_LAMPORTS = 50_000;
@@ -104,35 +107,47 @@ export class DexContract {
     const payerKey = payer || this.wallet.publicKey;
     const program = this.getDexProgram();
 
-    const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash('confirmed');
+    let blockhash: string;
+    let lastValidBlockHeight: number;
+    try {
+      const result = await this.connection.getLatestBlockhash('confirmed');
+      blockhash = result.blockhash;
+      lastValidBlockHeight = result.lastValidBlockHeight;
+    } catch (error) {
+      wrapRateLimitError(error, 'depositErc20.getLatestBlockhash', 'DexContract');
+    }
 
     const [pendingDepositPda] = derivePendingDepositPda(requestIdBytes);
 
-    const signature = await program.methods
-      .depositErc20(
-        requestIdBytes as unknown as number[],
-        requester,
-        erc20AddressBytes as unknown as number[],
-        recipientAddressBytes as unknown as number[],
-        amount,
-        evmParams,
-      )
-      .accountsPartial({
-        payer: payerKey,
-        pendingDeposit: pendingDepositPda,
-        feePayer: payerKey,
-        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-      })
-      .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({
-          units: COMPUTE_UNITS_FOR_DERIVATION,
-        }),
-        ComputeBudgetProgram.setComputeUnitPrice({
-          microLamports: PRIORITY_FEE_MICRO_LAMPORTS,
-        }),
-      ])
-      .rpc();
+    let signature: string;
+    try {
+      signature = await program.methods
+        .depositErc20(
+          requestIdBytes as unknown as number[],
+          requester,
+          erc20AddressBytes as unknown as number[],
+          recipientAddressBytes as unknown as number[],
+          amount,
+          evmParams,
+        )
+        .accountsPartial({
+          payer: payerKey,
+          pendingDeposit: pendingDepositPda,
+          feePayer: payerKey,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({
+            units: COMPUTE_UNITS_FOR_DERIVATION,
+          }),
+          ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: PRIORITY_FEE_MICRO_LAMPORTS,
+          }),
+        ])
+        .rpc();
+    } catch (error) {
+      wrapRateLimitError(error, 'depositErc20.rpc', 'DexContract');
+    }
 
     await this.confirmTransactionOrThrow(signature, blockhash, lastValidBlockHeight);
 
@@ -156,21 +171,25 @@ export class DexContract {
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
     const program = this.getDexProgram();
 
-    return await program.methods
-      .claimErc20(
-        Array.from(requestIdBytes) as unknown as number[],
-        Buffer.from(serializedOutput),
-        signature,
-      )
-      .accounts({
-        userBalance: userBalancePda,
-      })
-      .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({
-          units: COMPUTE_UNITS_FOR_DERIVATION,
-        }),
-      ])
-      .rpc();
+    try {
+      return await program.methods
+        .claimErc20(
+          Array.from(requestIdBytes) as unknown as number[],
+          Buffer.from(serializedOutput),
+          signature,
+        )
+        .accounts({
+          userBalance: userBalancePda,
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({
+            units: COMPUTE_UNITS_FOR_DERIVATION,
+          }),
+        ])
+        .rpc();
+    } catch (error) {
+      wrapRateLimitError(error, 'claimErc20.rpc', 'DexContract');
+    }
   }
 
   async withdrawErc20({
@@ -220,16 +239,29 @@ export class DexContract {
       .transaction();
 
     tx.feePayer = authority;
-    const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash('confirmed');
+
+    let blockhash: string;
+    let lastValidBlockHeight: number;
+    try {
+      const result = await this.connection.getLatestBlockhash('confirmed');
+      blockhash = result.blockhash;
+      lastValidBlockHeight = result.lastValidBlockHeight;
+    } catch (error) {
+      wrapRateLimitError(error, 'withdrawErc20.getLatestBlockhash', 'DexContract');
+    }
     tx.recentBlockhash = blockhash;
 
     const signedTx = await this.wallet.signTransaction(tx);
 
-    const signature = await this.connection.sendRawTransaction(
-      signedTx.serialize(),
-      { skipPreflight: true },
-    );
+    let signature: string;
+    try {
+      signature = await this.connection.sendRawTransaction(
+        signedTx.serialize(),
+        { skipPreflight: true },
+      );
+    } catch (error) {
+      wrapRateLimitError(error, 'withdrawErc20.sendRawTransaction', 'DexContract');
+    }
 
     return { signature, blockhash, lastValidBlockHeight };
   }
@@ -251,21 +283,25 @@ export class DexContract {
     const [userBalancePda] = deriveUserBalancePda(requester, erc20Bytes);
     const program = this.getDexProgram();
 
-    return await program.methods
-      .completeWithdrawErc20(
-        Array.from(requestIdBytes) as unknown as number[],
-        Buffer.from(serializedOutput),
-        signature,
-      )
-      .accounts({
-        userBalance: userBalancePda,
-      })
-      .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({
-          units: COMPUTE_UNITS_FOR_DERIVATION,
-        }),
-      ])
-      .rpc();
+    try {
+      return await program.methods
+        .completeWithdrawErc20(
+          Array.from(requestIdBytes) as unknown as number[],
+          Buffer.from(serializedOutput),
+          signature,
+        )
+        .accounts({
+          userBalance: userBalancePda,
+        })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({
+            units: COMPUTE_UNITS_FOR_DERIVATION,
+          }),
+        ])
+        .rpc();
+    } catch (error) {
+      wrapRateLimitError(error, 'completeWithdrawErc20.rpc', 'DexContract');
+    }
   }
 
   deriveDepositAddress(publicKey: PublicKey): string {
@@ -281,6 +317,7 @@ export class DexContract {
   /**
    * Confirms a transaction with proper handling of blockhash expiration.
    * When blockhash expires, checks status once - if not landed, it never will.
+   * Rate limit errors (429) are detected and wrapped for graceful handling.
    */
   async confirmTransactionOrThrow(
     signature: TransactionSignature,
@@ -297,6 +334,11 @@ export class DexContract {
         throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`);
       }
     } catch (error) {
+      // Check for rate limit first - fail fast for later recovery
+      if (isRateLimitError(error)) {
+        wrapRateLimitError(error, 'confirmTransaction', 'DexContract');
+      }
+
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       // Blockhash expired - check final status once
@@ -304,7 +346,12 @@ export class DexContract {
         errorMessage.includes('block height exceeded') ||
         errorMessage.includes('expired')
       ) {
-        const response = await this.connection.getSignatureStatuses([signature]);
+        let response;
+        try {
+          response = await this.connection.getSignatureStatuses([signature]);
+        } catch (statusError) {
+          wrapRateLimitError(statusError, 'getSignatureStatuses', 'DexContract');
+        }
         const status = response.value[0];
 
         if (status) {
