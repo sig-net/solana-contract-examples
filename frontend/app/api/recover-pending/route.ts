@@ -6,6 +6,7 @@ import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
 
 import { recoverDeposit, recoverWithdrawal } from '@/lib/relayer/handlers';
 import { registerTx } from '@/lib/relayer/tx-registry';
+import { withFunctionDeadline } from '@/lib/relayer/function-deadline';
 import { getRelayerSolanaKeypair } from '@/lib/utils/relayer-setup';
 import {
   derivePendingDepositPda,
@@ -48,7 +49,10 @@ async function recoverPendingTx<T extends { requester: PublicKey }>(params: {
 
   after(async () => {
     try {
-      await params.runRecovery(account);
+      await withFunctionDeadline(params.requestId, params.type, async () => {
+        await params.runRecovery(account);
+        return { ok: true };
+      });
     } catch (error) {
       console.error(`${params.type} recovery error:`, error);
     }

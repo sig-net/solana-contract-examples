@@ -4,4 +4,6 @@ export const TIMEOUTS = {
   ETHEREUM_RECEIPT: 180_000,
   BALANCE_POLLING: 300_000,
   SOLANA_CONFIRMATION: 120_000,
+  // Deadline before Vercel's maxDuration (300s) to save state gracefully
+  FUNCTION_DEADLINE: 270_000,
 } as const;

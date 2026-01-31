@@ -4,6 +4,7 @@ import { keccak256, encodePacked } from 'viem';
 
 import { handleDeposit } from '@/lib/relayer/handlers';
 import { registerTx } from '@/lib/relayer/tx-registry';
+import { withFunctionDeadline } from '@/lib/relayer/function-deadline';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -38,15 +39,20 @@ export async function POST(request: NextRequest) {
 
     after(async () => {
       try {
-        const result = await handleDeposit({
-          userAddress,
-          erc20Address,
-          ethereumAddress,
+        const result = await withFunctionDeadline(
           trackingId,
-        });
+          'deposit',
+          () =>
+            handleDeposit({
+              userAddress,
+              erc20Address,
+              ethereumAddress,
+              trackingId,
+            }),
+        );
         if (!result.ok) {
           console.error('Deposit processing failed:', result.error);
-        } else {
+        } else if ('requestId' in result) {
           console.log('Deposit processed successfully:', result.requestId);
         }
       } catch (error) {
