@@ -28,8 +28,12 @@ import {
   getErc20Token,
 } from '@/lib/constants/token-metadata';
 import { TIMEOUTS } from '@/lib/constants/timeouts';
+import { RateLimitError, isRateLimitError } from '@/lib/utils/rate-limit';
 
 function extractErrorMessage(error: unknown, context: string): string {
+  if (error instanceof RateLimitError) {
+    return `Rate limited during ${context}. Use recovery endpoint to retry.`;
+  }
   return error instanceof Error
     ? error.message
     : `Unexpected error during ${context}: ${String(error)}`;
@@ -532,10 +536,18 @@ async function monitorTokenBalance(
       // Log once per unique error to help debugging without flooding logs
       const currentError =
         error instanceof Error ? error : new Error(String(error));
+      const isRateLimit = isRateLimitError(currentError);
+
       if (!lastError || lastError.message !== currentError.message) {
-        console.warn(
-          `[BalanceMonitor] RPC error for ${address}: ${currentError.message}`,
-        );
+        if (isRateLimit) {
+          console.warn(
+            `[BalanceMonitor] Rate limited for ${address}, will retry on next interval`,
+          );
+        } else {
+          console.warn(
+            `[BalanceMonitor] RPC error for ${address}: ${currentError.message}`,
+          );
+        }
         lastError = currentError;
       }
       // Don't reset stability on RPC error - transient network issues shouldn't discard confirmed balance

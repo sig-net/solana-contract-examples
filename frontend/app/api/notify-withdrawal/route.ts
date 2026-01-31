@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { handleWithdrawal } from '@/lib/relayer/handlers';
 import { registerTx } from '@/lib/relayer/tx-registry';
+import { withFunctionDeadline } from '@/lib/relayer/function-deadline';
 import type {
   EvmTransactionRequest,
   EvmTransactionRequestNotifyWithdrawal,
@@ -64,18 +65,23 @@ export async function POST(request: NextRequest) {
 
     after(async () => {
       try {
-        const result = await handleWithdrawal({
+        const result = await withFunctionDeadline(
           requestId,
-          requester: userAddress,
-          erc20Address,
-          transactionParams: parseTransactionParams(transactionParams),
-          solanaInitTxHash,
-          blockhash,
-          lastValidBlockHeight,
-        });
+          'withdrawal',
+          () =>
+            handleWithdrawal({
+              requestId,
+              requester: userAddress,
+              erc20Address,
+              transactionParams: parseTransactionParams(transactionParams),
+              solanaInitTxHash,
+              blockhash,
+              lastValidBlockHeight,
+            }),
+        );
         if (!result.ok) {
           console.error('Withdrawal processing failed:', result.error);
-        } else {
+        } else if ('requestId' in result) {
           console.log('Withdrawal processed successfully:', result.requestId);
         }
       } catch (error) {

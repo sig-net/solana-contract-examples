@@ -1,18 +1,19 @@
 import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { toBytes } from 'viem';
-import { PublicKey, Connection } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
 
 import { recoverDeposit, recoverWithdrawal } from '@/lib/relayer/handlers';
 import { registerTx } from '@/lib/relayer/tx-registry';
+import { withFunctionDeadline } from '@/lib/relayer/function-deadline';
 import { getRelayerSolanaKeypair } from '@/lib/utils/relayer-setup';
 import {
   derivePendingDepositPda,
   derivePendingWithdrawalPda,
 } from '@/lib/constants/addresses';
 import { IDL, type SolanaDexContract } from '@/lib/program/idl-sol-dex';
-import { getAlchemySolanaDevnetRpcUrl } from '@/lib/rpc';
+import { getServerConnection } from '@/lib/rpc/server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -48,7 +49,10 @@ async function recoverPendingTx<T extends { requester: PublicKey }>(params: {
 
   after(async () => {
     try {
-      await params.runRecovery(account);
+      await withFunctionDeadline(params.requestId, params.type, async () => {
+        await params.runRecovery(account);
+        return { ok: true };
+      });
     } catch (error) {
       console.error(`${params.type} recovery error:`, error);
     }
@@ -79,7 +83,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const connection = new Connection(getAlchemySolanaDevnetRpcUrl(), 'confirmed');
+    const connection = getServerConnection();
 
     const keypair = getRelayerSolanaKeypair();
     const wallet = {

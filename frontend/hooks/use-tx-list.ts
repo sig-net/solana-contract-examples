@@ -23,7 +23,8 @@ export function useTxList() {
       return res.json();
     },
     enabled: !!userAddress,
-    staleTime: 2000,
-    refetchInterval: 3000,
+    staleTime: 10000,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false,
   });
 }

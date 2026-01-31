@@ -66,8 +66,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       fakenet-signer:
-        specifier: ^1.7.0
-        version: 1.7.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)
+        specifier: 1.7.1-beta.0
+        version: 1.7.1-beta.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)
       lucide-react:
         specifier: ^0.525.0
         version: 0.525.0(react@19.2.3)
@@ -87,8 +87,8 @@ importers:
         specifier: ^7.61.1
         version: 7.61.1(react@19.2.3)
       signet.js:
-        specifier: ^0.3.0
-        version: 0.3.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8)
+        specifier: 0.3.1-beta.1
+        version: 0.3.1-beta.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8)
       sonner:
         specifier: ^2.0.6
         version: 2.0.6(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -3673,8 +3673,8 @@ packages:
     resolution: {integrity: sha512-GipyPsXO1anza0AOZdy69Im7hGFCNB7Y/NGjDlZGJ3GJJLtwNSb2vrzYrTYJRrRloVx7pl+bhUaTB8yiccPvFQ==}
     engines: {node: '> 0.1.90'}
 
-  fakenet-signer@1.7.0:
-    resolution: {integrity: sha512-DkdlU8s0mWAHOgTR58pPIavQ2TIMeUbq+qGowiS7YsLl+wBDnVrJy5qgpu6XkpFk0PoASCNdtunpKZoiruZa0A==}
+  fakenet-signer@1.7.1-beta.0:
+    resolution: {integrity: sha512-PsDs4JCdq6tTw1FS2t6d6o9Qx3oPG87oxDuiYN/xyhwzuiDF/I1SJCY4PeyoUQirVAM8TdIO24JlpTZ16+Yfdg==}
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
@@ -5130,8 +5130,8 @@ packages:
   signal-exit@3.0.7:
     resolution: {integrity: sha512-wnD2ZE+l+SPC/uoS0vXeE9L1+0wuaMqKlfz9AMUo38JsyLSBWSFcHR1Rri62LZc12vLr1gb3jl7iwQhgwpAbGQ==}
 
-  signet.js@0.3.0:
-    resolution: {integrity: sha512-IwW7U8e7kOaSu2pRNFZipCWLeLMhbIIiamp5SpA1CcAptXCMx10nLHNMpAOX8nt111VlP7PJ+bd0Q8WNv22JNw==}
+  signet.js@0.3.1-beta.1:
+    resolution: {integrity: sha512-HvYn66VafUBV8SSK7eJEJNmm2EQeD6ZQ/O64zTx47M8O9OcOh55f6xibTQbmTNMVOiXqsw5PCCAKt0wfQ/AVLA==}
 
   slash@3.0.0:
     resolution: {integrity: sha512-g9Q1haeby36OSStwb4ntCGGGaKsaVSjQ68fBxoQcutl5fS1vuY18H3wSt3jFyFtrkx+Kz0V1G85A4MyAdDMi2Q==}
@@ -10189,6 +10189,11 @@ snapshots:
       typescript: 5.8.3
       zod: 4.0.8
 
+  abitype@1.0.8(typescript@5.8.3)(zod@4.3.5):
+    optionalDependencies:
+      typescript: 5.8.3
+      zod: 4.3.5
+
   abort-controller@3.0.0:
     dependencies:
       event-target-shim: 5.0.1
@@ -11133,7 +11138,7 @@ snapshots:
 
   eyes@0.1.8: {}
 
-  fakenet-signer@1.7.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10):
+  fakenet-signer@1.7.1-beta.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10):
     dependencies:
       '@coral-xyz/anchor': 0.31.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@solana/web3.js': 1.98.2(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)
@@ -11144,11 +11149,13 @@ snapshots:
       dotenv: 17.2.3
       ecpair: 2.1.0
       ethers: 6.15.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      signet.js: 0.3.1-beta.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.3.5)
       tiny-secp256k1: 2.2.4
       tsx: 4.21.0
       zod: 4.3.5
     transitivePeerDependencies:
       - bufferutil
+      - debug
       - encoding
       - supports-color
       - typescript
@@ -12265,6 +12272,21 @@ snapshots:
     transitivePeerDependencies:
       - zod
 
+  ox@0.8.1(typescript@5.8.3)(zod@4.3.5):
+    dependencies:
+      '@adraffy/ens-normalize': 1.11.0
+      '@noble/ciphers': 1.3.0
+      '@noble/curves': 1.9.2
+      '@noble/hashes': 1.8.0
+      '@scure/bip32': 1.7.0
+      '@scure/bip39': 1.6.0
+      abitype: 1.0.8(typescript@5.8.3)(zod@4.3.5)
+      eventemitter3: 5.0.1
+    optionalDependencies:
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - zod
+
   p-limit@2.3.0:
     dependencies:
       p-try: 2.2.0
@@ -12783,7 +12805,7 @@ snapshots:
 
   signal-exit@3.0.7: {}
 
-  signet.js@0.3.0(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8):
+  signet.js@0.3.1-beta.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8):
     dependencies:
       '@coral-xyz/anchor': 0.31.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@cosmjs/amino': 0.32.4
@@ -12802,6 +12824,33 @@ snapshots:
       cosmjs-types: 0.9.0
       elliptic: 6.6.1
       viem: 2.31.7(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.0.8)
+    transitivePeerDependencies:
+      - bufferutil
+      - debug
+      - encoding
+      - typescript
+      - utf-8-validate
+      - zod
+
+  signet.js@0.3.1-beta.1(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.3.5):
+    dependencies:
+      '@coral-xyz/anchor': 0.31.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      '@cosmjs/amino': 0.32.4
+      '@cosmjs/crypto': 0.32.4
+      '@cosmjs/encoding': 0.32.4
+      '@cosmjs/math': 0.32.4
+      '@cosmjs/proto-signing': 0.32.4
+      '@cosmjs/stargate': 0.32.4(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      '@scure/base': 1.2.6
+      '@solana/web3.js': 1.98.2(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)
+      bech32: 2.0.0
+      bitcoinjs-lib: 6.1.7
+      bn.js: 5.2.2
+      chain-registry: 1.69.462
+      coinselect: 3.1.13
+      cosmjs-types: 0.9.0
+      elliptic: 6.6.1
+      viem: 2.31.7(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.3.5)
     transitivePeerDependencies:
       - bufferutil
       - debug
@@ -13222,6 +13271,23 @@ snapshots:
       abitype: 1.0.8(typescript@5.8.3)(zod@4.0.8)
       isows: 1.0.7(ws@8.18.2(bufferutil@4.0.9)(utf-8-validate@5.0.10))
       ox: 0.8.1(typescript@5.8.3)(zod@4.0.8)
+      ws: 8.18.2(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+    optionalDependencies:
+      typescript: 5.8.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+      - zod
+
+  viem@2.31.7(bufferutil@4.0.9)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@4.3.5):
+    dependencies:
+      '@noble/curves': 1.9.2
+      '@noble/hashes': 1.8.0
+      '@scure/bip32': 1.7.0
+      '@scure/bip39': 1.6.0
+      abitype: 1.0.8(typescript@5.8.3)(zod@4.3.5)
+      isows: 1.0.7(ws@8.18.2(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+      ox: 0.8.1(typescript@5.8.3)(zod@4.3.5)
       ws: 8.18.2(bufferutil@4.0.9)(utf-8-validate@5.0.10)
     optionalDependencies:
       typescript: 5.8.3

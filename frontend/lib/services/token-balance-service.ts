@@ -10,6 +10,7 @@ import {
 } from '@/lib/constants/token-metadata';
 import type { DexContract } from '@/lib/contracts/dex-contract';
 import { getAlchemyProvider } from '@/lib/rpc';
+import { isRateLimitError } from '@/lib/utils/rate-limit';
 
 /**
  * TokenBalanceService handles all token balance operations including
@@ -57,6 +58,12 @@ export class TokenBalanceService {
 
       return results;
     } catch (error) {
+      if (isRateLimitError(error)) {
+        console.warn(
+          '[TokenBalanceService] Alchemy rate limited during batch balance fetch, returning empty',
+        );
+        return [];
+      }
       console.error('Error batch fetching token balances:', error);
       // Fallback to individual calls
       return this.fallbackBatchFetch(address, tokenAddresses);
@@ -82,12 +89,22 @@ export class TokenBalanceService {
         const decimals = await fetchErc20Decimals(tokenAddress);
         return { address: tokenAddress, balance: balanceBigInt, decimals };
       } catch (error) {
+        if (isRateLimitError(error)) {
+          console.warn(
+            `[TokenBalanceService] Alchemy rate limited fetching balance for ${tokenAddress}, skipping`,
+          );
+          return null;
+        }
         console.error(`Error fetching balance for ${tokenAddress}:`, error);
         throw error;
       }
     });
 
-    return Promise.all(balancePromises);
+    const results = await Promise.all(balancePromises);
+    return results.filter(
+      (result): result is { address: string; balance: bigint; decimals: number } =>
+        result !== null,
+    );
   }
 
   /**
@@ -197,6 +214,12 @@ export class TokenBalanceService {
               // Account doesn't exist or no balance
               return null;
             } catch (e) {
+              if (isRateLimitError(e)) {
+                console.warn(
+                  `[TokenBalanceService] Rate limited fetching balance for ${token.symbol}, skipping`,
+                );
+                return null;
+              }
               console.warn(`Failed to fetch balance for ${token.symbol}:`, e);
               return null;
             }

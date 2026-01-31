@@ -32,10 +32,10 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
       ? [...queryKeys.solana.all, 'walletTransactions', publicKey.toString()]
       : [],
     enabled: !!publicKey,
-    staleTime: 3 * 1000,
+    staleTime: 15 * 1000,
     gcTime: 30 * 60_000,
-    refetchInterval: 5 * 1000,
-    refetchIntervalInBackground: true,
+    refetchInterval: 15 * 1000,
+    refetchIntervalInBackground: false,
 
     queryFn: async (): Promise<SolanaWalletTransactionItem[]> => {
       if (!publicKey) throw new Error('No public key available');

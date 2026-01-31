@@ -26,8 +26,8 @@ export function useUserBalances() {
       return tokenBalanceService.fetchUserBalances(publicKey);
     },
     enabled: !!publicKey && !!tokenBalanceService,
-    staleTime: 3 * 1000,
-    refetchInterval: 5 * 1000,
-    refetchIntervalInBackground: true,
+    staleTime: 15 * 1000,
+    refetchInterval: 15 * 1000,
+    refetchIntervalInBackground: false,
   });
 }
