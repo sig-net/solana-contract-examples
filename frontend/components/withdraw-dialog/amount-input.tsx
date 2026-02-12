@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { SendIcon } from 'lucide-react';
+import { Loader2, SendIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,7 @@ export function AmountInput({
     preSelectedToken || availableTokens[0] || undefined,
   );
   const [error, setError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { data: priceData } = useTokenPrice(selectedToken?.symbol ?? '');
 
@@ -58,11 +59,13 @@ export function AmountInput({
   }, [preSelectedToken]);
 
   const onFormSubmit = (data: FormData) => {
+    if (isSubmitting) return;
     if (!selectedToken) {
       setError('Please select a token');
       return;
     }
 
+    setIsSubmitting(true);
     setError('');
     onSubmit({
       token: selectedToken,
@@ -153,17 +156,28 @@ export function AmountInput({
       <Button
         type='submit'
         variant='secondary'
-        disabled={!selectedToken || !watchedAmount || !watchedAddress}
+        disabled={
+          isSubmitting || !selectedToken || !watchedAmount || !watchedAddress
+        }
         className={cn(
           'h-12 w-full text-base font-semibold',
-          !selectedToken || !watchedAmount || !watchedAddress
+          isSubmitting || !selectedToken || !watchedAmount || !watchedAddress
             ? 'cursor-not-allowed'
             : 'cursor-pointer',
         )}
         size='lg'
       >
-        <SendIcon className='size-4' />
-        Send
+        {isSubmitting ? (
+          <>
+            <Loader2 className='size-4 animate-spin' />
+            Sending...
+          </>
+        ) : (
+          <>
+            <SendIcon className='size-4' />
+            Send
+          </>
+        )}
       </Button>
     </form>
   );

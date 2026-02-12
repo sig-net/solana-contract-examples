@@ -63,8 +63,13 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
     setSelectedNetwork(network);
   };
 
+  const [isNotifying, setIsNotifying] = useState(false);
+
   const handleNotifyRelayer = async () => {
     if (!isConnected || !account || !selectedToken || !selectedNetwork) return;
+    if (isNotifying) return;
+
+    setIsNotifying(true);
 
     // For Solana assets, no relayer notification is needed; user deposits directly to own wallet
     if (selectedNetwork.chain === 'solana') {
@@ -84,6 +89,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
       });
       handleClose();
     } catch (err) {
+      setIsNotifying(false);
       toast.error('Failed to notify relayer', {
         description: err instanceof Error ? err.message : 'Unknown error',
       });
@@ -93,6 +99,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const handleClose = () => {
     setSelectedToken(null);
     setSelectedNetwork(null);
+    setIsNotifying(false);
     onOpenChange(false);
   };
 
@@ -165,6 +172,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
                     ? solDepositAddress
                     : depositAddress || ''
                 }
+                isSubmitting={isNotifying}
                 onContinue={handleNotifyRelayer}
               />
             </div>

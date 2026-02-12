@@ -1,15 +1,18 @@
 'use client';
 
-import { useEffect } from 'react';
-import { Package } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, Package } from 'lucide-react';
 
 import { BalanceDisplay } from '@/components/balance-display';
+import { Button } from '@/components/ui/button';
+import { DepositDialog } from '@/components/deposit-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useUserBalances } from '@/hooks';
 import { convertTokenBalancesToDisplayTokens } from '@/lib/utils';
 
 export function BalanceSection() {
   const { data: userBalances = [], isLoading, error } = useUserBalances();
+  const [isDepositDialogOpen, setIsDepositDialogOpen] = useState(false);
 
   const displayTokens = convertTokenBalancesToDisplayTokens(userBalances);
 
@@ -56,12 +59,32 @@ export function BalanceSection() {
 
   if (displayTokens.length === 0) {
     return (
-      <EmptyState
-        icon={Package}
-        title='No tokens found'
-        description='Deposit some tokens to get started managing your portfolio.'
-        compact
-      />
+      <div className='flex w-full max-w-full flex-col gap-5'>
+        <div className='border-dark-neutral-300 flex w-full items-center justify-between border-t py-5'>
+          <h2 className='text-dark-neutral-200 self-start font-semibold uppercase'>
+            Balances
+          </h2>
+          <Button
+            onClick={() => setIsDepositDialogOpen(true)}
+            variant='outline'
+            size='lg'
+            className='gap-1.5 font-semibold'
+          >
+            <Download className='h-4 w-4' />
+            Deposit
+          </Button>
+        </div>
+        <EmptyState
+          icon={Package}
+          title='No tokens found'
+          description='Deposit some tokens to get started managing your portfolio.'
+          compact
+        />
+        <DepositDialog
+          open={isDepositDialogOpen}
+          onOpenChange={setIsDepositDialogOpen}
+        />
+      </div>
     );
   }
 

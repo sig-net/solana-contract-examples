@@ -1,6 +1,6 @@
 'use client';
 
-import { Copy, Check, Info } from 'lucide-react';
+import { Copy, Check, Info, Loader2 } from 'lucide-react';
 import { NetworkIcon } from '@web3icons/react';
 
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ interface DepositAddressProps {
   token: TokenConfig;
   network: NetworkData;
   depositAddress: string;
+  isSubmitting: boolean;
   onContinue: () => void;
 }
 
@@ -26,6 +27,7 @@ export function DepositAddress({
   token,
   network,
   depositAddress,
+  isSubmitting,
   onContinue,
 }: DepositAddressProps) {
   const { isCopied, copyToClipboard } = useCopyToClipboard();
@@ -71,7 +73,7 @@ export function DepositAddress({
 
       <div className='flex items-center justify-center gap-2'>
         <p className='text-dark-neutral-400 text-center text-sm leading-relaxed'>
-          Use this address to deposit {token.symbol}
+          Use this address to deposit {token.name}
         </p>
         <Popover>
           <PopoverTrigger asChild>
@@ -81,30 +83,28 @@ export function DepositAddress({
           </PopoverTrigger>
           <PopoverContent side='top' className='w-72'>
             <p className='mb-2 text-xs font-medium text-stone-800'>
-              How to get {token.symbol} on testnet
+              How to get {token.name} on testnet
             </p>
-            {network.chain === 'ethereum' ? (
-              <p className='text-xs leading-relaxed text-stone-600'>
-                Get testnet {token.symbol} via{' '}
-                <a
-                  href={`https://swap.cow.fi/#/11155111/swap/ETH/${token.erc20Address}`}
-                  target='_blank'
-                  rel='noopener noreferrer'
-                  className='text-blue-600 underline hover:text-blue-700'
-                >
-                  CoWSwap on Sepolia
-                </a>
-                . First, get Sepolia ETH from a faucet, then swap for{' '}
-                {token.symbol}.
-              </p>
-            ) : (
-              <p className='text-xs leading-relaxed text-stone-600'>
-                Get testnet {token.symbol} from a Solana devnet faucet or
-                airdrop program.
-              </p>
+            <p className='text-xs leading-relaxed text-stone-600'>
+              {token.acquireHint ??
+                `Get testnet ${token.symbol} from a faucet.`}
+            </p>
+            {token.faucetUrl && (
+              <a
+                href={token.faucetUrl}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='mt-1 inline-block text-xs text-blue-600 underline hover:text-blue-700'
+              >
+                Get {token.symbol} here
+              </a>
             )}
             <div className='mt-2 rounded bg-stone-100 px-2 py-1.5'>
-              <p className='text-xs text-stone-500'>Contract Address</p>
+              <p className='text-xs text-stone-500'>
+                {network.chain === 'solana'
+                  ? 'Mint Address'
+                  : 'Contract Address'}
+              </p>
               <div className='flex items-center gap-1'>
                 <code className='break-all text-xs text-stone-700'>
                   {token.erc20Address}
@@ -127,9 +127,19 @@ export function DepositAddress({
         <Button
           onClick={onContinue}
           variant='secondary'
-          className='cursor-pointer'
+          disabled={isSubmitting}
+          className={cn(
+            isSubmitting ? 'cursor-not-allowed' : 'cursor-pointer',
+          )}
         >
-          I&apos;ve sent the tokens
+          {isSubmitting ? (
+            <>
+              <Loader2 className='h-4 w-4 animate-spin' />
+              Notifying...
+            </>
+          ) : (
+            "I've sent the tokens"
+          )}
         </Button>
       </div>
     </div>
