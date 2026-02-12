@@ -3,10 +3,6 @@ import { Program } from "@coral-xyz/anchor";
 import { ComputeBudgetProgram } from "@solana/web3.js";
 import BN from "bn.js";
 import { SolanaCoreContracts } from "../../target/types/solana_core_contracts.js";
-import { ChainSignaturesProject } from "../../types/chain_signatures_project.js";
-import IDLData from "../../idl/chain_signatures_project.json";
-
-const IDL = IDLData as ChainSignaturesProject;
 import { expect, AssertionError } from "chai";
 import * as bitcoin from "bitcoinjs-lib";
 import { secp256k1 } from "@noble/curves/secp256k1";
@@ -16,11 +12,12 @@ import * as varuint from "varuint-bitcoin";
 import { Hex, hexToBytes } from "viem";
 import {
   ChainSignatureServer,
-  RequestIdGenerator,
   BitcoinAdapterFactory,
   IBitcoinAdapter,
   CryptoUtils,
 } from "fakenet-signer";
+
+const { getRequestIdBidirectional } = contracts.solana;
 import { CONFIG, SERVER_CONFIG } from "../../utils/envConfig";
 import { randomBytes } from "crypto";
 
@@ -73,34 +70,14 @@ export type ProcessedSignature = {
   v: bigint;
 };
 
-export type SignatureRespondedEventPayload = {
-  requestId: number[];
-  responder: unknown;
-  signature: ChainSignaturePayload;
-};
-
-export type RespondBidirectionalEventPayload = {
-  requestId: number[];
-  responder: unknown;
-  serializedOutput: Buffer;
-  signature: ChainSignaturePayload;
-};
-
-export type ChainSignatureEvents = {
-  waitForSignatures: (
-    count: number
-  ) => Promise<SignatureRespondedEventPayload[]>;
-  readRespond: Promise<RespondBidirectionalEventPayload>;
-  unsubscribe: () => Promise<void>;
-  readRespondListener: number;
-  program: Program<ChainSignaturesProject>;
-};
-
 let provider: anchor.AnchorProvider;
 let program: Program<SolanaCoreContracts>;
 let btcUtils: BitcoinUtils;
 let server: ChainSignatureServer | null = null;
 let bitcoinAdapter: IBitcoinAdapter;
+let chainSignatureContract: InstanceType<
+  typeof contracts.solana.ChainSignatureContract
+>;
 
 export type BitcoinTestContext = {
   provider: anchor.AnchorProvider;
@@ -108,17 +85,33 @@ export type BitcoinTestContext = {
   btcUtils: BitcoinUtils;
   bitcoinAdapter: IBitcoinAdapter;
   server: ChainSignatureServer | null;
+  chainSignatureContract: InstanceType<
+    typeof contracts.solana.ChainSignatureContract
+  >;
 };
 
 let contextRefCount = 0;
 
 const requireContext = (): BitcoinTestContext => {
-  if (!provider || !program || !btcUtils || !bitcoinAdapter) {
+  if (
+    !provider ||
+    !program ||
+    !btcUtils ||
+    !bitcoinAdapter ||
+    !chainSignatureContract
+  ) {
     throw new Error(
       "Bitcoin test context not initialized. Call setupBitcoinTestContext first."
     );
   }
-  return { provider, program, btcUtils, bitcoinAdapter, server };
+  return {
+    provider,
+    program,
+    btcUtils,
+    bitcoinAdapter,
+    server,
+    chainSignatureContract,
+  };
 };
 
 // Bitcoin conversion
@@ -182,6 +175,14 @@ export async function setupBitcoinTestContext(): Promise<BitcoinTestContext> {
 
     btcUtils = new BitcoinUtils(CONFIG.BITCOIN_NETWORK);
     bitcoinAdapter = await BitcoinAdapterFactory.create(CONFIG.BITCOIN_NETWORK);
+
+    chainSignatureContract = new contracts.solana.ChainSignatureContract({
+      provider,
+      programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+      config: {
+        rootPublicKey: CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
+      },
+    });
 
     if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
       const serverConfig = {
@@ -363,16 +364,16 @@ const buildTransaction = (
   });
 
   const txidExplorerHex = tx.getId();
-  const requestIdHex = RequestIdGenerator.generateSignBidirectionalRequestId(
-    requestIdParams.sender,
-    Array.from(Buffer.from(txidExplorerHex, "hex")),
-    requestIdParams.caip2Id,
-    CONFIG.KEY_VERSION,
-    requestIdParams.path,
-    "ECDSA",
-    "bitcoin",
-    ""
-  ) as Hex;
+  const requestIdHex = getRequestIdBidirectional({
+    sender: requestIdParams.sender,
+    payload: Array.from(Buffer.from(txidExplorerHex, "hex")),
+    caip2Id: requestIdParams.caip2Id,
+    keyVersion: CONFIG.KEY_VERSION,
+    path: requestIdParams.path,
+    algo: "ECDSA",
+    dest: "bitcoin",
+    params: "",
+  }) as Hex;
 
   return { tx, txidExplorerHex, requestIdHex };
 };
@@ -539,16 +540,16 @@ const computePerInputRequestIds = ({
     indexLe.writeUInt32LE(i, 0);
     const txData = Buffer.concat([txidBytes, indexLe]);
 
-    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
+    const requestId = getRequestIdBidirectional({
       sender,
-      Array.from(txData),
+      payload: Array.from(txData),
       caip2Id,
-      CONFIG.KEY_VERSION,
+      keyVersion: CONFIG.KEY_VERSION,
       path,
-      CHAIN_SIG_ALGO,
-      CHAIN_SIG_DEST,
-      CHAIN_SIG_PARAMS
-    );
+      algo: CHAIN_SIG_ALGO,
+      dest: CHAIN_SIG_DEST,
+      params: CHAIN_SIG_PARAMS,
+    });
 
     ids.push(requestId);
   }
@@ -947,6 +948,67 @@ export const getMpcRootAddressBytes = (): number[] => {
   return Array.from(Buffer.from(address.slice(2), "hex"));
 };
 
+const WAIT_FOR_EVENT_CONFIG = {
+  timeoutMs: 300_000,
+  backfillIntervalMs: 15_000,
+  healthCheckIntervalMs: 15_000,
+};
+
+export type BtcEventListeners = {
+  waitForSignatureMap: () => Promise<SignatureMap>;
+  readRespond: Promise<{
+    serializedOutput: Buffer;
+    signature: ChainSignaturePayload;
+  }>;
+};
+
+/**
+ * Starts waitForEvent listeners for per-input signatures and the aggregate respondBidirectional event.
+ * Uses signet.js waitForEvent which combines WebSocket + polling backfill for reliable event detection.
+ * Must be called before submitting the Solana transaction.
+ */
+export function startBtcEventListeners(
+  signatureRequestIds: string[],
+  aggregateRequestId: string
+): BtcEventListeners {
+  const { chainSignatureContract } = requireContext();
+  const signer = new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID);
+
+  const signaturePromises = signatureRequestIds.map((reqId) =>
+    chainSignatureContract.waitForEvent({
+      eventName: "signatureRespondedEvent",
+      requestId: reqId,
+      signer,
+      ...WAIT_FOR_EVENT_CONFIG,
+    })
+  );
+
+  const respondPromise = chainSignatureContract.waitForEvent({
+    eventName: "respondBidirectionalEvent",
+    requestId: aggregateRequestId,
+    signer,
+    ...WAIT_FOR_EVENT_CONFIG,
+  });
+
+  const waitForSignatureMap = async (): Promise<SignatureMap> => {
+    const rsvSignatures = await Promise.all(signaturePromises);
+    const map: SignatureMap = new Map();
+    rsvSignatures.forEach((rsv, idx) => {
+      map.set(signatureRequestIds[idx].toLowerCase(), {
+        r: "0x" + rsv.r,
+        s: "0x" + rsv.s,
+        v: BigInt(rsv.v),
+      });
+    });
+    return map;
+  };
+
+  return {
+    waitForSignatureMap,
+    readRespond: respondPromise as BtcEventListeners["readRespond"],
+  };
+}
+
 /**
  * End-to-end helper that performs a live single-input deposit for tests: submits the Solana ix, waits for MPC signatures, signs/broadcasts Bitcoin, then claims on-chain.
  */
@@ -967,66 +1029,52 @@ export async function executeSyntheticDeposit(
   const { requestIdHex } = preparedPlan;
   const signatureRequestIds = computeSignatureRequestIds(preparedPlan);
 
-  const eventPromises = await setupEventListeners(
-    provider,
+  const events = startBtcEventListeners(signatureRequestIds, requestIdHex);
+
+  const depositTx = await program.methods
+    .depositBtc(
+      requestIdToBytes(requestIdHex),
+      preparedPlan.requester,
+      preparedPlan.btcInputs,
+      preparedPlan.btcOutputs,
+      preparedPlan.txParams
+    )
+    .accounts({
+      payer: provider.wallet.publicKey,
+      feePayer: provider.wallet.publicKey,
+      instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+    })
+    .rpc();
+  await provider.connection.confirmTransaction(depositTx);
+
+  const signatureMap = await events.waitForSignatureMap();
+
+  const psbt = buildDepositPsbt(preparedPlan);
+
+  applySignaturesToPsbt(
+    psbt,
+    signatureMap,
     signatureRequestIds,
-    requestIdHex
+    preparedPlan.vaultAuthority.compressedPubkey
   );
 
-  try {
-    const depositTx = await program.methods
-      .depositBtc(
-        requestIdToBytes(requestIdHex),
-        preparedPlan.requester,
-        preparedPlan.btcInputs,
-        preparedPlan.btcOutputs,
-        preparedPlan.txParams
-      )
-      .accounts({
-        payer: provider.wallet.publicKey,
-        feePayer: provider.wallet.publicKey,
-        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-      })
-      .rpc();
-    await provider.connection.confirmTransaction(depositTx);
+  const signedTx = psbt.extractTransaction();
+  const txHex = signedTx.toHex();
+  await bitcoinAdapter.broadcastTransaction(txHex);
 
-    const signatureEvents = await eventPromises.waitForSignatures(
-      preparedPlan.btcInputs.length
-    );
-    const signatureMap = buildSignatureMap(
-      signatureEvents,
-      signatureRequestIds
-    );
+  const readEvent = await events.readRespond;
 
-    const psbt = buildDepositPsbt(preparedPlan);
-
-    applySignaturesToPsbt(
-      psbt,
-      signatureMap,
-      signatureRequestIds,
-      preparedPlan.vaultAuthority.compressedPubkey
-    );
-
-    const signedTx = psbt.extractTransaction();
-    const txHex = signedTx.toHex();
-    await bitcoinAdapter.broadcastTransaction(txHex);
-
-    const readEvent = await eventPromises.readRespond;
-
-    const claimTx = await program.methods
-      .claimBtc(
-        requestIdToBytes(requestIdHex),
-        Buffer.from(readEvent.serializedOutput),
-        readEvent.signature
-      )
-      .preInstructions([
-        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
-      ])
-      .rpc();
-    await provider.connection.confirmTransaction(claimTx);
-  } finally {
-    await cleanupEventListeners(eventPromises);
-  }
+  const claimTx = await program.methods
+    .claimBtc(
+      requestIdToBytes(requestIdHex),
+      Buffer.from(readEvent.serializedOutput),
+      readEvent.signature
+    )
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+    ])
+    .rpc();
+  await provider.connection.confirmTransaction(claimTx);
 
   return amount;
 }
@@ -1582,242 +1630,7 @@ async function ensureVaultConfigInitialized(
   }
 }
 
-/**
- * Subscribes to Chain Signatures program events and returns helpers for awaiting per-input signatures and the aggregate read response.
- * Handles filtering, buffering, and cleanup hooks used by the BTC integration tests.
- */
-export async function setupEventListeners(
-  provider: anchor.AnchorProvider,
-  signatureRequestIds: string[],
-  aggregateRequestId: string
-): Promise<ChainSignatureEvents> {
-  // Promise for the aggregate read response.
-  let readRespondResolve!: (value: RespondBidirectionalEventPayload) => void;
-
-  const readRespondPromise = new Promise<RespondBidirectionalEventPayload>(
-    (resolve) => {
-      readRespondResolve = resolve;
-    }
-  );
-
-  // Buffers matched signature events and a single waiter (only one waitForSignatures call per flow).
-  const matchedSignatureEvents: SignatureRespondedEventPayload[] = [];
-  let pendingSignatureWaiter:
-    | {
-        count: number;
-        resolve: (events: SignatureRespondedEventPayload[]) => void;
-        reject: (reason?: unknown) => void;
-      }
-    | undefined;
-
-  const tryResolveSignatureWaiter = () => {
-    if (
-      pendingSignatureWaiter &&
-      matchedSignatureEvents.length >= pendingSignatureWaiter.count
-    ) {
-      const events = matchedSignatureEvents.slice(
-        0,
-        pendingSignatureWaiter.count
-      );
-      pendingSignatureWaiter.resolve(events);
-      pendingSignatureWaiter = undefined;
-    }
-  };
-
-  const waitForSignatures = (
-    count: number
-  ): Promise<SignatureRespondedEventPayload[]> => {
-    const expectedCount = Math.max(0, count);
-    if (expectedCount === 0) {
-      return Promise.resolve([]);
-    }
-    if (matchedSignatureEvents.length >= expectedCount) {
-      return Promise.resolve(matchedSignatureEvents.slice(0, expectedCount));
-    }
-
-    return new Promise((resolve, reject) => {
-      pendingSignatureWaiter = { count: expectedCount, resolve, reject };
-    });
-  };
-
-  const rootPublicKeyUncompressed = secp256k1.getPublicKey(
-    CONFIG.MPC_ROOT_PRIVATE_KEY.slice(2),
-    false
-  );
-
-  // Normalize the MPC root pubkey to the format signet.js expects (no 0x04 prefix, base58-encoded, prefixed with scheme).
-  const publicKeyBytes = rootPublicKeyUncompressed.slice(1);
-  const base58PublicKey = anchor.utils.bytes.bs58.encode(publicKeyBytes);
-  const rootPublicKeyForSignet = `secp256k1:${base58PublicKey}`;
-
-  // Construct a ChainSignatureContract client for event subscriptions.
-  const signetContract = new contracts.solana.ChainSignatureContract({
-    provider,
-    programId: new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
-    config: {
-      rootPublicKey: rootPublicKeyForSignet as `secp256k1:${string}`,
-    },
-  });
-
-  const signatureRequestIdSet = new Set(
-    signatureRequestIds.map((id) => id.toLowerCase())
-  );
-  const aggregateRequestIdLower = aggregateRequestId.toLowerCase();
-
-  const toHexId = (bytes: ArrayLike<number>): string =>
-    ("0x" + Buffer.from(bytes).toString("hex")).toLowerCase();
-
-  console.log("  🔍 Subscribing to Chain Signatures events");
-  console.log(
-    `    ▶️ Expecting ${signatureRequestIds.length} signature request id(s)`
-  );
-  signatureRequestIds.forEach((id, idx) => {
-    console.log(`    • sigReqId[${idx}]: ${id}`);
-  });
-  console.log(`    • respondId: ${aggregateRequestId}`);
-
-  // Subscribe to per-input signature responses and errors, buffering matches and waking any waiters.
-  const unsubscribe = await signetContract.subscribeToEvents({
-    onSignatureResponded: (event: SignatureRespondedEventPayload, slot) => {
-      const eventRequestId = toHexId(event.requestId);
-      const isMatch = signatureRequestIdSet.has(eventRequestId);
-      console.log(
-        "    📨 onSignatureResponded slot=%s eventId=%s match=%s",
-        slot ?? "n/a",
-        eventRequestId,
-        isMatch
-      );
-
-      if (isMatch) {
-        matchedSignatureEvents.push(event);
-        tryResolveSignatureWaiter();
-      } else {
-        console.log("    ⚠️ Ignoring unrelated signature event");
-      }
-    },
-    onSignatureError: (event, slot) => {
-      const eventRequestId = toHexId(event.requestId);
-      const isMatch = signatureRequestIdSet.has(eventRequestId);
-      console.log(
-        "    ❌ onSignatureError slot=%s eventId=%s match=%s error=%s",
-        slot ?? "n/a",
-        eventRequestId,
-        isMatch,
-        event.error
-      );
-
-      if (isMatch) {
-        const error = new Error(event.error);
-        if (pendingSignatureWaiter) {
-          pendingSignatureWaiter.reject(error);
-          pendingSignatureWaiter = undefined;
-        }
-      } else {
-        console.log("    ⚠️ Ignoring unrelated signature error event");
-      }
-    },
-  });
-
-  // Independently listen for the aggregate read/claim response on the Anchor program to resolve the read promise.
-  const program: Program<ChainSignaturesProject> =
-    new anchor.Program<ChainSignaturesProject>(IDL, provider);
-
-  const readRespondListener = program.addEventListener(
-    "respondBidirectionalEvent",
-    (event: RespondBidirectionalEventPayload, slot: number) => {
-      const eventRequestId = toHexId(event.requestId);
-      const isMatch = eventRequestId === aggregateRequestIdLower;
-      console.log(
-        "    📨 respondBidirectionalEvent slot=%s eventId=%s match=%s",
-        slot ?? "n/a",
-        eventRequestId,
-        isMatch
-      );
-
-      if (isMatch) {
-        readRespondResolve(event);
-      } else {
-        console.log("    ⚠️ Ignoring unrelated respondBidirectional event");
-      }
-    }
-  );
-
-  return {
-    waitForSignatures,
-    readRespond: readRespondPromise,
-    unsubscribe,
-    readRespondListener,
-    program,
-  };
-}
-
-/**
- * Normalizes a Chain Signatures event payload into {r,s,v} hex components.
- */
-export function extractSignature(
-  event: SignatureRespondedEventPayload
-): ProcessedSignature {
-  const signature = event.signature;
-  if (!signature) {
-    throw new Error("Signature event did not contain any signatures");
-  }
-
-  const rBytes = signature.bigR?.x;
-  const sBytes = signature.s;
-  const { recoveryId } = signature;
-
-  if (!rBytes || !sBytes || recoveryId === undefined) {
-    throw new Error("Malformed signature payload in event");
-  }
-
-  const r = `0x${Buffer.from(rBytes).toString("hex")}`;
-  const s = `0x${Buffer.from(sBytes).toString("hex")}`;
-  const v = BigInt(recoveryId + 27);
-
-  return { r, s, v };
-}
-
-/**
- * Unsubscribes all Chain Signatures listeners created by setupEventListeners.
- */
-export async function cleanupEventListeners(events: ChainSignatureEvents) {
-  await events.unsubscribe();
-  await events.program.removeEventListener(events.readRespondListener);
-}
-
 type SignatureMap = Map<string, ProcessedSignature>;
-
-/**
- * Validates and maps signature events to their expected request ids, throwing if any are missing or unexpected.
- */
-export const buildSignatureMap = (
-  signatureEvents: SignatureRespondedEventPayload[],
-  expectedRequestIds: string[]
-): SignatureMap => {
-  const map: SignatureMap = new Map();
-  const expectedLower = expectedRequestIds.map((id) => id.toLowerCase());
-  const expectedSet = new Set(expectedLower);
-
-  signatureEvents.forEach((event) => {
-    const eventRequestId = `0x${Buffer.from(event.requestId).toString(
-      "hex"
-    )}`.toLowerCase();
-    if (!expectedSet.has(eventRequestId)) {
-      throw new Error(
-        `Received unexpected signature for requestId ${eventRequestId}`
-      );
-    }
-
-    map.set(eventRequestId, extractSignature(event));
-  });
-
-  const missing = expectedLower.filter((id) => !map.has(id));
-  if (missing.length > 0) {
-    throw new Error(`Missing signatures for requestIds: ${missing.join(", ")}`);
-  }
-
-  return map;
-};
 
 /**
  * Inserts prepared P2WPKH witnesses into a PSBT using the supplied signature map and ordering.

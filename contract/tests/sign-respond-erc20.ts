@@ -1,14 +1,14 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ComputeBudgetProgram } from "@solana/web3.js";
+import { ComputeBudgetProgram, Connection } from "@solana/web3.js";
 import BN from "bn.js";
 import { SolanaCoreContracts } from "../target/types/solana_core_contracts";
-import { ChainSignaturesProject } from "../types/chain_signatures_project";
-import IDL from "../idl/chain_signatures_project.json";
 import { expect } from "chai";
 import { ethers } from "ethers";
 import { contracts, utils as signetUtils } from "signet.js";
-import { ChainSignatureServer, RequestIdGenerator } from "fakenet-signer";
+import { ChainSignatureServer } from "fakenet-signer";
+
+const { getRequestIdBidirectional } = contracts.solana;
 import { CONFIG, SERVER_CONFIG } from "../utils/envConfig";
 
 const COMPUTE_UNITS = 1_400_000;
@@ -168,13 +168,44 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   // Test context
   let provider: anchor.AnchorProvider;
   let program: Program<SolanaCoreContracts>;
+  let chainSignatureContract: InstanceType<
+    typeof contracts.solana.ChainSignatureContract
+  >;
   let ethUtils: EthereumUtils;
   let server: ChainSignatureServer | null = null;
 
   before(async function () {
     this.timeout(30000);
 
-    provider = anchor.AnchorProvider.env();
+    const envProvider = anchor.AnchorProvider.env();
+    const tracedConnection = new Connection(
+      envProvider.connection.rpcEndpoint,
+      {
+        commitment: "confirmed",
+        disableRetryOnRateLimit: true,
+        fetch: async (input, init) => {
+          const res = await globalThis.fetch(input, init);
+          if (res.status === 429) {
+            let method = "unknown";
+            try {
+              const body = JSON.parse(init?.body as string);
+              method = Array.isArray(body)
+                ? body.map((r: { method: string }) => r.method).join(", ")
+                : body.method ?? "unknown";
+            } catch {}
+            console.warn(
+              `\n[429 TRACE] RPC method: ${method}\n${new Error().stack}`
+            );
+          }
+          return res;
+        },
+      }
+    );
+    provider = new anchor.AnchorProvider(
+      tracedConnection,
+      envProvider.wallet,
+      anchor.AnchorProvider.defaultOptions()
+    );
     anchor.setProvider(provider);
 
     program = anchor.workspace
@@ -183,6 +214,14 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     await ensureVaultConfigInitialized(program, provider);
 
     ethUtils = new EthereumUtils();
+
+    chainSignatureContract = new contracts.solana.ChainSignatureContract({
+      provider,
+      programId: CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+      config: {
+        rootPublicKey: CONFIG.MPC_ROOT_PUBLIC_KEY as `04${string}`,
+      },
+    });
 
     if (!SERVER_CONFIG.DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER) {
       const serverConfig = {
@@ -297,16 +336,16 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("  💰 Depositing:", amountBN.toString(), "units");
 
     // Generate request ID
-    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
-      vaultAuthority.toString(),
-      Array.from(ethers.getBytes(rlpEncodedTx)),
-      CONFIG.ETHEREUM_CAIP2_ID,
-      CONFIG.KEY_VERSION,
+    const requestId = getRequestIdBidirectional({
+      sender: vaultAuthority.toString(),
+      payload: Array.from(ethers.getBytes(rlpEncodedTx)),
+      caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
+      keyVersion: CONFIG.KEY_VERSION,
       path,
-      "ECDSA",
-      "ethereum",
-      ""
-    );
+      algo: "ECDSA",
+      dest: "ethereum",
+      params: "",
+    });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
     // =====================================================
@@ -315,13 +354,26 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 3: Setting up event listeners...");
 
-    const eventPromises = await setupEventListeners(
-      provider,
-      requestId,
-      derivedAddress,
-      mpcRespondAddress,
-      rlpEncodedTx
+    const signer = new anchor.web3.PublicKey(
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
+
+    const signaturePromise = chainSignatureContract.waitForEvent({
+      eventName: "signatureRespondedEvent",
+      requestId,
+      signer,
+      timeoutMs: 300_000,
+      backfillIntervalMs: 15_000,
+      healthCheckIntervalMs: 15_000,
+    });
+    const respondBidirectionalPromise = chainSignatureContract.waitForEvent({
+      eventName: "respondBidirectionalEvent",
+      requestId,
+      signer,
+      timeoutMs: 300_000,
+      backfillIntervalMs: 15_000,
+      healthCheckIntervalMs: 15_000,
+    });
 
     // =====================================================
     // STEP 4: DEPOSIT ERC20
@@ -370,8 +422,12 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 5: Waiting for signature...");
 
-    const signatureEvent = await eventPromises.signature;
-    const signature = extractSignature(signatureEvent);
+    const rsvSignature = await signaturePromise;
+    const signature = {
+      r: "0x" + rsvSignature.r,
+      s: "0x" + rsvSignature.s,
+      v: BigInt(rsvSignature.v),
+    };
 
     // =====================================================
     // STEP 6: SUBMIT TO ETHEREUM
@@ -402,8 +458,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 7: Claiming deposit...");
 
-    const respondBidirectionalEvent =
-      (await eventPromises.respondBidirectional) as any;
+    const respondBidirectionalEvent = await respondBidirectionalPromise;
     console.log("  ✅ Got read response!");
 
     const claimTx = await program.methods
@@ -439,9 +494,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("  ✅ Expected balance:", expectedBalance.toString());
 
     expect(finalBalance.amount.toString()).to.equal(expectedBalance.toString());
-
-    // Cleanup
-    await cleanupEventListeners(eventPromises);
 
     console.log("\n🎉 ERC20 deposit flow completed successfully!");
   });
@@ -578,16 +630,16 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     const rlpEncodedTx = ethers.Transaction.from(tempTx).unsignedSerialized;
 
     // Generate request ID - using HARDCODED_ROOT_PATH
-    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
-      globalVaultAuthority.toString(),
-      Array.from(ethers.getBytes(rlpEncodedTx)),
-      CONFIG.ETHEREUM_CAIP2_ID,
-      CONFIG.KEY_VERSION,
-      "root", // HARDCODED_ROOT_PATH
-      "ECDSA",
-      "ethereum",
-      ""
-    );
+    const requestId = getRequestIdBidirectional({
+      sender: globalVaultAuthority.toString(),
+      payload: Array.from(ethers.getBytes(rlpEncodedTx)),
+      caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
+      keyVersion: CONFIG.KEY_VERSION,
+      path: "root", // HARDCODED_ROOT_PATH
+      algo: "ECDSA",
+      dest: "ethereum",
+      params: "",
+    });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
     // =====================================================
@@ -596,13 +648,26 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 4: Setting up event listeners...");
 
-    const eventPromises = await setupEventListeners(
-      provider,
-      requestId,
-      signerAddress,
-      mpcRespondAddress,
-      rlpEncodedTx
+    const signer = new anchor.web3.PublicKey(
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
+
+    const signaturePromise = chainSignatureContract.waitForEvent({
+      eventName: "signatureRespondedEvent",
+      requestId,
+      signer,
+      timeoutMs: 300_000,
+      backfillIntervalMs: 15_000,
+      healthCheckIntervalMs: 15_000,
+    });
+    const respondBidirectionalPromise = chainSignatureContract.waitForEvent({
+      eventName: "respondBidirectionalEvent",
+      requestId,
+      signer,
+      timeoutMs: 300_000,
+      backfillIntervalMs: 15_000,
+      healthCheckIntervalMs: 15_000,
+    });
 
     // =====================================================
     // STEP 5: INITIATE WITHDRAWAL
@@ -647,8 +712,12 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 6: Waiting for signature...");
 
-    const signatureEvent = await eventPromises.signature;
-    const signature = extractSignature(signatureEvent);
+    const rsvSignature = await signaturePromise;
+    const signature = {
+      r: "0x" + rsvSignature.r,
+      s: "0x" + rsvSignature.s,
+      v: BigInt(rsvSignature.v),
+    };
 
     // =====================================================
     // STEP 7: SUBMIT TO ETHEREUM
@@ -693,8 +762,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 8: Completing withdrawal...");
 
-    const respondBidirectionalEvent =
-      (await eventPromises.respondBidirectional) as any;
+    const respondBidirectionalEvent = await respondBidirectionalPromise;
 
     await program.methods
       .completeWithdrawErc20(
@@ -740,7 +808,6 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     // STEP 9: VERIFY RECIPIENT BALANCE
     // =====================================================
 
-    await cleanupEventListeners(eventPromises);
     console.log("\n🎉 ERC20 withdrawal flow completed successfully!");
   });
 
@@ -866,16 +933,16 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     const rlpEncodedTx = ethers.Transaction.from(tempTx).unsignedSerialized;
 
-    const requestId = RequestIdGenerator.generateSignBidirectionalRequestId(
-      globalVaultAuthority.toString(),
-      Array.from(ethers.getBytes(rlpEncodedTx)),
-      CONFIG.ETHEREUM_CAIP2_ID,
-      CONFIG.KEY_VERSION,
-      "root", // HARDCODED_ROOT_PATH
-      "ECDSA",
-      "ethereum",
-      ""
-    );
+    const requestId = getRequestIdBidirectional({
+      sender: globalVaultAuthority.toString(),
+      payload: Array.from(ethers.getBytes(rlpEncodedTx)),
+      caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
+      keyVersion: CONFIG.KEY_VERSION,
+      path: "root", // HARDCODED_ROOT_PATH
+      algo: "ECDSA",
+      dest: "ethereum",
+      params: "",
+    });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
     // =====================================================
@@ -884,13 +951,26 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 3: Setting up event listeners...");
 
-    const eventPromises = await setupEventListeners(
-      provider,
-      requestId,
-      signerAddress,
-      mpcRespondAddress,
-      rlpEncodedTx
+    const signer = new anchor.web3.PublicKey(
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID
     );
+
+    const signaturePromise = chainSignatureContract.waitForEvent({
+      eventName: "signatureRespondedEvent",
+      requestId,
+      signer,
+      timeoutMs: 300_000,
+      backfillIntervalMs: 15_000,
+      healthCheckIntervalMs: 15_000,
+    });
+    const respondBidirectionalPromise = chainSignatureContract.waitForEvent({
+      eventName: "respondBidirectionalEvent",
+      requestId,
+      signer,
+      timeoutMs: 300_000,
+      backfillIntervalMs: 15_000,
+      healthCheckIntervalMs: 15_000,
+    });
 
     // =====================================================
     // STEP 4: INITIATE WITHDRAWAL
@@ -933,8 +1013,12 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 5: Waiting for signature...");
 
-    const signatureEvent = await eventPromises.signature;
-    const signature = extractSignature(signatureEvent);
+    const rsvSignature = await signaturePromise;
+    const signature = {
+      r: "0x" + rsvSignature.r,
+      s: "0x" + rsvSignature.s,
+      v: BigInt(rsvSignature.v),
+    };
 
     // =====================================================
     // STEP 6: TRY TO SUBMIT (WILL FAIL)
@@ -969,8 +1053,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("\n📍 Step 7: Waiting for error response...");
 
-    const respondBidirectionalEvent =
-      (await eventPromises.respondBidirectional) as any;
+    const respondBidirectionalEvent = await respondBidirectionalPromise;
 
     // =====================================================
     // STEP 8: COMPLETE WITHDRAWAL (REFUND)
@@ -1008,137 +1091,9 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
 
     console.log("  ✅ Balance refunded:", finalBalance.amount.toString());
 
-    await cleanupEventListeners(eventPromises);
     console.log("\n🎉 Failed withdrawal handled correctly!");
   });
 });
-
-/**
- * Setup event listeners for chain signatures using signet.js
- */
-async function setupEventListeners(
-  provider: anchor.AnchorProvider,
-  requestId: string,
-  derivedAddress: string,
-  mpcRespondAddress: string,
-  rlpEncodedTx: string
-) {
-  let signatureResolve: (value: any) => void;
-  let respondBidirectionalResolve: (value: any) => void;
-
-  const signaturePromise = new Promise((resolve) => {
-    signatureResolve = resolve;
-  });
-
-  const respondBidirectionalPromise = new Promise((resolve) => {
-    respondBidirectionalResolve = resolve;
-  });
-
-  const rootPublicKeyUncompressed = Array.from(
-    Buffer.from(CONFIG.MPC_ROOT_PUBLIC_KEY.slice(2), "hex")
-  );
-
-  console.log(" 🔑 Root public key:", rootPublicKeyUncompressed);
-
-  // Remove the 04 prefix and convert to base58
-  // signet.js expects: secp256k1:{base58_of_uncompressed_key_without_04}
-  const publicKeyBytes = rootPublicKeyUncompressed.slice(1); // Remove 04 prefix
-  const base58PublicKey = anchor.utils.bytes.bs58.encode(publicKeyBytes);
-  const rootPublicKeyForSignet = `secp256k1:${base58PublicKey}`;
-
-  const signetContract = new contracts.solana.ChainSignatureContract({
-    provider,
-    programId: new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
-    config: {
-      rootPublicKey: rootPublicKeyForSignet as `secp256k1:${string}`,
-    },
-  });
-
-  // Subscribe to CPI events using signet.js
-  const unsubscribe = await signetContract.subscribeToEvents({
-    onSignatureResponded: (event, slot) => {
-      const eventRequestId =
-        "0x" + Buffer.from(event.requestId).toString("hex");
-      if (eventRequestId === requestId) {
-        console.log("  ✅ Signature received (slot:", slot, ")");
-
-        // Verify signature
-        const signature = event.signature;
-        const r = "0x" + Buffer.from(signature.bigR.x).toString("hex");
-        const s = "0x" + Buffer.from(signature.s).toString("hex");
-        const v = BigInt(signature.recoveryId + 27);
-
-        const txHash = ethers.keccak256(rlpEncodedTx);
-        const recoveredAddress = ethers.recoverAddress(txHash, { r, s, v });
-
-        if (recoveredAddress.toLowerCase() !== derivedAddress.toLowerCase()) {
-          console.error("❌ Signature verification failed!");
-          console.error("  Expected:", derivedAddress);
-          console.error("  Recovered:", recoveredAddress);
-          throw new Error("Signature does not match derived address");
-        }
-
-        signatureResolve(event);
-      }
-    },
-    onSignatureError: (event, slot) => {
-      const eventRequestId =
-        "0x" + Buffer.from(event.requestId).toString("hex");
-
-      if (eventRequestId === requestId) {
-        console.error("  ❌ Signature error (slot:", slot, "):", event.error);
-        signatureResolve({ error: event.error });
-      }
-    },
-  });
-
-  const program = new anchor.Program<ChainSignaturesProject>(IDL, provider);
-
-  const respondBidirectionalListener = program.addEventListener(
-    "respondBidirectionalEvent" as any,
-    (event: any) => {
-      const eventRequestId =
-        "0x" + Buffer.from(event.requestId).toString("hex");
-      if (eventRequestId === requestId) {
-        console.log("  ✅ Respond bidirectional event received!");
-        // Verify signature
-        // Recover address from signature
-        const msgHash = hash_message(
-          eventRequestId as any,
-          event.serializedOutput
-        );
-        console.log(" 🔏 Message hash:", msgHash);
-        const signature = event.signature;
-        const r = "0x" + Buffer.from(signature.bigR.x).toString("hex");
-        const s = "0x" + Buffer.from(signature.s).toString("hex");
-        const v = BigInt(signature.recoveryId + 27);
-        // Recover address from signature
-        const recoveredAddress = ethers.recoverAddress(msgHash, { r, s, v });
-
-        // Verify it matches the derived address
-        if (
-          recoveredAddress.toLowerCase() !== mpcRespondAddress.toLowerCase()
-        ) {
-          console.error("❌ read respond signature verification failed!");
-          console.error("  Expected:", mpcRespondAddress);
-          console.error("  Recovered:", recoveredAddress);
-          throw new Error(
-            "read respond signature does not match mpc respond address"
-          );
-        }
-        respondBidirectionalResolve(event);
-      }
-    }
-  );
-
-  return {
-    signature: signaturePromise,
-    respondBidirectional: respondBidirectionalPromise,
-    unsubscribe,
-    respondBidirectionalListener,
-    program,
-  };
-}
 
 /**
  * Get deposit accounts
@@ -1186,31 +1141,4 @@ async function getInitialBalance(
     console.log("  💰 No existing balance");
     return new BN(0);
   }
-}
-
-/**
- * Extract signature from event
- */
-function extractSignature(event: any) {
-  const signature = event.signature;
-  const r = "0x" + Buffer.from(signature.bigR.x).toString("hex");
-  const s = "0x" + Buffer.from(signature.s).toString("hex");
-  const v = BigInt(signature.recoveryId + 27);
-
-  return { r, s, v };
-}
-
-async function cleanupEventListeners(eventPromises: any) {
-  if (eventPromises.unsubscribe) {
-    await eventPromises.unsubscribe();
-  }
-  if (eventPromises.respondBidirectionalListener && eventPromises.program) {
-    await eventPromises.program.removeEventListener(
-      eventPromises.respondBidirectionalListener
-    );
-  }
-}
-
-function hash_message(request_id: Uint8Array, serialized_output: Uint8Array) {
-  return ethers.keccak256(ethers.concat([request_id, serialized_output])); // 0x-prefixed hex
 }

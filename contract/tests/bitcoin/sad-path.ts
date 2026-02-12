@@ -104,7 +104,10 @@ describe("BTC Sad Path", () => {
       planRequestIdBytes(plan),
       serializedOutput
     );
-    const validSignature = await signHashWithMpcForDeposit(messageHash, plan.requester);
+    const validSignature = await signHashWithMpcForDeposit(
+      messageHash,
+      plan.requester
+    );
     const invalidSignature = JSON.parse(
       JSON.stringify(validSignature)
     ) as typeof validSignature;
@@ -112,11 +115,7 @@ describe("BTC Sad Path", () => {
 
     await expectAnchorError(
       program.methods
-        .claimBtc(
-          planRequestIdBytes(plan),
-          serializedOutput,
-          invalidSignature
-        )
+        .claimBtc(planRequestIdBytes(plan), serializedOutput, invalidSignature)
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
         ])
@@ -125,11 +124,7 @@ describe("BTC Sad Path", () => {
     );
 
     const claimTx = await program.methods
-      .claimBtc(
-        planRequestIdBytes(plan),
-        serializedOutput,
-        validSignature
-      )
+      .claimBtc(planRequestIdBytes(plan), serializedOutput, validSignature)
       .preInstructions([
         ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
       ])
@@ -165,11 +160,7 @@ describe("BTC Sad Path", () => {
 
     await expectAnchorError(
       program.methods
-        .claimBtc(
-          planRequestIdBytes(plan),
-          malformedOutput,
-          malformedSignature
-        )
+        .claimBtc(planRequestIdBytes(plan), malformedOutput, malformedSignature)
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
         ])
@@ -206,11 +197,7 @@ describe("BTC Sad Path", () => {
 
     await expectAnchorError(
       program.methods
-        .claimBtc(
-          planRequestIdBytes(plan),
-          failedOutput,
-          failedSig
-        )
+        .claimBtc(planRequestIdBytes(plan), failedOutput, failedSig)
         .preInstructions([
           ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
         ])

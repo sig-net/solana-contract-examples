@@ -6,22 +6,18 @@ import {
   applySignaturesToPsbt,
   buildDepositPlan,
   buildDepositPsbt,
-  buildSignatureMap,
   buildWithdrawalPlan,
   buildWithdrawalPsbt,
-  cleanupEventListeners,
   computeSignatureRequestIds,
   COMPUTE_UNITS,
   createFundedAuthority,
   deriveUserBalancePda,
   executeSyntheticDeposit,
-  extractSignature,
   fetchUserBalance,
   getBitcoinTestContext,
   planRequestIdBytes,
-  prepareSignatureWitness,
   setupBitcoinTestContext,
-  setupEventListeners,
+  startBtcEventListeners,
   teardownBitcoinTestContext,
   WITHDRAW_FEE_BUDGET,
 } from "./utils";
@@ -63,81 +59,70 @@ describe("BTC Happy Path", () => {
     );
 
     const signatureRequestIds = computeSignatureRequestIds(plan);
-    const events = await setupEventListeners(
-      provider,
+    const events = startBtcEventListeners(
       signatureRequestIds,
       plan.requestIdHex
     );
 
-    try {
-      console.log("📍 Step 2: Submitting deposit ix");
-      const depositTx = await program.methods
-        .depositBtc(
-          planRequestIdBytes(plan),
-          plan.requester,
-          plan.btcInputs,
-          plan.btcOutputs,
-          plan.txParams
-        )
-        .accounts({
-          payer: provider.wallet.publicKey,
-          feePayer: provider.wallet.publicKey,
-          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
-        .rpc();
-      await provider.connection.confirmTransaction(depositTx);
+    console.log("📍 Step 2: Submitting deposit ix");
+    const depositTx = await program.methods
+      .depositBtc(
+        planRequestIdBytes(plan),
+        plan.requester,
+        plan.btcInputs,
+        plan.btcOutputs,
+        plan.txParams
+      )
+      .accounts({
+        payer: provider.wallet.publicKey,
+        feePayer: provider.wallet.publicKey,
+        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .rpc();
+    await provider.connection.confirmTransaction(depositTx);
 
-      console.log("  • solana deposit tx:", depositTx);
-      console.log("📍 Step 3: Waiting for signature response(s)");
-      const signatureEvents = await events.waitForSignatures(
-        plan.btcInputs.length
-      );
-      const signatureMap = buildSignatureMap(
-        signatureEvents,
-        computeSignatureRequestIds(plan)
-      );
+    console.log("  • solana deposit tx:", depositTx);
+    console.log("📍 Step 3: Waiting for signature response(s)");
+    const signatureMap = await events.waitForSignatureMap();
 
-      console.log("📍 Step 4: Building/signing PSBT");
-      const psbt = buildDepositPsbt(plan);
+    console.log("📍 Step 4: Building/signing PSBT");
+    const psbt = buildDepositPsbt(plan);
 
-      applySignaturesToPsbt(
-        psbt,
-        signatureMap,
-        computeSignatureRequestIds(plan),
-        plan.vaultAuthority.compressedPubkey
-      );
+    applySignaturesToPsbt(
+      psbt,
+      signatureMap,
+      signatureRequestIds,
+      plan.vaultAuthority.compressedPubkey
+    );
 
-      const signedTx = psbt.extractTransaction();
-      console.log("  • bitcoin txid:", signedTx.getId());
-      await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
+    const signedTx = psbt.extractTransaction();
+    console.log("  • bitcoin txid:", signedTx.getId());
+    await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
 
-      console.log("📍 Step 5: Waiting for read/claim response");
-      const readEvent = await events.readRespond;
+    console.log("📍 Step 5: Waiting for read/claim response");
+    const readEvent = await events.readRespond;
 
-      console.log("📍 Step 6: Submitting claim ix");
-      const claimTx = await program.methods
-        .claimBtc(
-          planRequestIdBytes(plan),
-          Buffer.from(readEvent.serializedOutput),
-          readEvent.signature
-        )
-        .preInstructions([
-          ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
-        ])
-        .rpc();
-      await provider.connection.confirmTransaction(claimTx);
+    console.log("📍 Step 6: Submitting claim ix");
+    const claimTx = await program.methods
+      .claimBtc(
+        planRequestIdBytes(plan),
+        Buffer.from(readEvent.serializedOutput),
+        readEvent.signature
+      )
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
+      .rpc();
+    await provider.connection.confirmTransaction(claimTx);
 
-      const finalBalanceAccount = await program.account.userBtcBalance.fetch(
-        userBalancePda
-      );
-      const expectedBalance = initialBalance.add(plan.creditedAmount);
-      expect(finalBalanceAccount.amount.toString()).to.equal(
-        expectedBalance.toString()
-      );
-      console.log("📍 Step 7: Balance verified");
-    } finally {
-      await cleanupEventListeners(events);
-    }
+    const finalBalanceAccount = await program.account.userBtcBalance.fetch(
+      userBalancePda
+    );
+    const expectedBalance = initialBalance.add(plan.creditedAmount);
+    expect(finalBalanceAccount.amount.toString()).to.equal(
+      expectedBalance.toString()
+    );
+    console.log("📍 Step 7: Balance verified");
   });
 
   it("processes a multi-input BTC deposit and only credits vault-directed value", async function () {
@@ -160,8 +145,7 @@ describe("BTC Happy Path", () => {
     console.log("  • outputs:", plan.btcOutputs.length);
 
     const signatureRequestIds = computeSignatureRequestIds(plan);
-    const events = await setupEventListeners(
-      provider,
+    const events = startBtcEventListeners(
       signatureRequestIds,
       plan.requestIdHex
     );
@@ -171,71 +155,61 @@ describe("BTC Happy Path", () => {
       secondaryRequester.publicKey
     );
 
-    try {
-      console.log("📍 Step 2: Submitting deposit ix");
-      const depositTx = await program.methods
-        .depositBtc(
-          planRequestIdBytes(plan),
-          plan.requester,
-          plan.btcInputs,
-          plan.btcOutputs,
-          plan.txParams
-        )
-        .accounts({
-          payer: provider.wallet.publicKey,
-          feePayer: provider.wallet.publicKey,
-          instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
-        .rpc();
-      await provider.connection.confirmTransaction(depositTx);
+    console.log("📍 Step 2: Submitting deposit ix");
+    const depositTx = await program.methods
+      .depositBtc(
+        planRequestIdBytes(plan),
+        plan.requester,
+        plan.btcInputs,
+        plan.btcOutputs,
+        plan.txParams
+      )
+      .accounts({
+        payer: provider.wallet.publicKey,
+        feePayer: provider.wallet.publicKey,
+        instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      })
+      .rpc();
+    await provider.connection.confirmTransaction(depositTx);
 
-      console.log("  • solana deposit tx:", depositTx);
-      console.log("📍 Step 3: Waiting for signature response(s)");
-      const signatureEvents = await events.waitForSignatures(
-        plan.btcInputs.length
-      );
-      const signatureMap = buildSignatureMap(
-        signatureEvents,
-        computeSignatureRequestIds(plan)
-      );
+    console.log("  • solana deposit tx:", depositTx);
+    console.log("📍 Step 3: Waiting for signature response(s)");
+    const signatureMap = await events.waitForSignatureMap();
 
-      const psbt = buildDepositPsbt(plan);
+    const psbt = buildDepositPsbt(plan);
 
-      applySignaturesToPsbt(
-        psbt,
-        signatureMap,
-        computeSignatureRequestIds(plan),
-        plan.vaultAuthority.compressedPubkey
-      );
+    applySignaturesToPsbt(
+      psbt,
+      signatureMap,
+      signatureRequestIds,
+      plan.vaultAuthority.compressedPubkey
+    );
 
-      const signedTx = psbt.extractTransaction();
-      console.log("  • bitcoin txid:", signedTx.getId());
-      await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
+    const signedTx = psbt.extractTransaction();
+    console.log("  • bitcoin txid:", signedTx.getId());
+    await bitcoinAdapter.broadcastTransaction(signedTx.toHex());
 
-      const readEvent = await events.readRespond;
+    const readEvent = await events.readRespond;
 
-      const claimTx = await program.methods
-        .claimBtc(
-          planRequestIdBytes(plan),
-          Buffer.from(readEvent.serializedOutput),
-          readEvent.signature
-        )
-        .preInstructions([
-          ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
-        ])
-        .rpc();
-      await provider.connection.confirmTransaction(claimTx);
+    const claimTx = await program.methods
+      .claimBtc(
+        planRequestIdBytes(plan),
+        Buffer.from(readEvent.serializedOutput),
+        readEvent.signature
+      )
+      .preInstructions([
+        ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNITS }),
+      ])
+      .rpc();
+    await provider.connection.confirmTransaction(claimTx);
 
-      const finalBalanceAccount = await program.account.userBtcBalance.fetch(
-        userBalancePda
-      );
-      const expectedBalance = initialBalance.add(plan.creditedAmount);
-      expect(finalBalanceAccount.amount.toString()).to.equal(
-        expectedBalance.toString()
-      );
-    } finally {
-      await cleanupEventListeners(events);
-    }
+    const finalBalanceAccount = await program.account.userBtcBalance.fetch(
+      userBalancePda
+    );
+    const expectedBalance = initialBalance.add(plan.creditedAmount);
+    expect(finalBalanceAccount.amount.toString()).to.equal(
+      expectedBalance.toString()
+    );
   });
 
   it("processes a BTC withdrawal end-to-end", async function () {
@@ -296,8 +270,7 @@ describe("BTC Happy Path", () => {
     }
 
     const signatureRequestIds = computeSignatureRequestIds(plan);
-    const events = await setupEventListeners(
-      provider,
+    const events = startBtcEventListeners(
       signatureRequestIds,
       plan.requestIdHex
     );
@@ -332,27 +305,16 @@ describe("BTC Happy Path", () => {
 
     console.log("  • solana withdraw tx:", withdrawTx);
     console.log("📍 Step 3: Waiting for signature response(s)");
-    const signatureEvents = await events.waitForSignatures(
-      plan.selectedUtxos.length
-    );
-    const signatures = signatureEvents.map(extractSignature);
-    if (signatures.length !== plan.selectedUtxos.length) {
-      throw new Error(
-        `Expected ${plan.selectedUtxos.length} signature(s), received ${signatures.length}`
-      );
-    }
+    const signatureMap = await events.waitForSignatureMap();
 
     const withdrawPsbt = buildWithdrawalPsbt(plan);
 
-    signatures.forEach((sig, idx) => {
-      const { witness } = prepareSignatureWitness(
-        sig,
-        plan.globalVault.compressedPubkey
-      );
-      withdrawPsbt.updateInput(idx, {
-        finalScriptWitness: witness,
-      });
-    });
+    applySignaturesToPsbt(
+      withdrawPsbt,
+      signatureMap,
+      signatureRequestIds,
+      plan.globalVault.compressedPubkey
+    );
 
     const signedWithdrawTx = withdrawPsbt.extractTransaction();
     const withdrawTxHex = signedWithdrawTx.toHex();
