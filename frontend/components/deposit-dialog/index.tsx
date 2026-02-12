@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { CryptoIcon } from '@/components/balance-display/crypto-icon';
 import { TokenConfig, NetworkData, fetchErc20Decimals } from '@/lib/constants/token-metadata';
-import { useDepositAddress } from '@/hooks';
+import { useDepositAddress, useHasActiveTransaction } from '@/hooks';
 import { useDepositEvmMutation } from '@/hooks/use-deposit-evm-mutation';
 
 import { TokenSelection } from './token-selection';
@@ -36,6 +36,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
     useDepositAddress();
   const depositEvmMutation = useDepositEvmMutation();
   const solDepositAddress = account ?? '';
+  const hasActiveTransaction = useHasActiveTransaction();
 
   // Derive step from state instead of syncing with useEffect
   const getStep = () => {
@@ -68,6 +69,12 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const handleNotifyRelayer = async () => {
     if (!isConnected || !account || !selectedToken || !selectedNetwork) return;
     if (isNotifying) return;
+    if (hasActiveTransaction) {
+      toast.error('Transaction in progress', {
+        description: 'Please wait for the current transaction to complete',
+      });
+      return;
+    }
 
     setIsNotifying(true);
 

@@ -114,7 +114,6 @@ All routes use `runtime: 'nodejs'` with `maxDuration: 300` for long-running rela
 - `/api/notify-withdrawal` - Process withdrawal
 - `/api/tx-status/[id]` - Poll transaction status
 - `/api/tx-list` - List user transactions
-- `/api/recover-pending` - Recover stuck transactions
 
 ## Code Conventions
 
