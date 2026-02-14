@@ -13,3 +13,4 @@ export {
   getStatusProgress,
 } from './use-tx-status';
 export { useTxList } from './use-tx-list';
+export { useHasActiveTransaction } from './use-has-active-transaction';

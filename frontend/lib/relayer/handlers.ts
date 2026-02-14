@@ -64,39 +64,6 @@ async function handleFlowResult<
   return { ok: true };
 }
 
-async function handleRecoveryResult<
-  T extends { success: boolean; error?: string; solanaResult?: string },
->(
-  result: T,
-  requestId: string,
-  flowName: string,
-): Promise<{ ok: boolean; error?: string; solanaTx?: string }> {
-  if (!result.success) {
-    const error =
-      result.error ?? `${flowName}: no signature event found for ${requestId}`;
-    await updateTxStatus(requestId, 'failed', { error });
-    return { ok: false, error };
-  }
-  await updateTxStatus(requestId, 'completed', {
-    solanaFinalizeTxHash: result.solanaResult,
-  });
-  return { ok: true, solanaTx: result.solanaResult };
-}
-
-async function withRecoveryErrorHandling(
-  requestId: string,
-  context: string,
-  fn: () => Promise<{ ok: boolean; error?: string; solanaTx?: string }>,
-): Promise<{ ok: boolean; error?: string; solanaTx?: string }> {
-  try {
-    return await fn();
-  } catch (error) {
-    const errorMessage = extractErrorMessage(error, context);
-    await updateTxStatus(requestId, 'failed', { error: errorMessage });
-    return { ok: false, error: errorMessage };
-  }
-}
-
 export async function handleDeposit(args: {
   userAddress: string;
   erc20Address: string;
@@ -367,6 +334,7 @@ async function executeWithdrawal(args: {
       async () => {
         await updateTxStatus(requestId, 'ethereum_pending');
       },
+      solanaInitTxHash,
     );
 
     const flowResult = await handleFlowResult(
@@ -390,81 +358,6 @@ async function executeWithdrawal(args: {
     });
     throw error;
   }
-}
-
-// Recovery functions for stuck transactions
-export async function recoverDeposit(
-  requestId: string,
-  pendingDeposit: { requester: PublicKey; erc20Address: number[] },
-): Promise<{ ok: boolean; error?: string; solanaTx?: string }> {
-  return withRecoveryErrorHandling(requestId, 'deposit recovery', async () => {
-    await updateTxStatus(requestId, 'signature_pending');
-
-    const { orchestrator } = await initializeRelayerSetup({
-      operationName: 'RECOVER_DEPOSIT',
-      eventTimeoutMs: TIMEOUTS.MPC_EVENT_WRAPPER,
-    });
-    const dexContract = orchestrator.getDexContract();
-    const requestIdBytes = Array.from(toBytes(requestId as Hex));
-
-    const result = await orchestrator.recoverSignatureFlow(
-      requestId,
-      async (respondBidirectionalData, ethereumTxHash) => {
-        await updateTxStatus(requestId, 'completing', { ethereumTxHash });
-        return dexContract.claimErc20({
-          requester: pendingDeposit.requester,
-          requestIdBytes,
-          serializedOutput: respondBidirectionalData.serializedOutput,
-          signature: respondBidirectionalData.signature,
-          erc20AddressBytes: pendingDeposit.erc20Address,
-        });
-      },
-    );
-
-    return handleRecoveryResult(result, requestId, 'Deposit recovery failed');
-  });
-}
-
-export async function recoverWithdrawal(
-  requestId: string,
-  pendingWithdrawal: { requester: string },
-  erc20Address: string,
-): Promise<{ ok: boolean; error?: string; solanaTx?: string }> {
-  return withRecoveryErrorHandling(
-    requestId,
-    'withdrawal recovery',
-    async () => {
-      await updateTxStatus(requestId, 'signature_pending');
-
-      const { orchestrator } = await initializeRelayerSetup({
-        operationName: 'RECOVER_WITHDRAWAL',
-        eventTimeoutMs: TIMEOUTS.MPC_EVENT_WRAPPER,
-      });
-      const dexContract = orchestrator.getDexContract();
-      const requestIdBytes = Array.from(toBytes(requestId as Hex));
-      const erc20AddressBytes = Array.from(toBytes(erc20Address as Hex));
-
-      const result = await orchestrator.recoverSignatureFlow(
-        requestId,
-        async (respondBidirectionalData, ethereumTxHash) => {
-          await updateTxStatus(requestId, 'completing', { ethereumTxHash });
-          return dexContract.completeWithdrawErc20({
-            requester: new PublicKey(pendingWithdrawal.requester),
-            requestIdBytes,
-            serializedOutput: respondBidirectionalData.serializedOutput,
-            signature: respondBidirectionalData.signature,
-            erc20AddressBytes,
-          });
-        },
-      );
-
-      return handleRecoveryResult(
-        result,
-        requestId,
-        'Withdrawal recovery failed',
-      );
-    },
-  );
 }
 
 async function monitorTokenBalance(

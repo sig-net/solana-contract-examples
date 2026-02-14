@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { LoadingState } from '@/components/states/LoadingState';
-import { useWithdrawEvmMutation, useWithdrawSolMutation } from '@/hooks';
+import { useWithdrawEvmMutation, useWithdrawSolMutation, useHasActiveTransaction } from '@/hooks';
 
 import { AmountInput } from './amount-input';
 
@@ -39,12 +39,19 @@ function WithdrawDialogContent({
 
   const withdrawEvmMutation = useWithdrawEvmMutation();
   const withdrawSolMutation = useWithdrawSolMutation();
+  const hasActiveTransaction = useHasActiveTransaction();
 
   const handleAmountSubmit = async (data: {
     token: WithdrawToken;
     amount: string;
     receiverAddress: string;
   }) => {
+    if (hasActiveTransaction) {
+      toast.error('Transaction in progress', {
+        description: 'Please wait for the current transaction to complete',
+      });
+      return;
+    }
     setIsProcessing(true);
 
     try {

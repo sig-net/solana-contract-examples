@@ -1561,10 +1561,10 @@ eyes@^0.1.8:
   resolved "https://registry.yarnpkg.com/eyes/-/eyes-0.1.8.tgz#62cf120234c683785d902348a800ef3e0cc20bc0"
   integrity sha512-GipyPsXO1anza0AOZdy69Im7hGFCNB7Y/NGjDlZGJ3GJJLtwNSb2vrzYrTYJRrRloVx7pl+bhUaTB8yiccPvFQ==
 
-fakenet-signer@1.6.1:
-  version "1.6.1"
-  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.6.1.tgz#37fa2cc1c6e85987a5bf4a10fd9fc82e42bd3ef8"
-  integrity sha512-kLnHIfUVzkcdMq1EcTzOaPtAy/5wJzt5LC1vBLz20Hei+Ul5w/10O/BJGPqdePLj71APjblP85JWJ7MAh3sIvw==
+fakenet-signer@^1.7.1-beta.8:
+  version "1.7.1-beta.8"
+  resolved "https://registry.yarnpkg.com/fakenet-signer/-/fakenet-signer-1.7.1-beta.8.tgz#d266c9529d769bf83917f814e40595352922c74a"
+  integrity sha512-7jSWsn8Xmve9pArUgvpxMHbq0SZZubcsLaqIsDQB52wFaaxA7aMa4btxHePEzChsK/Sl28N9JMtiJp+Btvn1qg==
   dependencies:
     "@coral-xyz/anchor" "^0.31.0"
     "@solana/web3.js" "^1.98.0"
@@ -1575,6 +1575,7 @@ fakenet-signer@1.6.1:
     dotenv "^17.2.3"
     ecpair "^2.1.0"
     ethers "^6.13.5"
+    signet.js "0.3.1-beta.1"
     tiny-secp256k1 "^2.2.3"
     tsx "^4.19.2"
     zod "^4.1.11"
@@ -2580,10 +2581,33 @@ sha.js@^2.4.0:
     safe-buffer "^5.2.1"
     to-buffer "^1.2.0"
 
-signet.js@^0.2.0:
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/signet.js/-/signet.js-0.2.0.tgz#9ff6012c6a51bd2c3b5f4c433c127800666547cb"
-  integrity sha512-ip01JTFzmb5btEGPbWmQaPZpIO33h1hxm7C2je56okGt2woj0uTx9KboDHay9H+qw8vvzkQObEZ46/uWyS7YDQ==
+signet.js@0.3.1-beta.1:
+  version "0.3.1-beta.1"
+  resolved "https://registry.yarnpkg.com/signet.js/-/signet.js-0.3.1-beta.1.tgz#f8e6482ff6bd0194ee7ebd0ed3940c39807ba879"
+  integrity sha512-HvYn66VafUBV8SSK7eJEJNmm2EQeD6ZQ/O64zTx47M8O9OcOh55f6xibTQbmTNMVOiXqsw5PCCAKt0wfQ/AVLA==
+  dependencies:
+    "@coral-xyz/anchor" "^0.31.0"
+    "@cosmjs/amino" "^0.32.4"
+    "@cosmjs/crypto" "^0.32.4"
+    "@cosmjs/encoding" "^0.32.4"
+    "@cosmjs/math" "^0.32.4"
+    "@cosmjs/proto-signing" "^0.32.4"
+    "@cosmjs/stargate" "^0.32.4"
+    "@scure/base" "^1.2.4"
+    "@solana/web3.js" "^1.98.0"
+    bech32 "^2.0.0"
+    bitcoinjs-lib "^6.1.5"
+    bn.js "^5.2.1"
+    chain-registry "^1.69.72"
+    coinselect "^3.1.13"
+    cosmjs-types "^0.9.0"
+    elliptic "^6.6.1"
+    viem "^2.22.14"
+
+signet.js@^0.3.1-beta.4:
+  version "0.3.1-beta.4"
+  resolved "https://registry.yarnpkg.com/signet.js/-/signet.js-0.3.1-beta.4.tgz#8d1858ae6d88424fb8499b5463725fae7e4124c5"
+  integrity sha512-aSKPTiRxqU8x3xH2wUNYmRZwMNz5q4H7CihP0eHvPlde8uKqnVG+nCngeTezufhHg2RE8NO+2uwt+oXgODqNBg==
   dependencies:
     "@coral-xyz/anchor" "^0.31.0"
     "@cosmjs/amino" "^0.32.4"

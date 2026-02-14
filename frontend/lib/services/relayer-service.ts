@@ -99,26 +99,3 @@ export async function notifyWithdrawal({
     );
   }
 }
-
-export async function recoverTransaction({
-  requestId,
-  type,
-  userAddress,
-  erc20Address,
-}: {
-  requestId: string;
-  type: 'deposit' | 'withdrawal';
-  userAddress: string;
-  erc20Address?: string;
-}): Promise<{ accepted: boolean; message: string }> {
-  const res = await fetch('/api/recover-pending', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requestId, type, userAddress, erc20Address }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Recovery failed: ${res.status} - ${text}`);
-  }
-  return res.json();
-}

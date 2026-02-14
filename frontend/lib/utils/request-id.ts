@@ -1,8 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
 import { toBytes } from 'viem';
+import { contracts } from 'signet.js';
 
-import { generateRequestId } from '@/lib/program/utils';
 import { SERVICE_CONFIG } from '@/lib/constants/service.config';
+
+const { getRequestIdBidirectional } = contracts.solana;
 
 /**
  * Generate a request ID for deposit operations.
@@ -13,16 +15,16 @@ export function generateDepositRequestId(
   userPath: string,
   rlpEncodedTx: string,
 ): string {
-  return generateRequestId(
-    vaultAuthority,
-    toBytes(rlpEncodedTx),
-    SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
-    SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
-    userPath,
-    SERVICE_CONFIG.CRYPTOGRAPHY.SIGNATURE_ALGORITHM,
-    SERVICE_CONFIG.CRYPTOGRAPHY.TARGET_BLOCKCHAIN,
-    '',
-  );
+  return getRequestIdBidirectional({
+    sender: vaultAuthority.toString(),
+    payload: Array.from(toBytes(rlpEncodedTx)),
+    caip2Id: SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
+    keyVersion: SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
+    path: userPath,
+    algo: SERVICE_CONFIG.CRYPTOGRAPHY.SIGNATURE_ALGORITHM,
+    dest: SERVICE_CONFIG.CRYPTOGRAPHY.TARGET_BLOCKCHAIN,
+    params: '',
+  });
 }
 
 /**
@@ -33,14 +35,14 @@ export function generateWithdrawalRequestId(
   globalVaultAuthority: PublicKey,
   rlpEncodedTx: string,
 ): string {
-  return generateRequestId(
-    globalVaultAuthority,
-    toBytes(rlpEncodedTx),
-    SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
-    SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
-    SERVICE_CONFIG.CRYPTOGRAPHY.WITHDRAWAL_ROOT_PATH,
-    SERVICE_CONFIG.CRYPTOGRAPHY.SIGNATURE_ALGORITHM,
-    SERVICE_CONFIG.CRYPTOGRAPHY.TARGET_BLOCKCHAIN,
-    '',
-  );
+  return getRequestIdBidirectional({
+    sender: globalVaultAuthority.toString(),
+    payload: Array.from(toBytes(rlpEncodedTx)),
+    caip2Id: SERVICE_CONFIG.ETHEREUM.CAIP2_ID,
+    keyVersion: SERVICE_CONFIG.RETRY.DEFAULT_KEY_VERSION,
+    path: SERVICE_CONFIG.CRYPTOGRAPHY.WITHDRAWAL_ROOT_PATH,
+    algo: SERVICE_CONFIG.CRYPTOGRAPHY.SIGNATURE_ALGORITHM,
+    dest: SERVICE_CONFIG.CRYPTOGRAPHY.TARGET_BLOCKCHAIN,
+    params: '',
+  });
 }

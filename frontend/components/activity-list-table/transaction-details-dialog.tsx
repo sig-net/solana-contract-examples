@@ -10,12 +10,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { useTxStatus, getStatusLabel } from '@/hooks/use-tx-status';
 import type { TxStatus } from '@/lib/relayer/tx-registry';
-import { recoverTransaction } from '@/lib/services/relayer-service';
-import { useWallet } from '@solana/connector/react';
-import { toast } from 'sonner';
 
 import type { ActivityTransaction } from './index';
 
@@ -190,8 +186,7 @@ export function TransactionDetailsDialog({
   open,
   onOpenChange,
 }: TransactionDetailsDialogProps) {
-  const { account } = useWallet();
-  const { data: txStatus, refetch } = useTxStatus(transaction?.id ?? null);
+  const { data: txStatus } = useTxStatus(transaction?.id ?? null);
 
   // Determine which steps to show based on transaction type
   const isDeposit = transaction?.type === 'Deposit';
@@ -217,29 +212,6 @@ export function TransactionDetailsDialog({
     : isCompleted
       ? steps.length - 1
       : getStepIndex(currentStatus, steps);
-
-  const handleRetry = async () => {
-    if (!transaction || !account) return;
-
-    try {
-      await recoverTransaction({
-        requestId: transaction.id,
-        type: isDeposit ? 'deposit' : 'withdrawal',
-        userAddress: account,
-        erc20Address: transaction.fromToken?.chain === 'ethereum'
-          ? transaction.fromToken?.amount ?? ''
-          : transaction.toToken?.amount ?? '',
-      });
-      toast.info('Recovery initiated', {
-        description: 'The transaction will be retried',
-      });
-      refetch();
-    } catch (error) {
-      toast.error('Recovery failed', {
-        description: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  };
 
   if (!transaction) return null;
 
@@ -362,15 +334,6 @@ export function TransactionDetailsDialog({
               )}
             </div>
           </div>
-
-          {/* Retry button for failed transactions */}
-          {isFailed && account && (
-            <div className='mt-4 border-t pt-4'>
-              <Button onClick={handleRetry} variant='outline' className='w-full'>
-                Retry Transaction
-              </Button>
-            </div>
-          )}
         </div>
       </DialogContent>
     </Dialog>

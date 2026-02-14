@@ -2,17 +2,14 @@
 
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { useWallet } from '@solana/connector/react';
 
 import {
   usePendingTransactions,
   type PendingTransaction,
 } from '@/providers/pending-transactions-context';
 import { useTxStatus, getStatusLabel } from '@/hooks';
-import { recoverTransaction } from '@/lib/services/relayer-service';
 
 function TransactionToast({ tx }: { tx: PendingTransaction }) {
-  const { account } = useWallet();
   const { data: status, refetch } = useTxStatus(tx.id);
   const { removePendingTransaction } = usePendingTransactions();
   const previousStatusRef = useRef<string | null>(null);
@@ -53,34 +50,8 @@ function TransactionToast({ tx }: { tx: PendingTransaction }) {
       } else if (currentStatus === 'failed') {
         toast.error(`${txType} failed`, {
           description: status.error || 'Unknown error',
-          action: account
-            ? {
-                label: 'Retry',
-                onClick: async () => {
-                  try {
-                    await recoverTransaction({
-                      requestId: tx.id,
-                      type: tx.type,
-                      userAddress: account,
-                      erc20Address: tx.erc20Address,
-                    });
-                    toast.info('Recovery initiated', {
-                      description: 'The transaction will be retried',
-                    });
-                    refetch();
-                  } catch (error) {
-                    toast.error('Recovery failed', {
-                      description:
-                        error instanceof Error
-                          ? error.message
-                          : 'Unknown error',
-                    });
-                  }
-                },
-              }
-            : undefined,
         });
-        // Keep in pending for retry possibility
+        removePendingTransaction(tx.id);
       } else if (previousStatus && previousStatus !== 'pending') {
         // Show progress update for non-initial states
         toast.info(`${txType}: ${label}`, {
@@ -88,7 +59,7 @@ function TransactionToast({ tx }: { tx: PendingTransaction }) {
         });
       }
     }
-  }, [status, tx, account, removePendingTransaction, refetch]);
+  }, [status, tx, removePendingTransaction, refetch]);
 
   return null;
 }

@@ -8,27 +8,52 @@ export interface TokenConfig {
   symbol: string;
   name: string;
   chain: 'ethereum' | 'solana';
+  /** How to acquire this token on testnet */
+  acquireHint?: string;
+  /** Direct URL to get this token (faucet, swap page, etc.) */
+  faucetUrl?: string;
 }
 
 // ERC20 tokens on Sepolia
 export const ERC20_TOKENS: TokenConfig[] = [
   {
+    erc20Address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    symbol: 'USDC',
+    name: 'USD Coin (Circle)',
+    chain: 'ethereum',
+    acquireHint:
+      'Get testnet USDC from the Circle faucet. Connect your wallet, select Ethereum Sepolia, and claim USDC.',
+    faucetUrl: 'https://faucet.circle.com/',
+  },
+  {
     erc20Address: '0xbe72e441bf55620febc26715db68d3494213d8cb',
     symbol: 'USDC',
-    name: 'USD Coin',
+    name: 'USD Coin (CoW Swap)',
     chain: 'ethereum',
+    acquireHint:
+      'Swap Sepolia ETH for USDC on CoW Swap. First get Sepolia ETH from a faucet, then swap.',
+    faucetUrl:
+      'https://swap.cow.fi/#/11155111/swap/ETH/0xbe72e441bf55620febc26715db68d3494213d8cb',
   },
   {
     erc20Address: '0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D',
     symbol: 'DAI',
     name: 'Dai',
     chain: 'ethereum',
+    acquireHint:
+      'Swap Sepolia ETH for DAI on CoW Swap. First get Sepolia ETH from a faucet, then swap.',
+    faucetUrl:
+      'https://swap.cow.fi/#/11155111/swap/ETH/0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D',
   },
   {
     erc20Address: '0x0625aFB445C3B6B7B929342a04A22599fd5dBB59',
     symbol: 'COW',
-    name: 'Cow Protocol',
+    name: 'CoW Protocol',
     chain: 'ethereum',
+    acquireHint:
+      'Swap Sepolia ETH for COW on CoW Swap. First get Sepolia ETH from a faucet, then swap.',
+    faucetUrl:
+      'https://swap.cow.fi/#/11155111/swap/ETH/0x0625aFB445C3B6B7B929342a04A22599fd5dBB59',
   },
 ];
 
@@ -39,12 +64,16 @@ export const SOLANA_TOKENS: TokenConfig[] = [
     symbol: 'USDC',
     name: 'USD Coin',
     chain: 'solana',
+    acquireHint:
+      'Get devnet USDC by airdropping SOL on devnet, then swapping via a devnet DEX or using the SPL token faucet.',
   },
   {
     erc20Address: 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',
     symbol: 'EURC',
-    name: 'Euro',
+    name: 'Euro Coin',
     chain: 'solana',
+    acquireHint:
+      'Get devnet EURC by airdropping SOL on devnet, then using the SPL token faucet or a devnet DEX.',
   },
 ];
 

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { CryptoIcon } from '@/components/balance-display/crypto-icon';
 import { TokenConfig, NetworkData, fetchErc20Decimals } from '@/lib/constants/token-metadata';
-import { useDepositAddress } from '@/hooks';
+import { useDepositAddress, useHasActiveTransaction } from '@/hooks';
 import { useDepositEvmMutation } from '@/hooks/use-deposit-evm-mutation';
 
 import { TokenSelection } from './token-selection';
@@ -36,6 +36,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
     useDepositAddress();
   const depositEvmMutation = useDepositEvmMutation();
   const solDepositAddress = account ?? '';
+  const hasActiveTransaction = useHasActiveTransaction();
 
   // Derive step from state instead of syncing with useEffect
   const getStep = () => {
@@ -63,8 +64,19 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
     setSelectedNetwork(network);
   };
 
+  const [isNotifying, setIsNotifying] = useState(false);
+
   const handleNotifyRelayer = async () => {
     if (!isConnected || !account || !selectedToken || !selectedNetwork) return;
+    if (isNotifying) return;
+    if (hasActiveTransaction) {
+      toast.error('Transaction in progress', {
+        description: 'Please wait for the current transaction to complete',
+      });
+      return;
+    }
+
+    setIsNotifying(true);
 
     // For Solana assets, no relayer notification is needed; user deposits directly to own wallet
     if (selectedNetwork.chain === 'solana') {
@@ -84,6 +96,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
       });
       handleClose();
     } catch (err) {
+      setIsNotifying(false);
       toast.error('Failed to notify relayer', {
         description: err instanceof Error ? err.message : 'Unknown error',
       });
@@ -93,6 +106,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
   const handleClose = () => {
     setSelectedToken(null);
     setSelectedNetwork(null);
+    setIsNotifying(false);
     onOpenChange(false);
   };
 
@@ -165,6 +179,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
                     ? solDepositAddress
                     : depositAddress || ''
                 }
+                isSubmitting={isNotifying}
                 onContinue={handleNotifyRelayer}
               />
             </div>
