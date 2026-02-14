@@ -67,14 +67,9 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
     console.log(`  • Withdraw fee: ${withdrawFee} sats`);
     console.log(`  • Total debit: ${totalDebit} sats`);
 
-    // Step 3: Setup event listeners for the withdrawal
+    // Step 3: Initiate withdrawal (balance is optimistically deducted)
     const signatureRequestIds = computeSignatureRequestIds(withdrawalPlan);
-    const events = startBtcEventListeners(
-      signatureRequestIds,
-      withdrawalPlan.requestIdHex,
-    );
 
-    // Step 4: Initiate withdrawal (balance is optimistically deducted)
     console.log("  🔄 Initiating withdrawal (balance will be deducted)...");
     const withdrawTx = await program.methods
       .withdrawBtc(
@@ -92,6 +87,13 @@ describe("BTC Withdrawal Double-Spend Conflict", () => {
       .signers([authority])
       .rpc();
     await provider.connection.confirmTransaction(withdrawTx);
+
+    // Start listeners AFTER the Solana tx so backfill starts from the tx hash
+    const events = startBtcEventListeners(
+      signatureRequestIds,
+      withdrawalPlan.requestIdHex,
+      withdrawTx,
+    );
 
     // Verify balance was optimistically deducted
     const balanceAfterWithdraw = await fetchUserBalance(authority.publicKey);

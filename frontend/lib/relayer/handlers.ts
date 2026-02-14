@@ -334,6 +334,7 @@ async function executeWithdrawal(args: {
       async () => {
         await updateTxStatus(requestId, 'ethereum_pending');
       },
+      solanaInitTxHash,
     );
 
     const flowResult = await handleFlowResult(

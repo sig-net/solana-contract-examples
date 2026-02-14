@@ -74,7 +74,10 @@ export class CrossChainOrchestrator {
     };
   }
 
-  private async setupEventListeners(requestId: string): Promise<EventListenerResult> {
+  private async setupEventListeners(
+    requestId: string,
+    afterSignature?: string,
+  ): Promise<EventListenerResult> {
     const provider = new AnchorProvider(this.eventConnection, this.wallet, {
       commitment: 'confirmed',
     });
@@ -95,6 +98,7 @@ export class CrossChainOrchestrator {
       eventName: 'signatureRespondedEvent',
       requestId,
       signer: new PublicKey(RESPONDER_ADDRESS),
+      afterSignature,
       timeoutMs: TIMEOUTS.MPC_EVENT_LISTENER,
       signal: controller.signal,
     }) as unknown as Promise<RSVSignature>;
@@ -103,6 +107,7 @@ export class CrossChainOrchestrator {
       eventName: 'respondBidirectionalEvent',
       requestId,
       signer: new PublicKey(RESPONDER_ADDRESS),
+      afterSignature,
       timeoutMs: TIMEOUTS.MPC_EVENT_LISTENER,
       signal: controller.signal,
     }) as unknown as Promise<RespondBidirectionalData>;
@@ -123,21 +128,22 @@ export class CrossChainOrchestrator {
     ) => Promise<T>,
     initialSolanaFn?: () => Promise<string>,
     onEthereumPending?: () => Promise<void>,
+    afterSignature?: string,
   ): Promise<
     CrossChainResult & { initialSolanaTxHash?: string; solanaResult?: T }
   > {
     const op = this.config.operationName;
     console.log(`[${op}] Starting signature flow for ${requestId}`);
 
-    // Set up event listeners FIRST to prevent race conditions
-    console.log(`[${op}] Setting up event listeners...`);
-    const eventListeners = await this.setupEventListeners(requestId);
-
     try {
       // Optional initial delay (e.g., for deposits to land on derived address)
       if (this.config.initialDelayMs > 0) {
-        console.log(`[${op}] Waiting ${this.config.initialDelayMs}ms before starting flow...`);
-        await new Promise(resolve => setTimeout(resolve, this.config.initialDelayMs));
+        console.log(
+          `[${op}] Waiting ${this.config.initialDelayMs}ms before starting flow...`,
+        );
+        await new Promise(resolve =>
+          setTimeout(resolve, this.config.initialDelayMs),
+        );
       }
 
       // Phase 1: Execute initial Solana transaction if provided (triggers signature generation)
@@ -148,38 +154,73 @@ export class CrossChainOrchestrator {
         console.log(`[${op}] Initial Solana tx: ${initialSolanaTxHash}`);
       }
 
-      // Phase 2: Wait for signature and submit to Ethereum
-      const ethereumTxHash = await this.executeEthereumTransaction(
-        eventListeners,
-        ethereumTxParams,
-        onEthereumPending,
+      // Set up event listeners AFTER initial tx, using the tx hash as cursor.
+      // waitForEvent's backfill mechanism catches any events emitted in the gap.
+      const cursorSignature = initialSolanaTxHash ?? afterSignature;
+      console.log(`[${op}] Setting up event listeners...`);
+      const eventListeners = await this.setupEventListeners(
+        requestId,
+        cursorSignature,
       );
 
-      console.log(`[${op}] Ethereum tx: ${ethereumTxHash}`);
+      try {
+        // Phase 2: Wait for signature and submit to Ethereum
+        const ethereumTxHash = await this.executeEthereumTransaction(
+          eventListeners,
+          ethereumTxParams,
+          onEthereumPending,
+        );
 
-      // Phase 3: Wait for read response and complete on Solana
-      console.log(`[${op}] Waiting for read response...`);
-      const respondBidirectionalData = await this.waitForRespondBidirectional(eventListeners);
+        console.log(`[${op}] Ethereum tx: ${ethereumTxHash}`);
 
-      console.log(`[${op}] Completing on Solana...`);
-      const solanaResult = await solanaCompletionFn(respondBidirectionalData, ethereumTxHash);
+        // Phase 3: Wait for read response and complete on Solana
+        console.log(`[${op}] Waiting for read response...`);
+        const respondBidirectionalData =
+          await this.waitForRespondBidirectional(eventListeners);
 
-      console.log(`[${op}] Flow completed successfully`);
+        console.log(`[${op}] Completing on Solana...`);
+        const solanaResult = await solanaCompletionFn(
+          respondBidirectionalData,
+          ethereumTxHash,
+        );
 
-      return {
-        ethereumTxHash,
-        initialSolanaTxHash,
-        success: true,
-        solanaResult,
-      };
+        console.log(`[${op}] Flow completed successfully`);
+
+        return {
+          ethereumTxHash,
+          initialSolanaTxHash,
+          success: true,
+          solanaResult,
+        };
+      } catch (error) {
+        console.error(error);
+        if (error && typeof error === 'object' && 'logs' in error) {
+          console.error(
+            `[${op}] Transaction logs:`,
+            (error as { logs: string[] }).logs,
+          );
+        }
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : `Unexpected error in signature flow for ${requestId}: ${String(error)}`;
+        console.error(`[${op}] Flow failed:`, errorMessage);
+
+        return {
+          ethereumTxHash: '',
+          success: false,
+          error: errorMessage,
+        };
+      } finally {
+        console.log(`[${op}] Cleaning up event listeners`);
+        eventListeners.cleanup();
+      }
     } catch (error) {
       console.error(error);
-      if (error && typeof error === 'object' && 'logs' in error) {
-        console.error(`[${op}] Transaction logs:`, (error as { logs: string[] }).logs);
-      }
-      const errorMessage = error instanceof Error
-        ? error.message
-        : `Unexpected error in signature flow for ${requestId}: ${String(error)}`;
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : `Unexpected error in signature flow for ${requestId}: ${String(error)}`;
       console.error(`[${op}] Flow failed:`, errorMessage);
 
       return {
@@ -187,67 +228,6 @@ export class CrossChainOrchestrator {
         success: false,
         error: errorMessage,
       };
-    } finally {
-      console.log(`[${op}] Cleaning up event listeners`);
-      eventListeners.cleanup();
-    }
-  }
-
-  /**
-   * Recovery flow - attempts to complete a stuck transaction by querying
-   * historical events and completing the Solana side
-   */
-  async recoverSignatureFlow<T>(
-    requestId: string,
-    solanaCompletionFn: (
-      respondBidirectionalData: RespondBidirectionalData,
-      ethereumTxHash?: string,
-    ) => Promise<T>,
-  ): Promise<CrossChainResult & { solanaResult?: T }> {
-    const op = this.config.operationName;
-    console.log(`[${op}] Starting recovery flow for ${requestId}`);
-
-    // Set up event listeners (backfill is handled automatically by waitForEvent)
-    console.log(`[${op}] Setting up event listeners for recovery...`);
-    const eventListeners = await this.setupEventListeners(requestId);
-
-    try {
-      // Wait for read response (from backfill or live)
-      console.log(`[${op}] Waiting for read response...`);
-      const respondBidirectionalData = await this.waitWithTimeout(
-        eventListeners.respondBidirectional,
-        this.config.eventTimeoutMs,
-        `Read response timeout for recovery (requestId: ${requestId})`,
-      );
-
-      console.log(`[${op}] Completing on Solana...`);
-      const solanaResult = await solanaCompletionFn(respondBidirectionalData, undefined);
-
-      console.log(`[${op}] Recovery completed successfully`);
-
-      return {
-        ethereumTxHash: '',
-        success: true,
-        solanaResult,
-      };
-    } catch (error) {
-      console.error(error);
-      if (error && typeof error === 'object' && 'logs' in error) {
-        console.error(`[${op}] Transaction logs:`, (error as { logs: string[] }).logs);
-      }
-      const errorMessage = error instanceof Error
-        ? error.message
-        : `Unexpected error in recovery flow for ${requestId}: ${String(error)}`;
-      console.error(`[${op}] Recovery failed:`, errorMessage);
-
-      return {
-        ethereumTxHash: '',
-        success: false,
-        error: errorMessage,
-      };
-    } finally {
-      console.log(`[${op}] Cleaning up event listeners`);
-      eventListeners.cleanup();
     }
   }
 
