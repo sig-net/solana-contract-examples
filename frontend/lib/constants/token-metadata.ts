@@ -17,15 +17,6 @@ export interface TokenConfig {
 // ERC20 tokens on Sepolia
 export const ERC20_TOKENS: TokenConfig[] = [
   {
-    erc20Address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-    symbol: 'USDC',
-    name: 'USD Coin (Circle)',
-    chain: 'ethereum',
-    acquireHint:
-      'Get testnet USDC from the Circle faucet. Connect your wallet, select Ethereum Sepolia, and claim USDC.',
-    faucetUrl: 'https://faucet.circle.com/',
-  },
-  {
     erc20Address: '0xbe72e441bf55620febc26715db68d3494213d8cb',
     symbol: 'USDC',
     name: 'USD Coin (CoW Swap)',
