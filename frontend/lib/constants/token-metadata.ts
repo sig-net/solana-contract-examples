@@ -61,16 +61,16 @@ export const SOLANA_TOKENS: TokenConfig[] = [
     symbol: 'USDC',
     name: 'USD Coin',
     chain: 'solana',
-    acquireHint:
-      'Get devnet USDC by airdropping SOL on devnet, then swapping via a devnet DEX or using the SPL token faucet.',
+    acquireHint: 'Get devnet USDC from the Circle faucet.',
+    faucetUrl: 'https://faucet.circle.com/',
   },
   {
     erc20Address: 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',
     symbol: 'EURC',
     name: 'Euro Coin',
     chain: 'solana',
-    acquireHint:
-      'Get devnet EURC by airdropping SOL on devnet, then using the SPL token faucet or a devnet DEX.',
+    acquireHint: 'Get devnet EURC from the Circle faucet.',
+    faucetUrl: 'https://faucet.circle.com/',
   },
 ];
 
