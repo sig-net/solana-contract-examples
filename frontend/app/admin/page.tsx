@@ -94,7 +94,7 @@ export default function AdminPage() {
       <div className='space-y-2'>
         <label className='block text-sm'>MPC Root Signer (0x…20 bytes)</label>
         <input
-          className='w-full rounded border px-3 py-2'
+          className='h-11 w-full rounded border px-3 py-2'
           placeholder='0x...'
           value={mpcAddress}
           onChange={e => setMpcAddress(e.target.value)}
@@ -105,14 +105,14 @@ export default function AdminPage() {
         <button
           disabled={loading !== 'idle'}
           onClick={onInitialize}
-          className='rounded border px-4 py-2 disabled:opacity-50'
+          className='h-11 rounded border px-4 py-2 disabled:opacity-50'
         >
           Initialize
         </button>
         <button
           disabled={loading !== 'idle'}
           onClick={onUpdate}
-          className='rounded border px-4 py-2 disabled:opacity-50'
+          className='h-11 rounded border px-4 py-2 disabled:opacity-50'
         >
           Update
         </button>

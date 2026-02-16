@@ -15,10 +15,10 @@ export function EmptyStateWallet() {
             <WalletButton />
           </div>
 
-          <div className='grid grid-cols-2 gap-8 text-center'>
+          <div className='grid grid-cols-2 gap-4 text-center sm:gap-8'>
             <div className='flex flex-col items-center gap-3'>
-              <div className='flex h-16 w-16 items-center justify-center rounded-full bg-green-100'>
-                <ArrowDownCircle className='h-8 w-8 text-green-600' />
+              <div className='flex h-12 w-12 items-center justify-center rounded-full bg-green-100 sm:h-16 sm:w-16'>
+                <ArrowDownCircle className='h-6 w-6 text-green-600 sm:h-8 sm:w-8' />
               </div>
               <div>
                 <p className='text-dark-neutral-900 text-base font-medium'>
@@ -29,8 +29,8 @@ export function EmptyStateWallet() {
             </div>
 
             <div className='flex flex-col items-center gap-3'>
-              <div className='flex h-16 w-16 items-center justify-center rounded-full bg-purple-100'>
-                <ArrowRightLeft className='h-8 w-8 text-purple-600' />
+              <div className='flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 sm:h-16 sm:w-16'>
+                <ArrowRightLeft className='h-6 w-6 text-purple-600 sm:h-8 sm:w-8' />
               </div>
               <div>
                 <p className='text-dark-neutral-900 text-base font-medium'>

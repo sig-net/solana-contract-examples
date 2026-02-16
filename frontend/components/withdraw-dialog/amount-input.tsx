@@ -65,6 +65,11 @@ export function AmountInput({
       return;
     }
 
+    if (parseFloat(data.amount) > parseFloat(selectedToken.balance)) {
+      setError('Amount exceeds available balance');
+      return;
+    }
+
     setIsSubmitting(true);
     setError('');
     onSubmit({

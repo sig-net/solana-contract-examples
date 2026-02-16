@@ -48,7 +48,7 @@ export class WithdrawalService {
     mintAddress: string,
     amount: string,
     recipientAddress: string,
-    decimals = 6,
+    decimals: number,
     onStatusChange?: StatusCallback,
   ): Promise<string> {
     // Validate Solana addresses before using them
@@ -200,9 +200,8 @@ export class WithdrawalService {
 
       const userBalanceRaw = await this.dexContract.fetchUserBalance(publicKey, erc20Address);
       const userBalanceBigInt = BigInt(userBalanceRaw);
-      const amountIn18Decimals = parseUnits(formatUnits(amountBigInt, decimals), 18);
-      if (userBalanceBigInt < amountIn18Decimals) {
-        const formattedBalance = formatUnits(userBalanceBigInt, 18);
+      if (userBalanceBigInt < amountBigInt) {
+        const formattedBalance = formatUnits(userBalanceBigInt, decimals);
         throw new Error(
           `Insufficient balance: you have ${formattedBalance} but requested ${amount}`,
         );

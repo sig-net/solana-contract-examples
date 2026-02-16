@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { Download } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { formatUnits } from 'viem';
+
 import { cn } from '@/lib/utils';
 import { formatTokenBalanceSync } from '@/lib/utils/balance-formatter';
 import { DepositDialog } from '@/components/deposit-dialog';
@@ -33,25 +35,17 @@ export function BalanceDisplay({
   const tokenSymbols = [...new Set(tokens.map(token => token.symbol))];
   const { data: tokenPrices } = useTokenPrices(tokenSymbols);
 
-  // Convert tokens to withdraw format
-  const withdrawTokens: WithdrawToken[] = tokens.map(token => {
-    const formattedBalance = formatTokenBalanceSync(
-      token.balance,
-      token.decimals,
-      token.symbol,
-    );
-
-    return {
-      symbol: token.symbol,
-      name: token.name,
-      chain: token.chain as 'ethereum' | 'solana',
-      chainName:
-        token.chain === 'ethereum' ? 'Ethereum Sepolia' : 'Solana Devnet',
-      address: token.erc20Address, // Use the actual ERC20 address
-      balance: formattedBalance,
-      decimals: token.decimals,
-    };
-  });
+  // Convert tokens to withdraw format (use exact balance to avoid rounding up)
+  const withdrawTokens: WithdrawToken[] = tokens.map(token => ({
+    symbol: token.symbol,
+    name: token.name,
+    chain: token.chain as 'ethereum' | 'solana',
+    chainName:
+      token.chain === 'ethereum' ? 'Ethereum Sepolia' : 'Solana Devnet',
+    address: token.erc20Address,
+    balance: formatUnits(token.balance, token.decimals),
+    decimals: token.decimals,
+  }));
 
   return (
     <div className='flex w-full max-w-full flex-col gap-5'>
@@ -81,7 +75,7 @@ export function BalanceDisplay({
             tokenData.balance,
             tokenData.decimals,
             tokenData.symbol,
-            { precision: 1 },
+            { precision: 3 },
           );
 
           // Calculate USD value using unified formatter
