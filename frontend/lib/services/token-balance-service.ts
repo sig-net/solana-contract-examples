@@ -160,10 +160,11 @@ export class TokenBalanceService {
         );
         if (balance !== '0') {
           const tokenMetadata = getErc20Token(erc20Address);
+          const decimals = await fetchErc20Decimals(erc20Address);
           return {
             erc20Address,
             amount: balance,
-            decimals: 18, // Solana contract stores all ERC20 balances with 18 decimals
+            decimals,
             symbol: tokenMetadata?.symbol ?? 'Unknown',
             name: tokenMetadata?.name ?? 'Unknown Token',
             chain: 'ethereum',

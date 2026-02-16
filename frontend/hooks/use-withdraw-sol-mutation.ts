@@ -28,7 +28,7 @@ export function useWithdrawSolMutation() {
       mintAddress: string;
       amount: string;
       recipientAddress: string;
-      decimals?: number;
+      decimals: number;
       onStatusChange?: StatusCallback;
     }) => {
       if (!publicKey) throw new Error('No public key available');
@@ -39,7 +39,7 @@ export function useWithdrawSolMutation() {
         mintAddress,
         amount,
         recipientAddress,
-        decimals ?? 6,
+        decimals,
         onStatusChange,
       );
     },

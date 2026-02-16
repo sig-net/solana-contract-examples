@@ -32,7 +32,7 @@ export function EmptyState({
       <div
         className={cn(
           'flex flex-col items-center justify-center text-center',
-          compact ? 'max-w-md p-8' : 'max-w-2xl p-16',
+          compact ? 'max-w-md p-8' : 'max-w-2xl p-6 sm:p-10 md:p-16',
         )}
       >
         {Icon && (
@@ -56,7 +56,7 @@ export function EmptyState({
         <h2
           className={cn(
             'text-dark-neutral-900 mb-3 font-semibold',
-            compact ? 'text-xl' : 'text-3xl',
+            compact ? 'text-xl' : 'text-2xl sm:text-3xl',
           )}
         >
           {title}
@@ -66,7 +66,7 @@ export function EmptyState({
           <p
             className={cn(
               'text-dark-neutral-600 mb-8 text-center',
-              compact ? 'max-w-sm text-base' : 'max-w-md text-lg',
+              compact ? 'max-w-sm text-base' : 'max-w-md text-base sm:text-lg',
             )}
           >
             {description}

@@ -328,12 +328,11 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
           <TableRow>
             <TableHead className='w-20 sm:w-24'>Activity</TableHead>
             <TableHead>Details</TableHead>
-            <TableHead className='w-20 sm:w-28'>
-              <span className='hidden sm:inline'>Timestamp</span>
-              <span className='sm:hidden'>Time</span>
+            <TableHead className='hidden w-20 sm:table-cell sm:w-28'>
+              Timestamp
             </TableHead>
             <TableHead className='w-20 sm:w-24'>Status</TableHead>
-            <TableHead className='w-12 sm:w-16'>
+            <TableHead className='hidden w-12 sm:table-cell sm:w-16'>
               <span className='sr-only sm:not-sr-only'>Explorer</span>
             </TableHead>
           </TableRow>
@@ -354,13 +353,13 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
                     </div>
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell className='hidden sm:table-cell'>
                   <div className='h-4 w-12 animate-pulse rounded bg-gray-200'></div>
                 </TableCell>
                 <TableCell>
                   <div className='h-6 w-16 animate-pulse rounded-full bg-gray-200'></div>
                 </TableCell>
-                <TableCell>
+                <TableCell className='hidden sm:table-cell'>
                   <div className='h-4 w-4 animate-pulse rounded bg-gray-200'></div>
                 </TableCell>
               </TableRow>
@@ -380,7 +379,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
                 <TableCell>
                   <DetailsCell transaction={transaction} />
                 </TableCell>
-                <TableCell>
+                <TableCell className='hidden sm:table-cell'>
                   <div className='text-xs font-medium text-stone-700 sm:text-sm'>
                     {transaction.timestamp}
                   </div>
@@ -388,7 +387,7 @@ export function ActivityListTable({ className }: ActivityListTableProps) {
                 <TableCell>
                   <StatusBadge status={transaction.status} />
                 </TableCell>
-                <TableCell>
+                <TableCell className='hidden sm:table-cell'>
                   {transaction.explorerUrl ? (
                     <a
                       href={transaction.explorerUrl}

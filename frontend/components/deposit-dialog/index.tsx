@@ -112,7 +112,7 @@ export function DepositDialog({ open, onOpenChange }: DepositDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='gradient-popover max-w-md rounded-sm p-10 shadow-[0px_4px_9.3px_0px_rgba(41,86,70,0.35)]'>
+      <DialogContent className='gradient-popover max-h-[90vh] max-w-md overflow-y-auto rounded-sm p-5 shadow-[0px_4px_9.3px_0px_rgba(41,86,70,0.35)] sm:p-10'>
         {step === 'select-token' && (
           <div className='space-y-5'>
             <DialogHeader className='space-y-0 p-0'>

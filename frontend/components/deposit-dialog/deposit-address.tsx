@@ -45,9 +45,17 @@ export function DepositAddress({
       <div className='border-dark-neutral-400/80 gradient-bg-main flex flex-col justify-center gap-5 rounded-xs border p-5'>
         <QRCode
           value={depositAddress}
+          size={200}
+          icon={<NetworkIcon name={network.chain} />}
+          className='mx-auto border-none bg-white sm:hidden'
+          errorCorrectionLevel='M'
+          margin={12}
+        />
+        <QRCode
+          value={depositAddress}
           size={242}
           icon={<NetworkIcon name={network.chain} />}
-          className='mx-auto border-none bg-white'
+          className='mx-auto hidden border-none bg-white sm:block'
           errorCorrectionLevel='M'
           margin={16}
         />

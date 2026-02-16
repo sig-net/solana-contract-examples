@@ -103,10 +103,10 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
               const current = balanceChanges.get(balance.mint) ?? {
                 pre: BigInt(0),
                 post: BigInt(0),
-                decimals: 6,
+                decimals: 0,
               };
               current.pre = BigInt(balance.uiTokenAmount?.amount ?? '0');
-              current.decimals = balance.uiTokenAmount?.decimals ?? 6;
+              current.decimals = balance.uiTokenAmount?.decimals ?? 0;
               balanceChanges.set(balance.mint, current);
             }
           });
@@ -116,10 +116,10 @@ export function useSolanaTransactions(limit = TRANSACTION_LIMIT) {
               const current = balanceChanges.get(balance.mint) ?? {
                 pre: BigInt(0),
                 post: BigInt(0),
-                decimals: 6,
+                decimals: 0,
               };
               current.post = BigInt(balance.uiTokenAmount?.amount ?? '0');
-              current.decimals = balance.uiTokenAmount?.decimals ?? 6;
+              current.decimals = balance.uiTokenAmount?.decimals ?? 0;
               balanceChanges.set(balance.mint, current);
             }
           });

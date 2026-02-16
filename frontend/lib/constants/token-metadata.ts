@@ -17,14 +17,20 @@ export interface TokenConfig {
 // ERC20 tokens on Sepolia
 export const ERC20_TOKENS: TokenConfig[] = [
   {
-    erc20Address: '0xbe72e441bf55620febc26715db68d3494213d8cb',
+    erc20Address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
     symbol: 'USDC',
-    name: 'USD Coin (CoW Swap)',
+    name: 'USD Coin',
     chain: 'ethereum',
-    acquireHint:
-      'Swap Sepolia ETH for USDC on CoW Swap. First get Sepolia ETH from a faucet, then swap.',
-    faucetUrl:
-      'https://swap.cow.fi/#/11155111/swap/ETH/0xbe72e441bf55620febc26715db68d3494213d8cb',
+    acquireHint: 'Get testnet USDC from the Circle faucet.',
+    faucetUrl: 'https://faucet.circle.com/',
+  },
+  {
+    erc20Address: '0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4',
+    symbol: 'EURC',
+    name: 'Euro Coin',
+    chain: 'ethereum',
+    acquireHint: 'Get testnet EURC from the Circle faucet.',
+    faucetUrl: 'https://faucet.circle.com/',
   },
   {
     erc20Address: '0xB4F1737Af37711e9A5890D9510c9bB60e170CB0D',
@@ -55,16 +61,16 @@ export const SOLANA_TOKENS: TokenConfig[] = [
     symbol: 'USDC',
     name: 'USD Coin',
     chain: 'solana',
-    acquireHint:
-      'Get devnet USDC by airdropping SOL on devnet, then swapping via a devnet DEX or using the SPL token faucet.',
+    acquireHint: 'Get devnet USDC from the Circle faucet.',
+    faucetUrl: 'https://faucet.circle.com/',
   },
   {
     erc20Address: 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',
     symbol: 'EURC',
     name: 'Euro Coin',
     chain: 'solana',
-    acquireHint:
-      'Get devnet EURC by airdropping SOL on devnet, then using the SPL token faucet or a devnet DEX.',
+    acquireHint: 'Get devnet EURC from the Circle faucet.',
+    faucetUrl: 'https://faucet.circle.com/',
   },
 ];
 

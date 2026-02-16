@@ -40,7 +40,13 @@ export function TokenAmountDisplay({
 }: TokenAmountDisplayProps) {
   const handleMaxClick = () => {
     if (selectedToken) {
-      onChange(selectedToken.balance);
+      const bal = selectedToken.balance;
+      if (!bal.includes('.')) {
+        onChange(bal);
+        return;
+      }
+      const trimmed = bal.replace(/0+$/, '').replace(/\.$/, '.0');
+      onChange(trimmed);
     }
   };
   return (
@@ -51,7 +57,7 @@ export function TokenAmountDisplay({
         <div className='flex min-w-0 flex-1 items-center gap-2'>
           <input
             type='text'
-            inputMode='numeric'
+            inputMode='decimal'
             enterKeyHint='done'
             value={value}
             onChange={e => !disabled && onChange(e.target.value)}
@@ -122,7 +128,12 @@ export function TokenAmountDisplay({
           {selectedToken && (
             <div className='flex items-center'>
               <span className='text-dark-neutral-300 text-xs font-medium'>
-                Available: {selectedToken.balance}{' '}
+                Available:{' '}
+                {(() => {
+                  const b = selectedToken.balance;
+                  const dot = b.indexOf('.');
+                  return dot === -1 ? b : b.slice(0, dot + 4);
+                })()}{' '}
                 {selectedToken.symbol}
               </span>
             </div>
