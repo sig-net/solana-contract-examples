@@ -17,22 +17,23 @@ Tests are **long-running and verbose** (timeout is set to 1,000,000ms). Always r
 
 Anchor reads the RPC URL and wallet from `solana config` — no need to set `ANCHOR_PROVIDER_URL` or `ANCHOR_WALLET` env vars. Verify with `solana config get`.
 
-ETH and BTC test suites must be run **separately** — never run both at the same time.
-
-Use `--skip-deploy` since the program is already deployed on devnet.
-
-### Running ETH tests
+ETH and BTC test suites can run together. BTC tests require a local Bitcoin regtest node:
 
 ```bash
-# Run in background via Bash tool with run_in_background: true
-anchor test --skip-deploy -- --grep "ERC20"
+cd ~/Documents/signet/bitcoin-regtest && pnpm docker:dev
 ```
 
-### Running BTC tests
+### Running all tests
 
 ```bash
 # Run in background via Bash tool with run_in_background: true
-anchor test --skip-deploy -- --grep "BTC"
+anchor test
+```
+
+### Running without re-deploying
+
+```bash
+anchor test --skip-deploy
 ```
 
 ### How to monitor
