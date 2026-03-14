@@ -17,7 +17,11 @@ Tests are **long-running and verbose** (timeout is set to 1,000,000ms). Always r
 
 Anchor reads the RPC URL and wallet from `solana config` — no need to set `ANCHOR_PROVIDER_URL` or `ANCHOR_WALLET` env vars. Verify with `solana config get`.
 
-ETH and BTC test suites can run together. BTC tests require a local Bitcoin regtest node (see error output for setup instructions).
+ETH and BTC test suites can run together. BTC tests require a local Bitcoin regtest node:
+
+```bash
+cd ~/Documents/signet/bitcoin-regtest && pnpm docker:dev
+```
 
 ### Running all tests
 
