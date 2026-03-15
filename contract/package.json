@@ -5,7 +5,7 @@
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "server": "tsx server.ts",
-    "test": "yarn btc:start && anchor test; yarn btc:stop",
+    "test": "anchor test",
     "btc:start": "docker compose -f docker/bitcoin/docker-compose.yml up -d --wait && docker compose -f docker/bitcoin/docker-compose.yml exec -T bitcoind bitcoin-cli -regtest -rpcuser=test -rpcpassword=test123 createwallet default > /dev/null 2>&1; docker compose -f docker/bitcoin/docker-compose.yml exec -T bitcoind bitcoin-cli -regtest -rpcuser=test -rpcpassword=test123 -generate 101 > /dev/null",
     "btc:stop": "docker compose -f docker/bitcoin/docker-compose.yml down -v"
   },

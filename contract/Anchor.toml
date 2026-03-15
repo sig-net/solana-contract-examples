@@ -19,4 +19,4 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "NODE_OPTIONS='--import tsx' yarn run mocha --no-warnings --timeout 1000000 --exit 'tests/**/*.ts'"
+test = "yarn btc:start && NODE_OPTIONS='--import tsx' yarn run mocha --no-warnings --timeout 1000000 --exit 'tests/**/*.ts'; exitcode=$?; yarn btc:stop; exit $exitcode"
