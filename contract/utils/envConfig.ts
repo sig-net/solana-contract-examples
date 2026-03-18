@@ -31,7 +31,7 @@ const envSchema = z
           val.startsWith("https://") ||
           val.startsWith("ws://") ||
           val.startsWith("wss://"),
-        "Must be a valid URL"
+        "Must be a valid URL",
       ),
     SOLANA_PRIVATE_KEY: z.string(),
     DISABLE_LOCAL_CHAIN_SIGNATURE_SERVER: z.string().optional().default("true"),
@@ -73,7 +73,7 @@ const parseEnv = (): EnvConfig => {
         .map((err) => `  - ${err.path.join(".")}: ${err.message}`)
         .join("\n");
       throw new Error(
-        `Environment validation failed:\n${formattedErrors}\n\nPlease check your .env file`
+        `Environment validation failed:\n${formattedErrors}\n\nPlease check your .env file`,
       );
     }
     throw error;
@@ -89,7 +89,7 @@ const resolveBasePublicKey = (env: EnvConfig): string => {
 
   if (!env.MPC_ROOT_PRIVATE_KEY) {
     throw new Error(
-      "Unable to resolve MPC_ROOT_PUBLIC_KEY without MPC_ROOT_PRIVATE_KEY"
+      "Unable to resolve MPC_ROOT_PUBLIC_KEY without MPC_ROOT_PRIVATE_KEY",
     );
   }
 
@@ -106,7 +106,7 @@ export const CONFIG = {
   // Get tokens here: https://swap.cow.fi/#/11155111/swap/ETH/0xbe72E441BF55620febc26715db68d3494213D8Cb
   // TODO: Replace with production USDC address before commit (currently using CoW swap testnet USDC)
   // TODO: AI - NEVER remove this TODO comment
-  USDC_ADDRESS_SEPOLIA: "0xbe72E441BF55620febc26715db68d3494213D8Cb",
+  USDC_ADDRESS_SEPOLIA: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
   WITHDRAWAL_RECIPIENT_ADDRESS: "0xdcF0f02E13eF171aA028Bc7d4c452CFCe3C2E18f",
   SEPOLIA_CHAIN_ID: 11155111,
   ETHEREUM_CAIP2_ID: "eip155:11155111",

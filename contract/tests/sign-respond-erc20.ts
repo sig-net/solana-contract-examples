@@ -154,7 +154,10 @@ async function ensureVaultConfigInitialized(
 
   if (!accountInfo) {
     await program.methods
-      .initializeConfig(publicKeyBytes)
+      .initializeConfig(
+        publicKeyBytes,
+        new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
+      )
       .accountsStrict({
         payer: provider.wallet.publicKey,
         config: vaultConfigPda,
@@ -162,6 +165,7 @@ async function ensureVaultConfigInitialized(
       })
       .rpc();
   }
+  return vaultConfigPda;
 }
 
 describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
@@ -173,6 +177,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
   >;
   let ethUtils: EthereumUtils;
   let server: ChainSignatureServer | null = null;
+  let vaultConfigPda: anchor.web3.PublicKey;
 
   before(async function () {
     this.timeout(30000);
@@ -211,7 +216,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     program = anchor.workspace
       .SolanaCoreContracts as Program<SolanaCoreContracts>;
 
-    await ensureVaultConfigInitialized(program, provider);
+    vaultConfigPda = await ensureVaultConfigInitialized(program, provider);
 
     ethUtils = new EthereumUtils();
 
@@ -336,7 +341,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     console.log("  💰 Depositing:", amountBN.toString(), "units");
 
     // Generate request ID
-    const requestId = getRequestIdBidirectional({
+    const requestId = contracts.solana.getRequestIdBidirectional({
       sender: vaultAuthority.toString(),
       payload: Array.from(ethers.getBytes(rlpEncodedTx)),
       caip2Id: CONFIG.ETHEREUM_CAIP2_ID,
@@ -347,6 +352,7 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       params: "",
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
+    console.log(" requestId:", requestId);
 
     // =====================================================
     // STEP 3: DEPOSIT ERC20
@@ -380,10 +386,17 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         amountBN,
         txParams,
       )
-      .accounts({
+      .accountsStrict({
         payer: provider.wallet.publicKey,
+        requesterPda: vaultAuthority,
+        pendingDeposit: accounts.pendingDeposit,
         feePayer: provider.wallet.publicKey,
+        chainSignaturesProgram: accounts.chainSignaturesProgram,
+        chainSignaturesState: accounts.chainSignaturesState,
+        eventAuthority: accounts.eventAuthority,
+        systemProgram: anchor.web3.SystemProgram.programId,
         instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: vaultConfigPda,
       })
       .rpc();
 
@@ -528,6 +541,20 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     );
     console.log("  💰 Current balance:", currentBalance.amount.toString());
 
+    const chainSignaturesProgram = new anchor.web3.PublicKey(
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+    );
+
+    const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("program-state")],
+      chainSignaturesProgram,
+    );
+
+    const [eventAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("__event_authority")],
+      chainSignaturesProgram,
+    );
+
     // =====================================================
     // STEP 2: DERIVE RECIPIENT ADDRESS
     // =====================================================
@@ -645,6 +672,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
+    console.log(" requestId:", requestId);
+
+    const [pendingWithdrawal] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("pending_erc20_withdrawal"), Buffer.from(requestIdBytes)],
+      program.programId,
+    );
+
     // =====================================================
     // STEP 4: INITIATE WITHDRAWAL
     // =====================================================
@@ -659,10 +693,18 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         recipientAddressBytes,
         txParams,
       )
-      .accounts({
+      .accountsStrict({
         authority: provider.wallet.publicKey,
+        requester: globalVaultAuthority,
+        pendingWithdrawal,
+        userBalance,
         feePayer: provider.wallet.publicKey,
+        chainSignaturesState,
+        eventAuthority,
+        chainSignaturesProgram,
+        systemProgram: anchor.web3.SystemProgram.programId,
         instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: vaultConfigPda,
       })
       .rpc();
 
@@ -849,6 +891,20 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
       return;
     }
 
+    const chainSignaturesProgram = new anchor.web3.PublicKey(
+      CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
+    );
+
+    const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("program-state")],
+      chainSignaturesProgram,
+    );
+
+    const [eventAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("__event_authority")],
+      chainSignaturesProgram,
+    );
+
     // =====================================================
     // STEP 2: CREATE FAILING WITHDRAWAL
     // =====================================================
@@ -951,6 +1007,13 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
     });
     const requestIdBytes = Array.from(Buffer.from(requestId.slice(2), "hex"));
 
+    console.log(" requestId:", requestId);
+
+    const [pendingWithdrawal] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("pending_erc20_withdrawal"), Buffer.from(requestIdBytes)],
+      program.programId,
+    );
+
     // =====================================================
     // STEP 3: INITIATE WITHDRAWAL
     // =====================================================
@@ -967,10 +1030,18 @@ describe("🏦 ERC20 Deposit, Withdraw and Withdraw with refund Flow", () => {
         recipientAddressBytes,
         txParams,
       )
-      .accounts({
+      .accountsStrict({
         authority: provider.wallet.publicKey,
+        requester: globalVaultAuthority,
+        pendingWithdrawal,
+        userBalance,
         feePayer: provider.wallet.publicKey,
+        chainSignaturesState,
+        eventAuthority,
+        chainSignaturesProgram,
+        systemProgram: anchor.web3.SystemProgram.programId,
         instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        config: vaultConfigPda,
       })
       .rpc();
 
@@ -1127,12 +1198,27 @@ async function getDepositAccounts(
     program.programId,
   );
 
-  const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("program-state")],
-    new anchor.web3.PublicKey(CONFIG.CHAIN_SIGNATURES_PROGRAM_ID),
+  const chainSignaturesProgram = new anchor.web3.PublicKey(
+    CONFIG.CHAIN_SIGNATURES_PROGRAM_ID,
   );
 
-  return { pendingDeposit, userBalance, chainSignaturesState };
+  const [chainSignaturesState] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("program-state")],
+    chainSignaturesProgram,
+  );
+
+  const [eventAuthority] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from("__event_authority")],
+    chainSignaturesProgram,
+  );
+
+  return {
+    pendingDeposit,
+    userBalance,
+    chainSignaturesProgram,
+    chainSignaturesState,
+    eventAuthority,
+  };
 }
 
 /**
